@@ -1,5 +1,7 @@
 # AC EVO Paddock
 
+[![Support AC EVO Paddock on Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/kulyk)
+
 Local telemetry recorder, lap analysis, AI driving coach, session launcher and mod manager for **Assetto Corsa EVO**.
 Everything runs on your PC. The app is served at http://localhost:8080, or runs in its own window as a desktop app.
 
@@ -196,6 +198,10 @@ Everything stays on your PC. The only data sent anywhere is the compact per-corn
 
 Bug reports, ideas and pull requests are welcome. Please open an issue first for larger changes.
 `npm run seed` and `npm run mock` let you work without the game.
+
+## Support the project
+
+Paddock is free and open source. If it helps you find time on track, you can support its development on **[Ko-fi ☕ ko-fi.com/kulyk](https://ko-fi.com/kulyk)**. Thank you!
 
 ## Credits
 
