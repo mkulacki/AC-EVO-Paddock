@@ -1,0 +1,8 @@
+{
+  "version": "0.8.0",
+  "title": "Paddock HUD",
+  "pages": ["hud.html", "menu.html", "singleplayer.html", "multiplayer.html", "ingame.html"],
+  "styles": ["trainerhud.css"],
+  "scripts": ["trainerhud.js"],
+  "files": ["live0.json", "live1.json", "live2.json", "live3.json", "live4.json", "live5.json", "live6.json", "live7.json"]
+}

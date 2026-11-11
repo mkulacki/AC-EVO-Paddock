@@ -1,0 +1,51 @@
+{
+  "name": "ac-evo-paddock",
+  "productName": "AC EVO Paddock",
+  "version": "0.1.0-beta.1",
+  "description": "Local telemetry & AI coach for Assetto Corsa EVO",
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "node --no-warnings src/server.js",
+    "app": "electron .",
+    "dist": "electron-builder --win dir && node desktop/deploy.mjs",
+    "deploy": "node desktop/deploy.mjs",
+    "make-icon": "node desktop/make-icon.mjs",
+    "mock": "node --no-warnings src/server.js --mock 4",
+    "seed": "node --no-warnings src/mock.js --seed 10",
+    "check-limits": "node --no-warnings src/tools/check-track-limits.js",
+    "install-mod": "node --no-warnings src/tools/install-mod.js",
+    "overlay": "electron overlay/main.cjs"
+  },
+  "license": "GPL-3.0-or-later",
+  "dependencies": {
+    "koffi": "^3.3.7",
+    "uplot": "^1.6.32"
+  },
+  "devDependencies": {
+    "electron": "44.11.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "local.acevo.paddock",
+    "productName": "AC EVO Paddock",
+    "copyright": "Copyright (C) 2026 mkulacki",
+    "directories": { "output": "dist" },
+    "asar": false,
+    "files": [
+      "package.json",
+      "desktop/**",
+      "src/**",
+      "public/**",
+      "mod/**",
+      "overlay/**",
+      "!desktop/make-icon.mjs",
+      "!desktop/deploy.mjs"
+    ],
+    "win": {
+      "target": ["dir"],
+      "icon": "desktop/icon.ico",
+      "signAndEditExecutable": true
+    }
+  }
+}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AC EVO Paddock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,600;1,700;1,800&display=swap">
+  <link rel="stylesheet" href="/vendor/uplot/uPlot.min.css">
+  <link rel="stylesheet" href="/style.css">
+  <meta name="theme-color" content="#08090b">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 1h12l-4 14H0z' fill='%23c8ff1e'/><path d='M3.5 11l3-6 2 4 1.5-2L12 11' stroke='%230b0e05' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#/"><span class="mark"><svg viewBox="0 0 16 16"><path d="M3 11.5l3.2-7 2.3 4.6 1.6-2.3 2.9 4.7" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>AC EVO <b>Paddock</b></a>
+    <nav>
+      <a href="#/race" data-nav="race">Race</a>
+      <a href="#/" data-nav="laps">Laps</a>
+      <a href="#/tracks" data-nav="tracks">Tracks</a>
+      <a href="#/game" data-nav="game">Game</a>
+      <a href="#/mods" data-nav="mods">Mods</a>
+      <a href="#/settings" data-nav="settings">Settings</a>
+    </nav>
+    <div class="status" id="status"><span class="dot"></span><span class="txt">connecting…</span></div>
+    <button class="small ghost dev-restart" id="devRestart" title="Restart Paddock to load code changes (server, HUD data, desktop app)">Developer: restart</button>
+  </header>
+  <main id="view"></main>
+  <script src="/vendor/uplot/uPlot.iife.min.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Paddock HUD</title>
+  <!-- The in-game app (mod/trainerhud) running outside the game: desktop overlay or a second screen. -->
+  <link rel="stylesheet" href="/mod/trainerhud.css">
+  <style>
+    :root { --font-family-main: "Bahnschrift", "Segoe UI", Arial, sans-serif; font-size: 18px; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; color: #fff; font-family: var(--font-family-main); }
+    body.page { background: #101214; }
+    .ace-trainerhud { left: 24px; top: 24px; user-select: none; }
+  </style>
+</head>
+<body>
+  <div id="trainerhud"></div>
+  <script>if (!window.trainerOverlay) document.body.classList.add('page');</script>
+  <script src="/mod/trainerhud.js"></script>
+</body>
+</html>

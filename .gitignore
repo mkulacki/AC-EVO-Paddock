@@ -1,0 +1,25 @@
+# dependencies and build output
+node_modules/
+dist/
+release/
+
+# user data: laps database, settings (contains the Gemini API key), saved server passwords, caches, logs
+data/
+
+# secrets and local config
+.env
+.env.*
+*.pem
+*.key
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / OS / tooling
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+desktop.ini
+.DS_Store
