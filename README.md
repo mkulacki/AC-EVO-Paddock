@@ -154,11 +154,11 @@ A panel inside AC EVO, fed by this app. It shows:
 In the loader's settings you can change the reference key, the delta bar range (0.5/1/2 s), the next-corner line, the cues and where the brake countdown starts (100/200/300 m).
 The same app also runs on the game's menu, Solo and multiplayer screens, where it carries out the Race tab's starts.
 
-Install:
-1. Install the community [ACE UI App Loader](https://github.com/dreasgrech/ACEUIAppLoader/releases). EVO has no official app support.
-2. Nothing to do: Paddock installs the HUD and keeps it up to date by itself whenever the game is closed. That happens when Paddock starts, every 15 s while it runs, and right before Paddock starts the game. Then enable "Paddock HUD" once in the loader's app drawer.
-   While the game is open, a pending update waits; the *Mods* tab shows it with a red dot. A HUD removed on purpose (tray menu *Remove*, or `npm run install-mod -- --remove`) is not put back until you install it again (Mods tab button or tray menu).
-3. Paddock must be running.
+Install: nothing to do. Start Paddock, then the game.
+- EVO has no official app support, so the HUD runs in the community [ACE UI App Loader](https://github.com/dreasgrech/ACEUIAppLoader) (MIT). Paddock ships that loader (`mod/ACEUIAppLoader`) and installs both by itself whenever the game is closed: when Paddock starts, every 15 s while it runs, and right before Paddock starts the game. The HUD is switched on by default; to hide it, switch "Paddock HUD" off in the loader's app drawer (mouse to the right edge of the screen).
+- Paddock manages the loader: any `ACEUIAppLoader.kspkg` that isn't the bundled release (normal or alternate build) is replaced, and stray copies such as `ACEUIAppLoader (1).kspkg` are deleted. Each loader release is built for one game version, so if the game version (from the newest game log) differs from the one the bundled loader is for, Paddock leaves the loader alone and the *Game* and *Mods* tabs ask you to update Paddock.
+- While the game is open, a pending install waits; the *Mods* tab shows it with a red dot. A HUD removed on purpose (tray menu *Remove*, or `npm run install-mod -- --remove`), or a loader disabled or deleted in the *Mods* tab, is not put back until you install it again (Mods tab button or tray menu).
+- Paddock must be running.
 
 How Paddock and the game talk: the game's UI can't make network calls; any `http://` request fails inside the engine. So Paddock writes data files in the HUD's folder, and the HUD reads them. Race tab starts travel in the same files.
 In the other direction, the HUD writes tagged lines to the game log (`Saved Games\ACE\Logs`), which Paddock follows:
@@ -215,6 +215,7 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/ai.js` | Gemini coach and setup engineer |
 | `public/` | browser app (no build step) |
 | `mod/trainerhud/` | the in-game HUD and launcher (ACE UI App Loader app) |
+| `mod/ACEUIAppLoader/` | the bundled ACE UI App Loader release (unmodified zips, MIT licence, `loader.json` = loader + game version) |
 | `desktop/`, `overlay/` | Electron desktop app and standalone overlay |
 
 ## Privacy
@@ -234,7 +235,7 @@ Paddock is free and open source. If it helps you find time on track, you can sup
 
 - Shared-memory layout: [dSyncro/acevo-shared-memory](https://github.com/dSyncro/acevo-shared-memory).
 - `content.kspkg` archive format: the ACECM project's FORMATS.md.
-- In-game UI apps: the community [ACE UI App Loader](https://github.com/dreasgrech/ACEUIAppLoader) by dreasgrech. The file/log bridge pattern was inspired by the EvoForge mod.
+- In-game UI apps: the community [ACE UI App Loader](https://github.com/dreasgrech/ACEUIAppLoader) by dreasgrech (Andreas Grech), MIT licence. Its release is bundled unmodified in `mod/ACEUIAppLoader` together with its licence. The file/log bridge pattern was inspired by the EvoForge mod.
 
 ## License
 

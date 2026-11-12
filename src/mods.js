@@ -10,6 +10,7 @@ import { ACE } from './gamebridge.js';
 import { DATA_DIR } from './db.js';
 import { isRunningNow } from './game.js';
 import * as zip from './zip.js';
+import { setRemoved as setLoaderRemoved } from './loaderinstall.js';
 
 const STORE = path.join(DATA_DIR, 'mods.json');
 const OFF = path.join(DATA_DIR, 'mods-disabled');
@@ -24,6 +25,8 @@ const GENERIC = new Set(('mods uiresources js css html images img icons branding
   'sounds ui components pages lib libs vendor common shared media system config index main style styles app live readme localization loc en').split(' '));
 const NAMES = { aceuiapploader: 'ACE UI App Loader', 'app:trainerhud': 'Paddock HUD' };
 const PROTECTED = new Set(['aceuiapploader', 'app:trainerhud']);
+// Paddock installs the loader by itself; one the player disabled or deleted here is not put back automatically
+const hasLoader = (files) => files.some((f) => String(f.path ?? f).toLowerCase() === 'mods/aceuiapploader.kspkg');
 
 class ModError extends Error { constructor(msg, code = 400, extra = {}) { super(msg); this.code = code; Object.assign(this, extra); } }
 export { ModError };
@@ -191,6 +194,7 @@ export function disable(id, { force } = {}) {
   prune(m.files);
   m.enabled = false;
   save(store);
+  if (hasLoader(m.files)) setLoaderRemoved(true);
   return list();
 }
 
@@ -207,6 +211,7 @@ export function enable(id) {
   fs.rmSync(path.join(OFF, m.id), { recursive: true, force: true });
   m.files = files; m.enabled = true;
   save(store);
+  if (hasLoader(files)) setLoaderRemoved(false);
   return list();
 }
 
@@ -226,6 +231,7 @@ export function remove(id, { force } = {}) {
   }
   store.mods = store.mods.filter((x) => x.id !== id);
   save(store);
+  if (cur.enabled && hasLoader(cur.files)) setLoaderRemoved(true);
   return list();
 }
 

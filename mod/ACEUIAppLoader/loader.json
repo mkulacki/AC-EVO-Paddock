@@ -1,0 +1,10 @@
+{
+  "_": "ACE UI App Loader by Andreas Grech (dreasgrech), MIT licence (LICENSE). Unmodified release zips from https://github.com/dreasgrech/ACEUIAppLoader/releases. Paddock installs it by itself (src/loaderinstall.js). To update: replace both zips, then version, game and the two kspkg SHA-256s.",
+  "version": "0.27.0",
+  "game": "0.9.1+release.6",
+  "source": "https://github.com/dreasgrech/ACEUIAppLoader/releases/tag/v0.27.0",
+  "variants": {
+    "normal": { "zip": "ACEUIAppLoader.zip", "sha256": "aeacaf406a9ad84855c5023ac3b331bca64b5b9dfc6932d4b9f60920216c10b3" },
+    "alternate": { "zip": "ACEUIAppLoader-alternate.zip", "sha256": "775e8ddee892e0ac7032eaf8bd463938e645044f76612fb70f82e6b6eaf104a3" }
+  }
+}
