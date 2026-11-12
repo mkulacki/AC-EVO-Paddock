@@ -657,6 +657,17 @@ async function viewGame() {
 }
 
 // ================================================================== SETTINGS
+// Paddock HUD parts, as the Settings page groups them (keys: src/settings.js HUD_PARTS)
+const HUD_GROUPS = [
+  ['Strip', [['lap', 'Lap number and lap status'], ['current', 'Current lap time'], ['predicted', 'Predicted lap'], ['best', 'All-time best'], ['session', 'Session best'], ['last', 'Last lap'],
+    ['inputs', 'Pedals vs your reference lap, TC / ABS']]],
+  ['Delta', [['delta', 'Live delta and bar'], ['ref', 'Reference name above it (click to switch)']]],
+  ['Above and below the strip', [['shift', 'Shift lights'], ['sectors', 'Sector times (purple / green / yellow)']]],
+  ['Chips under the strip', [['cues', 'Brake / throttle cues'], ['corners', 'Corner gain/loss and next corner'], ['ideal', 'Ideal lap and potential'], ['speed', 'Speed and gear'],
+    ['fuel', 'Fuel: litres, use per lap, laps left'], ['footer', 'Status (saved laps, connection)']]],
+];
+// what the preview is drawn over, to judge the HUD against bright and dark scenes
+const HUD_PREVIEW_BG = [['dark', 'Dark'], ['light', 'Light'], ['track', 'Track']];
 async function viewSettings() {
   const s = await api('/api/settings');
   view.innerHTML = `<div class="card"><h1>Settings</h1><p class="muted">Stored locally in <code>data/settings.json</code>.</p>
@@ -670,8 +681,23 @@ async function viewSettings() {
       <div class="hint">Track data (maps, edges, corners) is read from the game's content.kspkg in this folder, read-only.</div>
       <span></span><div class="row"><button class="primary" id="save">Save</button><span id="saved" class="muted"></span></div>
     </div></div>
-    <div class="card"><h2 style="margin-top:0">In-game HUD</h2>
-      <p class="muted">Live delta to your all-time best, predicted lap, ideal lap, corner gain/loss inside AC EVO.</p>
+    <div class="card"><div class="row"><h2 style="margin:0">Paddock HUD</h2><span class="spacer"></span><span id="hudSaved" class="muted"></span><button class="small" id="hudReset">Reset to defaults</button></div>
+      <p class="muted">Choose what the timing strip shows, in game and in the desktop overlay. Changes are saved and applied straight away, also while you drive.</p>
+      <div class="hud-cfg">
+        <div class="hud-parts">
+          ${HUD_GROUPS.map(([title, parts]) => `<fieldset><legend>${title}</legend>${parts.map(([k, label]) =>
+            `<label class="row"><input type="checkbox" data-part="${k}" ${s.hud.parts[k] ? 'checked' : ''}> ${label}</label>`).join('')}</fieldset>`).join('')}
+          <fieldset><legend>Look</legend>
+            <label class="hud-slider">Size <input type="range" id="hudScale" min="60" max="160" step="5" value="${s.hud.scale}"><b id="hudScaleV">${s.hud.scale}%</b></label>
+            <label class="hud-slider">Background <input type="range" id="hudOpacity" min="0" max="100" step="5" value="${s.hud.opacity}"><b id="hudOpacityV">${s.hud.opacity}%</b></label>
+          </fieldset>
+          <div class="hint" style="margin:0">In game you can choose the same things: right-click the strip, or open Paddock HUD's options in the loader's app drawer (right edge of the screen). Both places stay in sync.</div>
+        </div>
+        <div class="hud-preview"><div class="row hud-preview-head"><span class="muted small-caps">Preview (sample numbers)</span><span class="spacer"></span>
+          <span class="seg" id="hudBg">${HUD_PREVIEW_BG.map(([k, label]) => `<button class="small" data-bg="${k}">${label}</button>`).join('')}</span></div>
+          <iframe id="hudFrame" title="Paddock HUD preview"></iframe></div>
+      </div>
+      <h3>Installing and showing it</h3>
       <ol class="muted" style="margin:0 0 8px 18px;padding:0">
         <li>Nothing to install: Paddock puts the HUD, and the community <a href="https://github.com/dreasgrech/ACEUIAppLoader" target="_blank">ACE UI App Loader</a> it runs in, into the game by itself whenever AC EVO is closed. It is switched on by default. The <a href="#/game">Game</a> tab shows their state.</li>
         <li>To hide it in game, move the mouse to the right edge of the screen and switch “Paddock HUD” off in the loader's app drawer.</li>
@@ -686,6 +712,53 @@ async function viewSettings() {
     try { status = await post('/api/settings', body); $('#saved').textContent = 'Saved ✓'; $('#geminiApiKey').value = status.geminiApiKey; }
     catch (e) { $('#saved').textContent = e.message; }
   };
+  // Paddock HUD look: saved on every change (the HUD picks it up with its next data read)
+  let hudCfg = s.hud, hudT;
+  const hudSave = () => {
+    clearTimeout(hudT);
+    hudT = setTimeout(async () => {
+      try { hudCfg = (await post('/api/settings', { hud: hudCfg })).hud; $('#hudSaved').textContent = 'Saved ✓'; }
+      catch (e) { $('#hudSaved').textContent = e.message; }
+    }, 250);
+  };
+  const hudShow = () => {
+    document.querySelectorAll('[data-part]').forEach((c) => { c.checked = !!hudCfg.parts[c.dataset.part]; });
+    $('#hudScale').value = hudCfg.scale; $('#hudScaleV').textContent = `${hudCfg.scale}%`;
+    $('#hudOpacity').value = hudCfg.opacity; $('#hudOpacityV').textContent = `${hudCfg.opacity}%`;
+  };
+  document.querySelectorAll('[data-part]').forEach((c) => {
+    c.onchange = () => { hudCfg = { ...hudCfg, parts: { ...hudCfg.parts, [c.dataset.part]: c.checked } }; hudSave(); };
+  });
+  $('#hudScale').oninput = (e) => { hudCfg = { ...hudCfg, scale: +e.target.value }; hudShow(); hudSave(); };
+  $('#hudOpacity').oninput = (e) => { hudCfg = { ...hudCfg, opacity: +e.target.value }; hudShow(); hudSave(); };
+  $('#hudReset').onclick = async () => {
+    clearTimeout(hudT);
+    try { hudCfg = (await post('/api/settings', { hud: {} })).hud; hudShow(); $('#hudSaved').textContent = 'Defaults restored ✓'; }
+    catch (e) { $('#hudSaved').textContent = e.message; }
+  };
+  // preview background (remembered in this browser only)
+  const setPreviewBg = (bg) => {
+    try { localStorage.setItem('hud.previewBg', bg); } catch { /* private window */ }
+    document.querySelectorAll('#hudBg [data-bg]').forEach((b) => b.classList.toggle('on', b.dataset.bg === bg));
+    $('#hudFrame').src = `/hud.html?demo&bg=${bg}`;
+  };
+  let previewBg = 'dark';
+  try { previewBg = localStorage.getItem('hud.previewBg') || 'dark'; } catch { /* private window */ }
+  document.querySelectorAll('#hudBg [data-bg]').forEach((b) => { b.onclick = () => setPreviewBg(b.dataset.bg); });
+  setPreviewBg(HUD_PREVIEW_BG.some(([k]) => k === previewBg) ? previewBg : 'dark');
+  // the same choices can be made in game (right-click the strip): follow them here
+  let hudTouched = 0;
+  document.querySelector('.hud-parts').addEventListener('input', () => { hudTouched = Date.now(); });
+  document.querySelector('.hud-parts').addEventListener('change', () => { hudTouched = Date.now(); });
+  const hudFollow = setInterval(async () => {
+    if (Date.now() - hudTouched < 3000) return; // a change of ours may still be on its way
+    try {
+      const h = (await api('/api/settings')).hud;
+      if (Date.now() - hudTouched < 3000 || JSON.stringify(h) === JSON.stringify(hudCfg)) return;
+      hudCfg = h; hudShow();
+    } catch { /* Paddock restarting */ }
+  }, 3000);
+  cleanup.push(() => { clearTimeout(hudT); clearInterval(hudFollow); });
   $('#loadModels').onclick = async () => {
     try {
       const models = await api('/api/ai/models');

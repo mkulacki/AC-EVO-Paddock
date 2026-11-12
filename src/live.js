@@ -4,6 +4,7 @@ import * as db from './db.js';
 import * as svc from './service.js';
 import { cornerMetrics } from './analysis.js';
 import { STATUS } from './shm.js';
+import * as cars from './cars.js';
 
 const MODES = ['best', 'ideal', 'session'];
 const LABELS = { best: 'All-time best', ideal: 'Ideal lap', session: 'Session best' };
@@ -13,6 +14,10 @@ const SAVED_SHOW_MS = 8000;
 const CUE_SHOW_MS = 6000;
 const LIFT_SAMPLES = 5;   // ~80 ms at 60 Hz
 const PICKUP_SAMPLES = 4;
+const AHEAD_STEP_M = 5;   // the reference lap's pedals ahead of the car, for the HUD's input markers:
+const AHEAD_N = 40;       // 40 points 5 m apart = 200 m, enough for the 0.2 s between the game's reads
+const SHIFT_AT = 0.96;    // share of the redline where the shift lights flash (outside the game)
+const FUEL_LAPS = 5;      // laps averaged for fuel use
 
 export class LiveHud {
   constructor(recorder) {
@@ -27,8 +32,11 @@ export class LiveHud {
     this.cueRes = { brake: null, throttle: null }; // this lap's brake / throttle points vs the reference
     this.saved = null;       // {id, lapTimeMs, valid, pb, at}
     this.frame = null;
+    this.lastSectors = null; // the previous lap's sector times, shown until this lap overwrites them
+    this.fuel = { lap: null, start: null, pit: false, used: [] }; // litres used per lap
+    this.redline = { key: null, rpm: null, seen: 0 }; // from the car catalogue, else the highest rpm seen
     recorder.on('lap', (l) => this.onLap(l));
-    recorder.on('session', () => { this.refsKey = null; });
+    recorder.on('session', () => { this.refsKey = null; this.fuel.used = []; this.redline.key = null; });
   }
 
   setMode(mode) {
@@ -70,6 +78,7 @@ export class LiveHud {
         if (e && (!refs.best || e.R.n === refs.best.R.n)) refs.session = { id: sb.id, timeMs: sb.lap_time_ms, R: e.R };
       }
       for (const m of MODES) if (refs[m]) refs[m].metrics = refs.corners.map((c) => cornerMetrics(refs[m].R, c));
+      refs.sectors = refs.best ? sectorInfo(s, refs.best.R) : null;
       this.refs = refs;
     } catch (e) { console.error('[hud] reference load failed:', e.message); }
     return this.refs;
@@ -82,16 +91,19 @@ export class LiveHud {
     this.frame = f;
     if (!f || f.status !== STATUS.LIVE) return;
     const lap = this.rec.lap;
+    if (lap && f.fuel > 0) this.trackFuel(f, lap);
+    if (f.rpm > this.redline.seen) this.redline.seen = f.rpm;
     const ref = this.refFor(this.mode);
     if (!lap || !lap.full || f.inPit) { this.delta = null; this.cur = null; return; }
     const b = lap.buf, n = b.d.length;
     if (!n) return;
     const d = b.d[n - 1], t = f.lapTimeMs;
 
-    // new lap: close the corner that ended at the line
+    // new lap: close the corner that ended at the line, and the last sector
     if (!this.cur || this.cur.lap !== lap) {
       if (this.cur && ref) this.closeCorner(this.cur, ref, this.cur.lastD, this.cur.lastT, true);
-      this.cur = { lap, cross: new Map([[0, 0]]), lastD: null, lastT: null, k: 0 };
+      if (this.cur) this.closeSectors(this.cur, f);
+      this.cur = { lap, cross: new Map([[0, 0]]), lastD: null, lastT: null, k: 0, sk: 0, secs: [], secStart: 0 };
       this.ring = [];
     }
     if (!ref) { this.delta = null; return; }
@@ -111,6 +123,16 @@ export class LiveHud {
         cur.cross.set(c.b, tb);
         this.closeCorner(cur, ref, bd, tb, false);
         cur.k++;
+      }
+      // sector boundaries crossed (bounds: 0, the gates inside the lap, the line)
+      const S = this.refs.sectors;
+      while (S && cur.sk < S.n - 1) {
+        const bd = S.bounds[cur.sk + 1];
+        if (bd > dr) break;
+        const tb = cur.lastT + ((bd - cur.lastD) / (dr - cur.lastD)) * (t - cur.lastT);
+        cur.secs[cur.sk] = Math.round(tb - cur.secStart);
+        cur.secStart = tb;
+        cur.sk++;
       }
     }
     cur.lastD = dr; cur.lastT = t;
@@ -165,6 +187,44 @@ export class LiveHud {
     }
   }
 
+  // the lap ended: its last sector runs to the line (the game's lap time, unless that is stale)
+  closeSectors(cur, f) {
+    const S = this.refs?.sectors;
+    if (!S) return;
+    if (cur.sk === S.n - 1 && cur.lastT != null) {
+      const gap = f.lastLapMs - cur.lastT;
+      const end = gap > -50 && gap < 1000 ? f.lastLapMs : cur.lastT;
+      cur.secs[S.n - 1] = Math.round(end - cur.secStart);
+    }
+    if (cur.secs.length) this.lastSectors = cur.secs.slice();
+  }
+
+  // litres used per lap: from the start of a lap to the start of the next; laps with a pit stop
+  // (or a refuel) are left out of the average
+  trackFuel(f, lap) {
+    const F = this.fuel;
+    if (F.lap !== lap) {
+      if (F.lap && F.full && F.start != null && !F.pit) { // whole laps only (not the one Paddock joined mid-way)
+        const used = F.start - f.fuel;
+        if (used > 0.05 && used < 30) { F.used.push(used); if (F.used.length > FUEL_LAPS) F.used.shift(); }
+      }
+      F.lap = lap; F.full = !!lap.full; F.start = f.fuel; F.pit = !!f.inPit;
+      return;
+    }
+    if (f.inPit) F.pit = true;
+    if (f.fuel > F.start + 0.5) { F.start = f.fuel; F.pit = true; } // refuelled
+  }
+
+  // the car's redline from Paddock's car catalogue, else the highest rpm seen this session
+  redlineFor(car) {
+    const r = this.redline;
+    if (r.key !== car) {
+      r.key = car; r.rpm = null; r.seen = 0;
+      try { r.rpm = cars.match(car)?.variants?.[0]?.stats?.redlineRpm || null; } catch { /* no catalogue */ }
+    }
+    return r.rpm || (r.seen > 3000 ? r.seen : null);
+  }
+
   // time gained/lost in corner k (segment a..b) vs the reference
   closeCorner(cur, ref, dEnd, tEnd, atLine) {
     const corners = this.refs?.corners;
@@ -191,7 +251,7 @@ export class LiveHud {
       combo: s ? { track: s.track, layout: s.layout, car: s.car } : null,
       lap: live && lap ? {
         timeMs: f.lapTimeMs, timed: !!lap.full && !f.inPit, valid: !lap.invalid, inPit: f.inPit, tyresOut: f.tyresOut ?? 0,
-        lapNumber: lap.lapNumber, d: this.delta?.d ?? null, length: ref?.R.L ?? f.trackLength,
+        lapNumber: lap.lapNumber, d: this.delta?.d ?? null, speed: Math.round(f.speed || 0), gear: f.gear ?? null, length: ref?.R.L ?? f.trackLength,
       } : null,
       ref: {
         mode: this.mode, label: LABELS[this.mode], timeMs: ref?.timeMs ?? null,
@@ -229,9 +289,63 @@ export class LiveHud {
         speedMs: Math.round((f.speed / 3.6) * 10) / 10,
         brake: fresh(this.cueRes.brake), throttle: fresh(this.cueRes.throttle),
       };
+      // the reference lap's pedals over the next 200 m: the HUD moves along it with the car's speed
+      const R = ref.R, ahead = { step: AHEAD_STEP_M, speedMs: out.cue.speedMs, thr: [], brk: [] };
+      for (let i = 0; i < AHEAD_N; i++) {
+        const x = this.delta.d + i * AHEAD_STEP_M;
+        if (x > R.L) break;
+        ahead.thr.push(Math.round(interp(R.thr, x / R.step) * 100) / 100);
+        ahead.brk.push(Math.round(interp(R.brk, x / R.step) * 100) / 100);
+      }
+      out.ahead = ahead;
+    }
+    // pedals, driver aids and revs (in game the HUD reads these from the game itself, every frame)
+    if (live) {
+      const red = this.redlineFor(s?.car);
+      out.car = { gas: Math.round(f.gas * 100) / 100, brake: Math.round(f.brake * 100) / 100, tc: !!f.tc, abs: !!f.abs,
+        rpm: f.rpm, rpmPct: red ? Math.round((f.rpm / red) * 1000) / 1000 : null, shift: !!red && f.rpm >= red * SHIFT_AT };
+    }
+    // fuel: litres left, average use per lap, laps that is good for
+    if (live && f.fuel > 0) {
+      const u = this.fuel.used, avg = u.length ? u.reduce((a, b) => a + b, 0) / u.length : null;
+      out.fuel = { l: Math.round(f.fuel * 10) / 10, perLap: avg ? Math.round(avg * 100) / 100 : null, lapsLeft: avg ? Math.round((f.fuel / avg) * 10) / 10 : null };
+    }
+    // sectors: this lap's so far, the previous lap's, and the best of each (all-time / this session)
+    const S = refs?.sectors;
+    if (S) {
+      const cur = this.cur;
+      out.sectors = { n: S.n, k: cur && live ? cur.sk : null, cur: cur ? cur.secs.slice() : [], prev: this.lastSectors || [],
+        best: S.best, sess: S.sess };
     }
     return out;
   }
+}
+
+// Sector boundaries on the reference grid, from AC EVO's track data (timing gates), else thirds of the
+// lap; and the fastest time through each, over all valid laps (all-time) and this session's.
+function sectorInfo(s, R) {
+  let starts = null;
+  try {
+    const model = svc.trackModel(s.track, s.layout);
+    if (model?.sectors?.length && model.L > 0) starts = model.sectors.map((x) => (x * R.L) / model.L).filter((x) => x > 1 && x < R.L - 1);
+  } catch { /* no track data */ }
+  if (!starts?.length) starts = [R.L / 3, (2 * R.L) / 3];
+  const bounds = [0, ...starts, R.L];
+  const n = bounds.length - 1;
+  const best = new Array(n).fill(null), sess = new Array(n).fill(null);
+  for (const l of db.lapsForCombo(s.track, s.layout, s.car, true)) {
+    if (!l.valid) continue;
+    const e = svc.getResampled(l.id);
+    if (!e || e.R.n !== R.n) continue;
+    const t = bounds.map((b, i) => (i === n ? l.lap_time_ms : interp(e.R.t, b / e.R.step)));
+    for (let k = 0; k < n; k++) {
+      const v = Math.round(t[k + 1] - t[k]);
+      if (!(v > 0)) continue;
+      if (best[k] == null || v < best[k]) best[k] = v;
+      if (s.id && l.session_id === s.id && (sess[k] == null || v < sess[k])) sess[k] = v;
+    }
+  }
+  return { n, bounds, best, sess };
 }
 
 function interp(arr, x) {

@@ -94,6 +94,7 @@ export class MockSource {
     const wheels = [wheel(1, 1.35), wheel(-1, 1.35), wheel(1, -1.35), wheel(-1, -1.35)];
     return { wheels, tyresOut: 0, kerb: 0,
       packetId: this.packet, status: 2, gas: thr[lo], brake: brk[lo], clutch: 0, gear, rpm: Math.round(4000 + ((kmh % 45) / 45) * 4000),
+      fuel: Math.max(0, 60 - (this.lapCount + lo / n) * 2.3), // litres: 2.3 a lap from a 60 L tank
       steer: Math.max(-1, Math.min(1, p.curv * 30)), speed: kmh, glat: (v[lo] ** 2) * p.curv / G, glon: 0, tc: 0, abs: 0,
       lapTimeMs, lastLapMs: this.lastLapMs, bestLapMs: this.bestLapMs, lapCount: this.lapCount,
       npos: lo / n, inPit: false, valid: !(this.invalid && lo > n * 0.4), x: p.x - Math.sin(p.h) * lat[lo], y: 0, z: p.z + Math.cos(p.h) * lat[lo],

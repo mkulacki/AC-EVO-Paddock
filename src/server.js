@@ -38,16 +38,22 @@ if (mockIdx >= 0) {
 
 const recorder = new Recorder(() => settings.get().driverName);
 const hud = new LiveHud(recorder);
+const hudSnapshot = () => ({ ...hud.snapshot(), cfg: settings.hudConfig() }); // live data + the HUD's look (parts, size, opacity)
 // in-game HUD: data via the live slot files, commands via the game log (the game's UI cannot do HTTP)
 const runCommand = (c) => {
   try {
     if (c.cmd === 'ref') hud.setMode(c.arg || 'cycle');
-    console.log(`[hud] command from game: ${c.cmd} ${c.arg ?? ''}`);
+    // a part / size / opacity changed in the in-game settings window: Paddock keeps the one copy
+    if (c.cmd === 'hud' && c.arg && typeof c.arg === 'object') {
+      const cur = settings.hudConfig();
+      settings.update({ hud: { ...cur, ...c.arg, parts: { ...cur.parts, ...(c.arg.parts || {}) } } });
+    }
+    console.log(`[hud] command from game: ${c.cmd} ${typeof c.arg === 'object' ? JSON.stringify(c.arg) : c.arg ?? ''}`);
   } catch (e) { console.log(`[hud] command ${c.cmd} failed: ${e.message}`); }
 };
 if (mockIdx < 0 || process.env.ACE_BRIDGE) {
   hudInstall.startAuto(); // keeps the App Loader and the in-game HUD installed and current while the game is closed
-  new GameBridge({ snapshot: () => ({ ...hud.snapshot(), order: game.currentOrder() }), onCommand: runCommand,
+  new GameBridge({ snapshot: () => ({ ...hudSnapshot(), order: game.currentOrder() }), onCommand: runCommand,
     onLaunchEvent: game.onLaunchEvent, onCatalogue: race.onCatalogue }).start();
 }
 // every start of the game goes through here: the HUD is brought up to date first (the game is still closed)
@@ -151,11 +157,11 @@ async function route(req, res) {
     res.setHeader('access-control-allow-headers', 'content-type');
     if (m === 'OPTIONS') { res.writeHead(204); return res.end(); }
   }
-  if (p === '/api/hud') return send(res, 200, hud.snapshot());
+  if (p === '/api/hud') return send(res, 200, hudSnapshot());
   if (p === '/api/hud/ref' && m === 'POST') {
     const { mode = 'cycle' } = await readJson(req);
     hud.setMode(mode);
-    return send(res, 200, hud.snapshot());
+    return send(res, 200, hudSnapshot());
   }
 
   // ---- Tracks tab: every track/layout in the game, from AC EVO's own track data

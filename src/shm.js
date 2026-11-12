@@ -124,7 +124,7 @@ export class ShmSource {
     const frame = {
       packetId: p.readInt32LE(P.packetId),
       status: g.readInt32LE(G.status),
-      gas: p.readFloatLE(P.gas), brake: p.readFloatLE(P.brake), clutch: p.readFloatLE(P.clutch),
+      gas: p.readFloatLE(P.gas), brake: p.readFloatLE(P.brake), clutch: p.readFloatLE(P.clutch), fuel: p.readFloatLE(P.fuel),
       gear: p.readInt32LE(P.gear) - 1, // AC convention 0=R,1=N -> -1=R,0=N,1..=gears
       rpm: p.readInt32LE(P.rpms), steer: p.readFloatLE(P.steerAngle), speed: p.readFloatLE(P.speedKmh),
       glat: p.readFloatLE(P.accG), glon: p.readFloatLE(P.accG + 8),
