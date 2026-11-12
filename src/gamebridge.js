@@ -52,11 +52,9 @@ export class GameBridge {
   }
 
   start() {
-    if (!fs.existsSync(APP_DIR)) {
-      console.log(`[hud] in-game HUD not installed (${APP_DIR}); run "npm run install-mod"`);
-      return this;
-    }
-    console.log(`[hud] in-game HUD bridge: ${APP_DIR}\\live0-${SLOTS - 1}.json`);
+    // runs even without the HUD installed: the Mods tab can install it later, and writing starts then
+    console.log(fs.existsSync(APP_DIR) ? `[hud] in-game HUD bridge: ${APP_DIR}\\live0-${SLOTS - 1}.json`
+      : `[hud] in-game HUD not installed yet (${APP_DIR}): install it from the Mods tab`);
     this.writeTimer = setInterval(() => this.write(), 10);
     this.logTimer = setInterval(() => this.tail(), 250);
     return this;
@@ -67,6 +65,9 @@ export class GameBridge {
     const w = Math.floor(Date.now() / WINDOW_MS);
     if (w === this.lastWindow) return;
     this.lastWindow = w;
+    // the HUD's folder: checked every 2 s (never created here: only the installer makes it, with every file in it)
+    if (Date.now() - (this.dirCheckedAt || 0) > 2000) { this.dirCheckedAt = Date.now(); this.dirOk = fs.existsSync(APP_DIR); }
+    if (!this.dirOk) return;
     const slot = (w + AHEAD) % SLOTS;
     try {
       fs.writeFileSync(slotFile(slot), padLive(JSON.stringify({ ...this.snapshot(), slot, window: w + AHEAD })));

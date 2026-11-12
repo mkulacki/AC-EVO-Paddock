@@ -6,6 +6,7 @@ import { viewTracks, viewTrack } from './tracks.js';
 import { viewRace } from './race.js';
 import { viewProgress } from './progress.js';
 import { viewMods } from './mods.js';
+import { viewSetups } from './setups.js';
 
 const view = $('#view');
 
@@ -47,6 +48,17 @@ $('#devRestart').onclick = async () => {
 
 api('/api/status').then((s) => { status = s.settings; });
 
+// a dot on the Mods tab while the Paddock HUD is missing or older than this Paddock's copy
+async function hudBadge() {
+  let h; try { h = await api('/api/mods/hud'); } catch { return; }
+  const a = document.querySelector('nav a[data-nav=mods]'); if (!a) return;
+  a.querySelector('.nav-dot')?.remove();
+  if ((h.state === 'missing' && !h.removed) || h.state === 'outdated') a.insertAdjacentHTML('beforeend', `<span class="nav-dot" title="${h.state === 'missing' ? 'Paddock HUD not installed' : `Paddock HUD update: ${h.installed} → ${h.bundled}`}"></span>`);
+}
+hudBadge();
+setInterval(hudBadge, 60000);
+window.addEventListener('paddock:hud', hudBadge);
+
 // ------------------------------------------------------------------ router
 let currentRoute = '';
 let cleanup = [];
@@ -55,14 +67,15 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/').split('?');
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/tracks': 'tracks', '/track': 'track' }[path] || 'laps';
+  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track' }[path] || 'laps';
   if (currentRoute === 'laps' && prevRoute !== 'laps') lapView = { ...LAP_VIEW_DEFAULT };
-  const navKey = currentRoute === 'track' ? 'tracks' : ['settings', 'game', 'mods', 'race', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
+  const navKey = currentRoute === 'track' ? 'tracks' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
     if (currentRoute === 'game') await viewGame();
     else if (currentRoute === 'mods') await viewMods(view, cleanup);
     else if (currentRoute === 'race') await viewRace(view, cleanup);
+    else if (currentRoute === 'setups') await viewSetups(view, params, cleanup);
     else if (currentRoute === 'tracks') await viewTracks(view);
     else if (currentRoute === 'track') await viewTrack(view, params, cleanup);
     else if (currentRoute === 'compare') await viewCompare(params);
@@ -611,7 +624,7 @@ async function viewGame() {
       <tr><td>Telemetry</td><td>${t.status === 'live' && live ? `<span class="g-ok">live</span> · ${esc(prettyName(live.track))} ${esc(live.layout || '')} · ${esc(prettyName(live.car))} · lap ${fmt(live.lapTimeMs)}`
         : esc(t.status)} · ${t.savedLaps} lap(s) saved since start</td></tr>
       <tr><td>ACE UI App Loader</td><td>${yesNo(g.loader, 'installed', 'missing')}</td></tr>
-      <tr><td>Paddock HUD</td><td>${g.hudVersion ? `<span class="g-ok">installed</span> · ${esc(g.hudVersion)}` : '<span class="g-bad">not installed</span> (npm run install-mod)'}
+      <tr><td>Paddock HUD</td><td>${g.hudVersion ? `<span class="g-ok">installed</span> · ${esc(g.hudVersion)}` : '<span class="g-bad">not installed</span> (install it in the <a href="#/mods">Mods</a> tab)'}
         · data feed ${yesNo(hudLive, 'updating', 'stopped')}</td></tr>
     </tbody></table>`;
     $('#gLaunch').textContent = g.running ? 'AC EVO is running' : 'Start AC EVO';
@@ -650,7 +663,7 @@ async function viewSettings() {
       <p class="muted">Live delta to your all-time best, predicted lap, ideal lap, corner gain/loss inside AC EVO.</p>
       <ol class="muted" style="margin:0 0 8px 18px;padding:0">
         <li>Install the community <a href="https://github.com/dreasgrech/ACEUIAppLoader/releases" target="_blank">ACE UI App Loader</a>.</li>
-        <li>Run <code>npm run install-mod</code>, then enable “Paddock HUD” in the loader's app drawer in game.</li>
+        <li>Install the Paddock HUD in the <a href="#/mods">Mods</a> tab, then enable “Paddock HUD” in the loader's app drawer in game.</li>
         <li>If the in-game panel says “Paddock offline”, use the desktop overlay instead: <code>npm run overlay</code> (borderless/windowed mode).</li>
       </ol>
       <div class="row"><a href="/hud.html" target="_blank"><button>Open HUD in browser</button></a></div></div>

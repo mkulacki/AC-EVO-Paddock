@@ -23,6 +23,8 @@ CREATE INDEX IF NOT EXISTS laps_combo ON laps(track, layout, car);
 CREATE TABLE IF NOT EXISTS analyses (
   id INTEGER PRIMARY KEY, lap_id INTEGER, ref_key TEXT, model TEXT, created_at INTEGER, text TEXT
 );
+-- (a setups table existed in an unreleased build; setups are the game's own .carsetup files, see setups.js)
+DROP TABLE IF EXISTS setups;
 `);
 
 // ---------------------------------------------------------------- migrations

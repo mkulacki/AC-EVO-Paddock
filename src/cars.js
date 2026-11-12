@@ -178,7 +178,7 @@ function modPack(name) {
   try { const p = new Kspkg(m.file, { minFiles: 1 }); packs.set(name, p); return p; } catch { return null; }
 }
 // the archive that holds this car's files
-const packOf = (car) => (car?.mod ? modPack(car.mod) : archive());
+export const packOf = (car) => (car?.mod ? modPack(car.mod) : archive());
 
 function modCars(m) {
   const file = path.join(CACHE_DIR, `mod-v${VERSION}-${safe(m.name)}-${m.stamp}.json`);
