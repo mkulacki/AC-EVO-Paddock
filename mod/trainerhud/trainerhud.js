@@ -17,6 +17,9 @@
  * If Paddock cannot be reached from inside the game, the panel falls back to the game's own
  * delta (window.ModelCurrentCar / window.ModelTiming) and says why in its bottom line.
  *
+ * Which parts show, the size and the background opacity come with the data (cfg), set in Paddock
+ * under Settings > Paddock HUD. hud.html?demo shows made-up numbers (the preview there).
+ *
  * Cohtml rules followed: markup built once; per frame only textContent, classes and transforms.
  */
 const TrainerHud = (function () {
@@ -37,8 +40,6 @@ const TrainerHud = (function () {
         host: "127.0.0.1:8080",
         refKey: "F8",
         range: "1 s",
-        nextCorner: true,
-        cues: true,
         cueRange: "200 m"
     };
 
@@ -215,7 +216,7 @@ const TrainerHud = (function () {
     };
 
     /** Commands go out through the game log, which Paddock follows. Padding flushes the log's 4 KB block. */
-    const sendCommand = function (state, cmd, arg) {
+    const sendCommand = function (state, cmd, arg, quiet) {
         state.cmdSeq += 1;
         const msg = { id: Date.now() + "-" + state.cmdSeq, at: Date.now(), cmd: cmd, arg: arg };
         if (window.console) {
@@ -223,7 +224,122 @@ const TrainerHud = (function () {
             window.console.log("[TrainerHUD-pad] " + PAD);
             window.console.log("[TrainerHUD-pad] " + PAD);
         }
-        state.flash = { text: "sent to Paddock...", at: Date.now(), bad: false };
+        if (!quiet) {
+            state.flash = { text: "sent to Paddock...", at: Date.now(), bad: false };
+        }
+    };
+
+    // ---- in-game settings window <-> Paddock ------------------------------------------------
+    //
+    // Which parts show, the size and the opacity can be set in two places: Paddock's Settings page
+    // and, in game, the loader's settings window for this app (drawer, or right-click the strip).
+    // Paddock keeps the one copy: a change in game is sent to Paddock (a "hud" command), and
+    // Paddock's copy (cfg, with every data read) is written back into the window. A change made
+    // in game is held for a few seconds, so the older copy still on its way does not undo it.
+
+    const LOOK_KEYS = { hudScale: "scale", hudOpacity: "opacity" };
+    const PENDING_MS = 4000;
+    const sync = { applying: false, pending: {}, rev: 0, state: null };
+
+    const partKey = function (p) {
+        return "show_" + p;
+    };
+
+    /** The look as the in-game settings window holds it. */
+    const cfgFromSettings = function () {
+        const S = LOADER.settings;
+        const parts = {};
+        PARTS.forEach(function (p) {
+            parts[p] = S.get(NAME, partKey(p)) !== false;
+        });
+        return { parts: parts, scale: S.get(NAME, "hudScale"), opacity: S.get(NAME, "hudOpacity") };
+    };
+
+    /** Paddock's copy arrived: bring the settings window in line (skipping changes still on their way). */
+    const settingsFromPaddock = function (cfg) {
+        if (!cfg || !LOADER || !LOADER.settings || !opts) {
+            return;
+        }
+        const S = LOADER.settings;
+        const now = Date.now();
+        const want = {};
+        PARTS.forEach(function (p) {
+            if (cfg.parts && typeof cfg.parts[p] === "boolean") {
+                want[partKey(p)] = cfg.parts[p];
+            }
+        });
+        Object.keys(LOOK_KEYS).forEach(function (k) {
+            if (typeof cfg[LOOK_KEYS[k]] === "number") {
+                want[k] = cfg[LOOK_KEYS[k]];
+            }
+        });
+        Object.keys(want).forEach(function (k) {
+            const held = sync.pending[k];
+            if (held) {
+                if (held.value === want[k] || now - held.at > PENDING_MS) {
+                    delete sync.pending[k];
+                } else {
+                    return;
+                }
+            }
+            if (S.get(NAME, k) !== want[k]) {
+                sync.applying = true;
+                S.set(NAME, k, want[k]);
+                sync.applying = false;
+            }
+        });
+    };
+
+    /** The player changed something in the settings window: tell Paddock. */
+    const settingChanged = function (key, value) {
+        sync.rev += 1;
+        if (sync.applying || !sync.state) {
+            return;
+        }
+        let arg = null;
+        if (key.indexOf("show_") === 0) {
+            arg = { parts: {} };
+            arg.parts[key.slice(5)] = value;
+        } else if (LOOK_KEYS[key]) {
+            arg = {};
+            arg[LOOK_KEYS[key]] = value;
+        }
+        if (arg) {
+            sync.pending[key] = { value: value, at: Date.now() };
+            sendCommand(sync.state, "hud", arg, true);
+        }
+    };
+
+    // hud.html?demo (the preview in Paddock's Settings): made-up numbers so every part is visible,
+    // with the real look (cfg) from Paddock, so changes show up straight away
+    const DEMO = !LOADER && /[?&]demo\b/.test(window.location.search);
+
+    const demoData = function (json) {
+        const t = Date.now();
+        const wave = Math.sin(t / 1800);
+        const lapMs = 31200 + (t % 70000);
+        const inM = 220 - ((t / 25) % 240);
+        const phase = (t % 3000) / 3000;
+        const braking = phase > 0.7;
+        const rpm = braking ? 0.7 : 0.62 + 0.38 * Math.min(1, phase / 0.7);
+        return {
+            v: 1,
+            now: t,
+            game: "live",
+            cfg: json && json.cfg,
+            combo: { track: "demo" },
+            lap: { timeMs: lapMs, timed: true, valid: true, inPit: false, tyresOut: 0, lapNumber: 7, speed: Math.round(196 + 38 * wave), gear: wave > 0.3 ? 6 : 5 },
+            ref: { mode: "best", timeMs: 102318 },
+            delta: { ms: -284 + 210 * wave, rate: 120 * Math.cos(t / 1800), predictedMs: 102034 + Math.round(210 * wave) },
+            times: { bestMs: 102318, idealMs: 101642, sessionBestMs: 102790, lastMs: 103110 },
+            corner: { last: { name: "T4", deltaMs: -41 }, next: { name: "T5", brakeInM: Math.max(0, Math.round(inM)), brakeKind: "brake", minSpeed: 98, minGear: 3 } },
+            cue: { next: inM > -8 ? { corner: "T5", kind: "brake", inM: inM } : null, speedMs: 0, brake: inM <= -8 ? { corner: "T5", kind: "brake", deltaM: 6, ageMs: 0 } : null, throttle: null },
+            car: { gas: braking ? 0 : Math.min(1, 0.55 + phase), brake: braking ? 0.95 - (phase - 0.7) * 2 : 0, tc: !braking && phase < 0.12, abs: braking && Math.floor(t / 120) % 3 === 0, rpmPct: rpm, shift: rpm >= 0.96 },
+            ahead: { step: 5, speedMs: 0, thr: [braking ? 0 : 1], brk: [braking ? 0.85 : 0] },
+            sectors: { n: 3, k: lapMs > 68502 ? 2 : 1, cur: lapMs > 68502 ? [31112, 37390] : [31112], prev: [31250, 37480, 33600], best: [31112, 37200, 33410], sess: [31180, 37390, 33500] },
+            fuel: { l: 23.4, perLap: 2.31, lapsLeft: 10.1 },
+            saved: null
+        };
     };
 
     const poll = function (state, now) {
@@ -257,8 +373,11 @@ const TrainerHud = (function () {
             }
             state.netError = null;
             state.failures = 0;
-            state.data = json;
+            state.data = DEMO ? demoData(json) : json;
             state.receivedAt = Date.now();
+            if (LOADER) {
+                settingsFromPaddock(json.cfg);
+            }
             if (LOADER && json.order) {
                 maybeExit(json.order);
             }
@@ -279,28 +398,59 @@ const TrainerHud = (function () {
     // ---- markup -------------------------------------------------------------------
 
     const cell = function (cls, label) {
-        return "<div class=\"th-cell " + cls + "\"><div class=\"th-time\">-:--.---</div><div class=\"th-label\">" + label + "</div></div>";
+        return "<div class=\"th-blk th-bg th-cell " + cls + "\"><div class=\"th-label\">" + label + "</div><div class=\"th-time\">-:--.---</div></div>";
     };
 
+    const LEDS = 12;
+    const led = function () {
+        let s = "";
+        let i = 0;
+        for (i = 0; i < LEDS; i += 1) {
+            s += "<div class=\"th-led th-led-" + (i < 5 ? "g" : (i < 9 ? "y" : "r")) + "\"></div>";
+        }
+        return s;
+    };
+    const pedal = function (cls) {
+        return "<div class=\"th-pedal " + cls + "\"><div class=\"th-pfill\"></div><div class=\"th-pref\"></div></div>";
+    };
+
+    // Top strip: shift lights over a slim bar of blocks (lap, times, the delta in the middle, pedals)
+    // with the sector times under it, then a line of small chips (lap state, brake cue, corners, ideal
+    // lap, speed, fuel, status) that only show when they have something to say. Each part can be
+    // switched off (Paddock's Settings > Paddock HUD, or the in-game settings window): the root gets
+    // "th-hide-<part>".
     const MARKUP = ""
-        + "<div class=\"th-top\">"
-        + "<div class=\"th-ref th-btn\" data-act=\"ref\">vs ALL-TIME BEST</div>"
-        + "<div class=\"th-tag\"></div>"
-        + "</div>"
-        + "<div class=\"th-stack\">"
-        + "<div class=\"th-bar\"><div class=\"th-fill th-left\"></div><div class=\"th-fill th-right\"></div><div class=\"th-mid\"></div></div>"
-        + "<div class=\"th-main\"><div class=\"th-delta\">--.---</div></div>"
-        + "</div>"
-        + "<div class=\"th-cells\">"
+        + "<div class=\"th-col\">"
+        + "<div class=\"th-leds\">" + led() + "</div>"
+        + "<div class=\"th-strip\">"
+        + "<div class=\"th-blk th-lapbox\"><div class=\"th-label\">LAP</div><div class=\"th-lapno\">-</div></div>"
+        + cell("th-c-cur", "CURRENT")
         + cell("th-c-pred", "PREDICTED")
-        + cell("th-c-best", "ALL-TIME BEST")
-        + cell("th-c-sess", "SESSION BEST")
-        + cell("th-c-last", "LAST LAP")
+        + "<div class=\"th-blk th-center\">"
+        + "<div class=\"th-bar\"><div class=\"th-fill th-left\"></div><div class=\"th-fill th-right\"></div><div class=\"th-mid\"></div></div>"
+        + "<div class=\"th-ref th-btn\" data-act=\"ref\">vs ALL-TIME BEST</div>"
+        + "<div class=\"th-delta\">--.---</div>"
         + "</div>"
-        + "<div class=\"th-row th-cue\"><div class=\"th-cue-a\"></div><div class=\"th-cue-track\"><div class=\"th-cue-fill\"></div></div><div class=\"th-cue-b\"></div></div>"
-        + "<div class=\"th-row th-pot\"><div class=\"th-ideal\">IDEAL -:--.---</div><div class=\"th-gap\"></div></div>"
-        + "<div class=\"th-row th-corner\"><div class=\"th-lastc\"></div><div class=\"th-nextc\"></div></div>"
-        + "<div class=\"th-row th-foot\"><div class=\"th-link\"></div><div class=\"th-saved\"></div></div>";
+        + cell("th-c-best", "BEST")
+        + cell("th-c-sess", "SESSION")
+        + cell("th-c-last", "LAST")
+        + "<div class=\"th-blk th-bg th-inputs\">"
+        + pedal("th-p-thr") + pedal("th-p-brk")
+        + "<div class=\"th-aids\"><div class=\"th-aid th-aid-tc\">TC</div><div class=\"th-aid th-aid-abs\">ABS</div></div>"
+        + "</div>"
+        + "</div>"
+        + "<div class=\"th-sectors\"></div>"
+        + "</div>"
+        + "<div class=\"th-line\">"
+        + "<div class=\"th-chip th-bg th-tag th-empty\"></div>"
+        + "<div class=\"th-chip th-bg th-pot th-empty\"><div class=\"th-ideal\"></div><div class=\"th-gap\"></div></div>"
+        + "<div class=\"th-chip th-bg th-spd th-empty\"><div class=\"th-gear\"></div><div class=\"th-speed\"></div><div class=\"th-unit\">KM/H</div></div>"
+        + "<div class=\"th-chip th-bg th-fuel th-empty\"><div class=\"th-fuel-l\"></div><div class=\"th-fuel-x\"></div></div>"
+        + "<div class=\"th-chip th-bg th-nextc th-empty\"></div>"
+        + "<div class=\"th-chip th-bg th-lastc th-empty\"></div>"
+        + "<div class=\"th-chip th-bg th-cue th-off\"><div class=\"th-cue-fill\"></div><div class=\"th-cue-a\"></div><div class=\"th-cue-b\"></div></div>"
+        + "<div class=\"th-chip th-bg th-foot th-empty\"><div class=\"th-link\"></div><div class=\"th-saved\"></div></div>"
+        + "</div>";
 
     const q = function (root, sel) {
         return root.querySelector(sel);
@@ -308,12 +458,38 @@ const TrainerHud = (function () {
 
     const create = function (root) {
         root.classList.add("ace-trainerhud");
-        if (!q(root, ".th-stack") || !q(root, ".th-cue")) {
+        if (!q(root, ".th-leds") || !q(root, ".th-inputs")) {
             root.innerHTML = MARKUP;
         }
         return {
             root: root,
+            bgs: root.querySelectorAll(".th-bg"),
+            leds: root.querySelectorAll(".th-led"),
+            secBox: q(root, ".th-sectors"),
+            secEls: [],
+            secN: 0,
+            pedals: {
+                thrFill: q(root, ".th-p-thr .th-pfill"),
+                thrRef: q(root, ".th-p-thr .th-pref"),
+                brkFill: q(root, ".th-p-brk .th-pfill"),
+                brkRef: q(root, ".th-p-brk .th-pref"),
+                tc: q(root, ".th-aid-tc"),
+                abs: q(root, ".th-aid-abs")
+            },
+            chips: {
+                fuel: q(root, ".th-fuel"),
+                tag: q(root, ".th-tag"),
+                lastc: q(root, ".th-lastc"),
+                nextc: q(root, ".th-nextc"),
+                pot: q(root, ".th-pot"),
+                spd: q(root, ".th-spd"),
+                foot: q(root, ".th-foot")
+            },
             el: {
+                lapno: q(root, ".th-lapno"),
+                curtime: q(root, ".th-c-cur .th-time"),
+                gear: q(root, ".th-gear"),
+                speed: q(root, ".th-speed"),
                 ref: q(root, ".th-ref"),
                 tag: q(root, ".th-tag"),
                 left: q(root, ".th-left"),
@@ -333,7 +509,9 @@ const TrainerHud = (function () {
                 lastc: q(root, ".th-lastc"),
                 nextc: q(root, ".th-nextc"),
                 link: q(root, ".th-link"),
-                saved: q(root, ".th-saved")
+                saved: q(root, ".th-saved"),
+                fuelL: q(root, ".th-fuel-l"),
+                fuelX: q(root, ".th-fuel-x")
             },
             host: opt("host"),
             liveBase: me && me.base ? me.base : "ACEUIAppLoader/trainerhud/",
@@ -345,6 +523,7 @@ const TrainerHud = (function () {
             failures: 0,
             netError: null,
             flash: null,
+            cfgKey: "",
             texts: {},
             classes: {},
             transforms: {},
@@ -416,14 +595,13 @@ const TrainerHud = (function () {
      */
     const renderCue = function (state, now) {
         const d = state.data;
-        const cue = d && opt("cues") ? d.cue : null;
+        const cue = d ? d.cue : null;
         let a = "";
         let b = "";
         let fill = 0;
         let mode = "";
         let near = false;
         let thrCls = "";
-        setClass(state, state.el.cue, "cue", "th-off", !opt("cues") || !d);
         if (cue) {
             const range = CUE_RANGES[opt("cueRange")] || 200;
             let inM = null;
@@ -451,11 +629,236 @@ const TrainerHud = (function () {
         }
         setText(state, "cueA", a);
         setText(state, "cueB", b);
+        setClass(state, state.el.cue, "cue", "th-off", !d || (a === "" && b === ""));
         setTransform(state, "cueFill", "scaleX(" + fill.toFixed(3) + ")");
         setClass(state, state.el.cue, "cue", "th-count", mode === "count");
         setClass(state, state.el.cue, "cue", "th-near", near);
         setClass(state, state.el.cueB, "cueB", "gain", mode === "res" && thrCls === "gain");
         setClass(state, state.el.cueB, "cueB", "lose", mode === "res" && thrCls === "lose");
+    };
+
+    // ---- look: parts on/off, size, background (from Paddock's settings; kept while offline) ----------
+
+    const PARTS = ["lap", "ref", "delta", "current", "speed", "predicted", "best", "session", "last", "cues", "ideal", "corners", "footer",
+        "shift", "inputs", "sectors", "fuel"];
+    const ROWS = { strip: ["lap", "current", "predicted", "delta", "best", "session", "last", "inputs"] };
+
+    const applyCfg = function (state, cfg) {
+        const key = cfg ? JSON.stringify(cfg) : "";
+        if (!cfg || key === state.cfgKey) {
+            return;
+        }
+        state.cfgKey = key;
+        const parts = cfg.parts || {};
+        state.parts = parts;
+        const off = function (p) {
+            return parts[p] === false;
+        };
+        PARTS.forEach(function (p) {
+            setClass(state, state.root, "root", "th-hide-" + p, off(p));
+        });
+        Object.keys(ROWS).forEach(function (row) {
+            setClass(state, state.root, "root", "th-hide-row-" + row, ROWS[row].every(off));
+        });
+        const scale = Math.max(60, Math.min(160, Number(cfg.scale) || 100));
+        const alpha = Math.max(0, Math.min(100, cfg.opacity === undefined ? 85 : Number(cfg.opacity))) / 100;
+        state.root.style.fontSize = (scale / 100).toFixed(2) + "rem";
+        const bg = "rgba(10, 11, 14, " + alpha.toFixed(2) + ")";
+        let i = 0;
+        for (i = 0; i < state.bgs.length; i += 1) {
+            state.bgs[i].style.backgroundColor = bg;
+        }
+        state.bgColor = bg;
+        for (i = 0; i < state.secEls.length; i += 1) {
+            state.secEls[i].box.style.backgroundColor = bg;
+        }
+    };
+
+    // ---- shift lights, pedals, sectors, fuel ---------------------------------------------------
+
+    const setTextEl = function (state, key, el, text) {
+        if (state.texts[key] !== text) {
+            state.texts[key] = text;
+            el.textContent = text;
+        }
+    };
+
+    const setTransformEl = function (state, key, el, value) {
+        if (state.transforms[key] !== value) {
+            state.transforms[key] = value;
+            el.style.transform = value;
+        }
+    };
+
+    /** In game: the game's own car model, read every frame (pedals, revs, fuel). Null elsewhere. */
+    const gameCar = function () {
+        const m = LOADER ? window.ModelCurrentCar : null;
+        return m && m.gas_percent !== undefined ? m : null;
+    };
+
+    /** Interpolates a list of points `step` metres apart at `x` metres. */
+    const along = function (arr, x) {
+        if (!arr || !arr.length) {
+            return null;
+        }
+        const i = Math.max(0, Math.min(arr.length - 1, x));
+        const a = Math.floor(i);
+        const b = Math.min(arr.length - 1, a + 1);
+        return arr[a] + (arr[b] - arr[a]) * (i - a);
+    };
+
+    const renderCar = function (state, now) {
+        const d = state.data;
+        const m = gameCar();
+        const c = d && d.car ? d.car : null;
+        let gas = null;
+        let brk = null;
+        let tc = false;
+        let abs = false;
+        let pct = null;
+        let shift = false;
+        if (m) {
+            gas = Number(m.gas_percent) || 0;
+            brk = Number(m.brake_percent) || 0;
+            tc = !!m.tc_active;
+            abs = !!m.abs_active;
+            pct = Number(m.rpm_percent);
+            shift = !!m.is_change_up_rpm || pct >= 0.97;
+        } else if (c) {
+            gas = c.gas;
+            brk = c.brake;
+            tc = c.tc;
+            abs = c.abs;
+            pct = c.rpmPct;
+            shift = c.shift;
+        }
+
+        // shift lights: green, yellow, red from 72 % of the revs; all of them flash at the shift point
+        const lit = pct === null || !isFinite(pct) ? 0 : Math.max(0, Math.min(LEDS, Math.round(((pct - 0.72) / 0.25) * LEDS)));
+        let i = 0;
+        for (i = 0; i < state.leds.length; i += 1) {
+            setClass(state, state.leds[i], "led" + i, "on", i < lit);
+        }
+        setClass(state, state.root, "root", "th-shiftnow", shift && Math.floor(now / 90) % 2 === 0);
+
+        // pedals, and where the reference lap's pedals were at this point (moved on with the car's speed)
+        const p = state.pedals;
+        setTransformEl(state, "thrFill", p.thrFill, "scaleY(" + (gas === null ? 0 : Math.max(0, Math.min(1, gas))).toFixed(3) + ")");
+        setTransformEl(state, "brkFill", p.brkFill, "scaleY(" + (brk === null ? 0 : Math.max(0, Math.min(1, brk))).toFixed(3) + ")");
+        const ah = d && d.ahead ? d.ahead : null;
+        let rt = null;
+        let rb = null;
+        if (ah) {
+            const since = LOADER ? d.now : state.receivedAt;
+            const age = Math.min(1000, Math.max(0, now - since)) / 1000;
+            const x = (ah.speedMs || 0) * age / (ah.step || 5);
+            rt = along(ah.thr, x);
+            rb = along(ah.brk, x);
+        }
+        setClass(state, p.thrRef, "thrRef", "th-noref", rt === null);
+        setClass(state, p.brkRef, "brkRef", "th-noref", rb === null);
+        setTransformEl(state, "thrRef", p.thrRef, "translateY(" + ((1 - Math.max(0, Math.min(1, rt || 0))) * 100).toFixed(1) + "%)");
+        setTransformEl(state, "brkRef", p.brkRef, "translateY(" + ((1 - Math.max(0, Math.min(1, rb || 0))) * 100).toFixed(1) + "%)");
+        setClass(state, p.tc, "tc", "on", tc);
+        setClass(state, p.abs, "abs", "on", abs);
+
+        // fuel: the game's own numbers in game (fuel_liter_per_lap is its average), Paddock's elsewhere
+        let litres = null;
+        let perLap = null;
+        if (m && Number(m.fuel_liter_current_quantity) > 0) {
+            litres = Number(m.fuel_liter_current_quantity);
+            perLap = Number(m.fuel_liter_per_lap) > 0 ? Number(m.fuel_liter_per_lap) : null;
+        } else if (d && d.fuel) {
+            litres = d.fuel.l;
+            perLap = d.fuel.perLap;
+        }
+        if (litres === null) {
+            setTextEl(state, "fuelL", state.el.fuelL, "");
+            setTextEl(state, "fuelX", state.el.fuelX, "");
+        } else {
+            setTextEl(state, "fuelL", state.el.fuelL, "FUEL " + litres.toFixed(1) + " L");
+            setTextEl(state, "fuelX", state.el.fuelX, perLap ? perLap.toFixed(2) + " L/LAP · " + (litres / perLap).toFixed(1) + " LAPS" : "");
+        }
+        setClass(state, state.chips.fuel, "fuelLow", "th-low", !!(litres !== null && perLap && litres / perLap < 2));
+        setClass(state, state.chips.fuel, "chipFuel", "th-empty", litres === null);
+    };
+
+    const fmtSec = function (ms) {
+        if (ms === null || ms === undefined || !(ms > 0)) {
+            return "--.---";
+        }
+        if (ms >= 60000) {
+            return fmtLap(ms);
+        }
+        return (ms / 1000).toFixed(3);
+    };
+
+    /** Sector boxes: this lap's (purple = all-time best sector, green = session best, yellow = slower),
+     *  the running one, and the previous lap's (dimmed) until this lap gets there. */
+    const renderSectors = function (state) {
+        const s = state.data ? state.data.sectors : null;
+        const n = s ? s.n : 0;
+        if (n !== state.secN) {
+            state.secN = n;
+            let html = "";
+            let k = 0;
+            for (k = 0; k < n; k += 1) {
+                html += "<div class=\"th-sec th-bg\"><div class=\"th-sec-n\">S" + (k + 1) + "</div><div class=\"th-sec-t\">--.---</div></div>";
+            }
+            state.secBox.innerHTML = html;
+            state.secEls = [];
+            const boxes = state.secBox.querySelectorAll(".th-sec");
+            for (k = 0; k < boxes.length; k += 1) {
+                state.secEls.push({ box: boxes[k], t: boxes[k].querySelector(".th-sec-t") });
+                boxes[k].style.backgroundColor = state.bgColor || "";
+            }
+            Object.keys(state.texts).forEach(function (key) {
+                if (key.indexOf("sec") === 0) {
+                    delete state.texts[key];
+                }
+            });
+            Object.keys(state.classes).forEach(function (key) {
+                if (key.indexOf("sec") === 0) {
+                    delete state.classes[key];
+                }
+            });
+        }
+        setClass(state, state.root, "root", "th-nosectors", !n);
+        if (!n) {
+            return;
+        }
+        const cur = s.cur || [];
+        let done = 0;
+        cur.forEach(function (v) {
+            done += v || 0;
+        });
+        let k = 0;
+        for (k = 0; k < n; k += 1) {
+            let text = "--.---";
+            let cls = "";
+            if (cur[k] > 0) {
+                text = fmtSec(cur[k]);
+                cls = s.best && s.best[k] && cur[k] <= s.best[k] ? "pb" : (s.sess && s.sess[k] && cur[k] <= s.sess[k] ? "sb" : "slow");
+            } else if (s.k === k && state.curMs > 0) {
+                text = fmtSec(state.curMs - done);
+                cls = "live";
+            } else if (s.prev && s.prev[k] > 0) {
+                text = fmtSec(s.prev[k]);
+                cls = "old";
+            }
+            const e = state.secEls[k];
+            setTextEl(state, "sec" + k, e.t, text);
+            ["pb", "sb", "slow", "live", "old"].forEach(function (c) {
+                setClass(state, e.box, "sec" + k, c, cls === c);
+            });
+        }
+    };
+
+    const gearText = function (g) {
+        if (g === null || g === undefined) {
+            return "-";
+        }
+        return g < 0 ? "R" : (g === 0 ? "N" : String(g));
     };
 
     const render = function (state, now) {
@@ -466,8 +869,31 @@ const TrainerHud = (function () {
         let rate = 0;
 
         setClass(state, root, "root", "th-offline", !d);
+        if (LOADER && opts) {
+            // in game: the settings window's values (kept in line with Paddock's copy), also offline
+            if (state.cfgRev !== sync.rev) {
+                state.cfgRev = sync.rev;
+                applyCfg(state, cfgFromSettings());
+            }
+        } else if (d) {
+            applyCfg(state, d.cfg); // outside the game: Paddock's copy, as it comes
+        }
 
         if (d) {
+            // lap number, running lap clock (brought up to the present), speed and gear
+            const lp = d.lap;
+            setText(state, "lapno", lp && lp.lapNumber ? String(lp.lapNumber) : "-");
+            if (lp && lp.timeMs > 0) {
+                const since = LOADER ? d.now : state.receivedAt;
+                const age = lp.inPit ? 0 : Math.min(1000, Math.max(0, now - since));
+                state.curMs = lp.timeMs + age;
+                setText(state, "curtime", fmtLap(state.curMs));
+            } else {
+                state.curMs = 0;
+                setText(state, "curtime", "-:--.---");
+            }
+            setText(state, "speed", lp ? String(lp.speed || 0) : "");
+            setText(state, "gear", lp ? gearText(lp.gear) : "");
             const ref = d.ref || {};
             setText(state, "ref", "vs " + (LABELS[ref.mode] || "BEST") + (ref.timeMs ? "  " + fmtLap(ref.timeMs) : "  (none yet)"));
             if (d.delta) {
@@ -480,8 +906,8 @@ const TrainerHud = (function () {
             setText(state, "best", fmtLap(t.bestMs));
             setText(state, "sess", fmtLap(t.sessionBestMs));
             setText(state, "last", fmtLap(t.lastMs));
-            setText(state, "ideal", "IDEAL " + fmtLap(t.idealMs));
-            setText(state, "gap", t.idealMs && t.bestMs ? "potential " + fmtDelta(t.idealMs - t.bestMs, 3) + " vs best" : "");
+            setText(state, "ideal", t.idealMs ? "IDEAL " + fmtLap(t.idealMs) : "");
+            setText(state, "gap", t.idealMs && t.bestMs ? fmtDelta(t.idealMs - t.bestMs, 3) : "");
             setClass(state, state.el.predCell, "pred", "th-faster", !!(d.delta && t.bestMs && d.delta.predictedMs < t.bestMs));
             setClass(state, state.el.predCell, "pred", "th-slower", !!(d.delta && t.bestMs && d.delta.predictedMs >= t.bestMs));
 
@@ -519,13 +945,13 @@ const TrainerHud = (function () {
             }
             setClass(state, state.el.lastc, "lastc", "gain", !!(c.last && c.last.deltaMs < 0));
             setClass(state, state.el.lastc, "lastc", "lose", !!(c.last && c.last.deltaMs > 0));
-            if (c.next && opt("nextCorner")) {
+            if (c.next) {
                 const n = c.next;
-                let txt = n.name;
-                if (!opt("cues") && n.brakeInM !== null && n.brakeInM !== undefined) {
+                let txt = "NEXT " + n.name;
+                if (state.parts && state.parts.cues === false && n.brakeInM !== null && n.brakeInM !== undefined) {
                     txt += " · " + n.brakeKind + " in " + n.brakeInM + " m";
                 }
-                txt += " · min " + Math.round(n.minSpeed) + " km/h · G" + n.minGear;
+                txt += " · " + Math.round(n.minSpeed) + " km/h · G" + n.minGear;
                 setText(state, "nextc", txt);
             } else {
                 setText(state, "nextc", "");
@@ -538,11 +964,16 @@ const TrainerHud = (function () {
                 setText(state, "saved", "");
             }
             setClass(state, state.el.saved, "saved", "pb", !!(d.saved && d.saved.pb));
-            setText(state, "link", d.combo ? "PADDOCK" : "PADDOCK - waiting for track");
+            setText(state, "link", d.combo ? "" : "PADDOCK · waiting for track");
         } else {
             const g = gameView();
             deltaMs = g.delta;
             setText(state, "ref", "vs GAME REFERENCE");
+            setText(state, "lapno", "-");
+            state.curMs = 0;
+            setText(state, "curtime", "-:--.---");
+            setText(state, "speed", "");
+            setText(state, "gear", "");
             setText(state, "pred", fmtLap(g.predicted));
             setText(state, "best", g.best || "-:--.---");
             setText(state, "sess", "-:--.---");
@@ -566,7 +997,18 @@ const TrainerHud = (function () {
             setText(state, "saved", state.flash.text);
         }
 
+        // the chip line: a chip only shows while it has something to say
+        const tx = state.texts;
+        setClass(state, state.chips.tag, "chipTag", "th-empty", !tx.tag);
+        setClass(state, state.chips.lastc, "chipLastc", "th-empty", !tx.lastc);
+        setClass(state, state.chips.nextc, "chipNextc", "th-empty", !tx.nextc);
+        setClass(state, state.chips.pot, "chipPot", "th-empty", !tx.ideal);
+        setClass(state, state.chips.spd, "chipSpd", "th-empty", !tx.speed);
+        setClass(state, state.chips.foot, "chipFoot", "th-empty", !tx.link && !tx.saved);
+
         renderCue(state, now);
+        renderCar(state, now);
+        renderSectors(state);
 
         // delta figure and bar: time gained grows to the right, like the stock bar
         setText(state, "delta", fmtDelta(deltaMs, 3));
@@ -637,7 +1079,7 @@ const TrainerHud = (function () {
         const KEY = "trainerhud.pos";
         let drag = null;
         try {
-            const p = JSON.parse(window.localStorage.getItem(KEY) || "null");
+            const p = DEMO ? null : JSON.parse(window.localStorage.getItem(KEY) || "null");
             if (p) {
                 root.style.left = p.left + "px";
                 root.style.top = p.top + "px";
@@ -662,6 +1104,9 @@ const TrainerHud = (function () {
             }
             drag = null;
             root.classList.remove("dragging");
+            if (DEMO) {
+                return;
+            }
             try {
                 window.localStorage.setItem(KEY, JSON.stringify({ left: root.offsetLeft, top: root.offsetTop }));
             } catch (e) {
@@ -1606,13 +2051,41 @@ const TrainerHud = (function () {
         if (!LOADER || !LOADER.settings || typeof LOADER.settings.define !== "function") {
             return;
         }
+        // what to show: the same parts as Paddock's Settings > Paddock HUD, kept in line with it
+        const show = function (part, label, on) {
+            return { key: partKey(part), type: "toggle", label: label, value: on !== false };
+        };
         opts = LOADER.settings.define(NAME, [
+            { key: "secStrip", type: "section", label: "Strip", flow: "chips" },
+            show("lap", "Lap"),
+            show("current", "Current"),
+            show("predicted", "Predicted"),
+            show("best", "All-time best"),
+            show("session", "Session best"),
+            show("last", "Last lap"),
+            show("inputs", "Pedals vs reference"),
+            { key: "secAround", type: "section", label: "Above and below the strip", flow: "chips" },
+            show("shift", "Shift lights"),
+            show("sectors", "Sector times"),
+            { key: "secDelta", type: "section", label: "Delta", flow: "chips" },
+            show("delta", "Delta and bar"),
+            show("ref", "Reference name"),
+            { key: "secChips", type: "section", label: "Chips under the strip", flow: "chips" },
+            show("cues", "Brake cues"),
+            show("corners", "Corners"),
+            show("ideal", "Ideal lap"),
+            show("speed", "Speed and gear", false),
+            show("fuel", "Fuel"),
+            show("footer", "Status"),
+            { key: "secLook", type: "section", label: "Look" },
+            { key: "hudScale", type: "range", label: "Size %", value: 100, min: 60, max: 160, step: 10 },
+            { key: "hudOpacity", type: "range", label: "Background %", value: 85, min: 0, max: 100, step: 5 },
+            { key: "secMore", type: "section", label: "Controls", collapsed: true },
             { key: "refKey", type: "key", label: "Cycle reference key", value: DEFAULTS.refKey },
             { key: "range", type: "choice", label: "Delta bar range", value: DEFAULTS.range, options: ["0.5 s", "1 s", "2 s"] },
-            { key: "nextCorner", type: "toggle", label: "Show next corner", value: DEFAULTS.nextCorner },
-            { key: "cues", type: "toggle", label: "Brake / throttle cues", value: DEFAULTS.cues },
             { key: "cueRange", type: "choice", label: "Brake countdown from", value: DEFAULTS.cueRange, options: ["100 m", "200 m", "300 m"] }
-        ]);
+        ], { width: "30rem" });
+        LOADER.settings.onChange(NAME, settingChanged);
     };
 
     const attach = function (root) {
@@ -1620,13 +2093,23 @@ const TrainerHud = (function () {
             return launcherAttach(root);
         }
         const state = create(root);
+        sync.state = state;
+        sync.rev += 1; // draw with the settings window's values from the first frame
         if (!LOADER) {
             const params = new URLSearchParams(window.location.search);
             state.host = params.get("host") || window.location.host || DEFAULTS.host;
         }
         bindButtons(state);
         if (LOADER) {
-            state.panel = LOADER.panel.attach(root, { hudId: me.hudId, storageKey: me.storageKey, log: me.log });
+            // a right-click on the strip opens its settings window (what to show, size, keys) beside it
+            state.panel = LOADER.panel.attach(root, {
+                hudId: me.hudId,
+                storageKey: me.storageKey,
+                log: me.log,
+                onRightClick: function () {
+                    return Boolean(LOADER.settings && LOADER.settings.rightClick) && LOADER.settings.rightClick(NAME, root);
+                }
+            });
             state.loop = LOADER.loop.start(function (now) {
                 tick(state, Date.now());
             });
@@ -1654,6 +2137,9 @@ const TrainerHud = (function () {
         if (LOADER) {
             LOADER.loop.stop(state.loop);
             LOADER.panel.detach(state.panel);
+            if (sync.state === state) {
+                sync.state = null;
+            }
         } else {
             state.loop.running = false;
         }
