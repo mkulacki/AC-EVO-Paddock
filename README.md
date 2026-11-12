@@ -2,7 +2,7 @@
 
 [![Support AC EVO Paddock on Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/kulyk)
 
-Local telemetry recorder, lap analysis, AI driving coach, session launcher and mod manager for **Assetto Corsa EVO**.
+Local telemetry recorder, lap analysis, AI driving coach and setup engineer, setup editor, session launcher and mod manager for **Assetto Corsa EVO**.
 Everything runs on your PC. The app is served at http://localhost:8080, or runs in its own window as a desktop app.
 
 > **Beta.** This is an early public version. Expect rough edges, and please report bugs in [Issues](../../issues).
@@ -59,6 +59,31 @@ The in-game HUD (see below) must be installed.
 - Progress of a start shows at the top of the tab. An order the game has not carried out within 10 minutes expires.
 - Cars and tracks are read from the game's files, including mod cars from `.kspkg` packs in `Saved Games\ACE\mods`.
   The game is also asked which layouts each session type offers and which cars the AI can drive. *Update from game* re-reads both, which is only needed after a game update.
+
+## Setups tab
+
+The setups you save in AC EVO's own setup screen are the library. They are files in `Saved Games\ACE\Car Setups\<car>\<track>\*.carsetup`. Setups are loaded and saved in the game; Paddock reads and edits the files.
+
+- **Track first:** choose a track and its setups come first, then the other tracks' setups.
+- **Values:** every value the game's setup screen offers for the car, with its range and the game's own help text (hover). Paddock reads the car's limits from the game files, so values stay inside what the game allows and on its step grid. A few settings the game shows as clicks (e.g. some anti-roll bars) can only be changed in the game.
+- **Edit:** change values and *Save as new setup…* (or *Save* over the setup). In the game, the new setup is in the setup screen's *Load* list for that car and track. Paddock writes the file the way the game does and changes only the edited numbers.
+- **AI setup engineer (Gemini):** describe what the car does; the engineer looks at the setup, the car's limits and your laps with this car on this track (lap times, and where your best lap loses time against your ideal lap), and proposes a few changes with reasons and what to try on track. Tick the ones you want, put them in the values, review, and save as a new setup. Nothing is saved before that.
+- **Copy to track…:** the game lists only the current track's setups; a copy goes to the other track's folder as *"name [from track]"*.
+- **Rename, notes, delete:** renaming and deleting change the game's file too.
+- **Share:** *Share* exports the `.carsetup` file itself, named `<car> - <track> - <name>.carsetup`, which works even without Paddock (drop it into the matching `Car Setups` folder). *Import…* puts a shared file in the right folder; if the file name doesn't say the track, you pick it.
+
+**Typical use:** save a setup in the game's setup screen → open it in Paddock, change values or ask the AI engineer → *Save as new setup…* → in the game's setup screen, *Load* it and drive.
+
+### Limitations
+
+- **Loading and saving happen in the game only.** Paddock does not change the car's setup while you drive and cannot pick a setup before a Race tab launch: load it in the game's setup screen. A setup edited in Paddock while a session runs is in the game's *Load* list (the game reads the folder when it lists setups); Paddock never changes the setup the car runs right now.
+- **The game lists only the current track's setups.** Use *Copy to track…* to use a setup on another track.
+- **Click settings:** some cars show a few settings as clicks (e.g. anti-roll bar 1–7) but store the real value (e.g. N/m) in the file. How clicks map to values is not in the setup files, so Paddock shows these as *change in game* and does not edit them.
+- **Tyre compounds** are shown as *Compound 1, 2, 3* in the game's order; the files do not store their names.
+- **Names of a few settings are inferred** from the file layout, the game's own setting names and their ranges (Kunos does not document the format). Unusual settings show as *Setting x.y*. Values the game works out by itself (e.g. static ride heights) are left as they were in the file; Paddock does not recalculate them.
+- **The game's format may change** with a game update; Paddock checks every write by reading the file back, and refuses to edit setups of a car whose limits it cannot find.
+- **Laps are not linked to setups.** The AI engineer uses all your laps with that car on that track, whichever setup they were driven on, and mainly relies on what you tell it about the car. It cannot see tyre temperatures, pressures or suspension travel yet.
+- **AI advice is a suggestion.** Check the proposed changes before saving, and try them on track; the engineer explains each change so you can judge it.
 
 ## Laps tab
 
@@ -131,8 +156,8 @@ The same app also runs on the game's menu, Solo and multiplayer screens, where i
 
 Install:
 1. Install the community [ACE UI App Loader](https://github.com/dreasgrech/ACEUIAppLoader/releases). EVO has no official app support.
-2. Close the game, run `npm run install-mod` (or use the desktop app's tray menu), then enable "Paddock HUD" in the loader's app drawer.
-   `npm run install-mod -- --remove` removes it.
+2. Nothing to do: Paddock installs the HUD and keeps it up to date by itself whenever the game is closed. That happens when Paddock starts, every 15 s while it runs, and right before Paddock starts the game. Then enable "Paddock HUD" once in the loader's app drawer.
+   While the game is open, a pending update waits; the *Mods* tab shows it with a red dot. A HUD removed on purpose (tray menu *Remove*, or `npm run install-mod -- --remove`) is not put back until you install it again (Mods tab button or tray menu).
 3. Paddock must be running.
 
 How Paddock and the game talk: the game's UI can't make network calls; any `http://` request fails inside the engine. So Paddock writes data files in the HUD's folder, and the HUD reads them. Race tab starts travel in the same files.
@@ -154,6 +179,7 @@ Everything lives in `data\` (for the desktop app: next to the `.exe`; `ACEVO_DAT
 | `telemetry.db` | laps, sessions and saved AI answers (SQLite) |
 | `settings.json` | driver name, Gemini key and model, coach language, game folder, port |
 | `race.json` | Race tab presets, saved servers and the last setup |
+| `setup-meta.json` | Setups tab notes and where each setup came from (the setups themselves are the game's files in `Saved Games\ACE\Car Setups`) |
 | `game-catalogue.json`, `game-applied.json` | what the HUD read in game: track lists per session type, AI cars, the last applied settings |
 | `mods.json`, `mods-disabled\`, `mod-uploads\` | Mods tab manifest, disabled mods' files, uploads in progress |
 | `trackcache\`, `carcache\` | parsed track models, car catalogue and thumbnails (safe to delete) |
@@ -185,14 +211,15 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/live.js`, `src/gamebridge.js` | HUD data and the file/log bridge to the game |
 | `src/game.js`, `src/race.js` | game status, launch orders, Race tab |
 | `src/mods.js`, `src/zip.js` | Mods tab |
-| `src/ai.js` | Gemini coach |
+| `src/setups.js`, `src/carsetup.js` | Setups tab: the game's setup files, reading / writing `.carsetup` with the car's limits |
+| `src/ai.js` | Gemini coach and setup engineer |
 | `public/` | browser app (no build step) |
 | `mod/trainerhud/` | the in-game HUD and launcher (ACE UI App Loader app) |
 | `desktop/`, `overlay/` | Electron desktop app and standalone overlay |
 
 ## Privacy
 
-Everything stays on your PC. The only data sent anywhere is the compact per-corner summary sent to Google Gemini, and only when you ask the AI coach and have added your own API key. Your key is stored in `data\settings.json`, which is never part of the repository or the release.
+Everything stays on your PC. The only data sent anywhere goes to Google Gemini, and only when you ask the AI coach or the AI setup engineer and have added your own API key: the compact per-corner summary of a lap, or a setup's values with your description of the car and a summary of your laps on that track. Your key is stored in `data\settings.json`, which is never part of the repository or the release.
 
 ## Contributing
 

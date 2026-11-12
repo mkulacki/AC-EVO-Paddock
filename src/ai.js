@@ -85,3 +85,69 @@ export async function coach(cmp, lap, question, previousAnswer) {
   if (!text) throw new Error(`Empty answer from Gemini (${cand?.finishReason || json.promptFeedback?.blockReason || 'unknown'})`);
   return { text, model: s.geminiModel };
 }
+
+// ---------------------------------------------------------------- setup engineer
+// Proposes changes to a setup file (the values the game's setup screen shows, within the car's limits). Nothing is
+// saved: the driver reviews the proposal and saves it as a new setup.
+const SETUP_SYSTEM = `You are an experienced race engineer for Assetto Corsa EVO, helping a sim racer set up their car.
+You get: the car and track, the driver's description of the handling, the current setup (every value the driver can
+change, with its range, step and unit as the game's setup screen shows them, plus the game's own help text for it),
+and, when available, telemetry from the driver's laps with this car on this track (lap times and a corner-by-corner
+comparison of the best lap with the ideal lap spliced from the driver's best corners). The laps are not linked to a
+setup: they may have been driven on other setups, so use them to judge the track (slow/fast corners, where time is
+lost) and the driving, not as proof of what this setup does.
+Rules:
+- Propose a small number of focused changes (usually 2-6) that address the driver's problem; do not change everything at once.
+- Only use names from the setup list, values inside min..max and on the step grid. Do not change fuel, tyre compound or telemetry laps.
+- Keep left/right symmetric unless there is a reason not to.
+- Explain each change in one or two sentences (what it does to the car's balance and why it helps here).
+- If the problem is more about driving than setup, say so in the summary and keep the changes minimal.
+Answer with JSON only:
+{"summary": "markdown: diagnosis and what to expect", "changes": [{"name": "...", "value": number, "reason": "..."}],
+ "test_plan": "markdown: what to try on track and what to report back", "name": "a short name for the new setup (max 30 chars)"}`;
+
+const NO_AI = new Set(['fuel', 'telemetry_laps_to_record']);
+const shown = (v, x) => Math.round(x * v.scale * 1e6) / 1e6;
+
+export async function setupEngineer({ setup, problem, telemetry }) {
+  const s = settings.get();
+  const { tipFor, snap, CORNER_LABEL } = await import('./carsetup.js');
+  const usable = setup.values.filter((v) => !v.locked && !v.list && !NO_AI.has(v.name));
+  if (!usable.length) throw new Error('This setup has no values Paddock can change');
+  const values = usable.map((v) => ({
+    name: v.name, setting: v.label + (v.corner ? ` (${CORNER_LABEL[v.corner]})` : ''), value: shown(v, v.value),
+    min: shown(v, v.min), max: shown(v, v.max), step: shown(v, v.step), unit: v.unit || undefined, help: tipFor(v) || undefined,
+  }));
+  const locked = setup.values.filter((v) => v.locked && !v.list).map((v) => v.label + (v.corner ? ` ${v.corner}` : ''));
+  const input = {
+    car: setup.carName, track: setup.track.name, setup_name: setup.name, setup_notes: setup.notes || undefined,
+    driver_says: String(problem || '').slice(0, 2000) || '(nothing: suggest a solid baseline for this track)',
+    setup: values, cannot_change_here: locked.length ? locked : undefined,
+    telemetry: telemetry || 'no laps recorded with this car on this track yet',
+  };
+  const json = await call(`models/${encodeURIComponent(s.geminiModel)}:generateContent`, {
+    systemInstruction: { parts: [{ text: SETUP_SYSTEM }] },
+    contents: [{ role: 'user', parts: [{ text: `Respond in ${s.language || 'English'} (JSON keys stay in English).\n\n${JSON.stringify(input)}` }] }],
+    generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
+  });
+  const cand = json.candidates?.[0];
+  const text = cand?.content?.parts?.map((p) => p.text || '').join('') || '';
+  if (!text) throw new Error(`Empty answer from Gemini (${cand?.finishReason || json.promptFeedback?.blockReason || 'unknown'})`);
+  let out;
+  try { out = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw new Error('Gemini did not answer in the expected format; try again'); }
+  // keep only real, changeable values; snap them to the car's limits (the model sees shown units, files store raw)
+  const changes = [];
+  const skipped = [];
+  for (const c of Array.isArray(out.changes) ? out.changes : []) {
+    const v = usable.find((x) => x.name === c?.name);
+    const want = Number(c?.value);
+    if (!v || !Number.isFinite(want)) { skipped.push(String(c?.name ?? '?')); continue; }
+    const to = snap(v, want / v.scale);
+    if (Math.abs(to - v.value) < 1e-9 || changes.some((x) => x.name === v.name)) continue;
+    changes.push({ name: v.name, from: v.value, to, reason: String(c.reason || '').slice(0, 600) });
+  }
+  return {
+    model: s.geminiModel, summary: String(out.summary || ''), testPlan: String(out.test_plan || ''),
+    name: String(out.name || '').slice(0, 40), changes, skipped, usedLaps: telemetry ? telemetry.laps : 0,
+  };
+}

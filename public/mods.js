@@ -11,6 +11,7 @@ export async function viewMods(view, cleanup) {
     <div class="row" style="margin-bottom:16px"><h1>Mods</h1><span class="spacer"></span>
       <input id="mq" placeholder="Filter mods…" style="width:200px">
       <button class="primary" id="mAdd">Install mod…</button></div>
+    <div id="mHud"></div>
     <div id="mRun"></div>
     <div class="card drop" id="mDrop">
       <b>Drop a .zip or .kspkg here</b> <span class="muted">or use “Install mod…”.</span>
@@ -24,11 +25,39 @@ export async function viewMods(view, cleanup) {
 
   async function load() {
     const r = await api('/api/mods');
-    state.mods = r.mods; state.running = r.running;
+    state.mods = r.mods; state.running = r.running; state.hud = r.hud;
     render();
   }
 
+  // the Paddock HUD that ships with this Paddock: install it, or update the installed one
+  function hudCard() {
+    const h = state.hud, box = $('#mHud');
+    if (!h || !box) return;
+    const loader = h.loader ? '' : `<div class="muted" style="font-size:13px;margin-top:6px">The game loads it through the community <a href="${esc(h.loaderUrl)}" target="_blank">ACE UI App Loader</a>, which is not installed yet: download it and drop its zip on this page.</div>`;
+    const btn = (label) => `<button class="primary" id="hudGo" ${state.running ? 'disabled title="Close AC EVO first"' : ''}>${label}</button>`;
+    // Paddock installs / updates the HUD by itself while the game is closed; this card only shows when it could not yet
+    const when = state.running ? '<div class="muted" style="font-size:13px;margin-top:6px">Paddock does this by itself as soon as AC EVO is closed (changing the HUD files while the game runs can crash it).</div>' : '';
+    const failed = h.autoError ? `<div class="error" style="font-size:13px;margin-top:6px">Automatic install failed: ${esc(h.autoError)}</div>` : '';
+    let html = '';
+    if (h.state === 'missing' && h.removed) html = `<div class="card hud-prompt"><div class="row"><div><b>The Paddock HUD was removed.</b> <span class="muted">Paddock does not put it back by itself. It shows the live delta and the corner cues in game, and it carries out the Race tab's starts.</span></div><span class="spacer"></span>${btn(`Install HUD ${esc(h.bundled)}`)}</div>${loader}</div>`;
+    else if (h.state === 'missing') html = `<div class="card hud-prompt"><div class="row"><div><b>The Paddock HUD is not installed yet.</b> <span class="muted">It shows the live delta and the corner cues in game, and it carries out the Race tab's starts.</span></div><span class="spacer"></span>${btn(`Install HUD ${esc(h.bundled)}`)}</div>${when}${failed}${loader}</div>`;
+    else if (h.state === 'outdated') html = `<div class="card hud-prompt"><div class="row"><div><b>Paddock HUD update waiting:</b> ${esc(h.installed)} → <b>${esc(h.bundled)}</b></div><span class="spacer"></span>${btn('Update HUD')}</div>${when}${failed}${loader}</div>`;
+    else if (h.state === 'newer') html = `<div class="card" style="padding:10px 16px"><span class="muted">The installed Paddock HUD (${esc(h.installed)}) is newer than the one in this Paddock (${esc(h.bundled)}). Update Paddock to match it.</span></div>`;
+    else if (h.state === 'current' && !h.loader) html = `<div class="card hud-prompt">Paddock HUD ${esc(h.installed)} is installed.${loader}</div>`;
+    box.innerHTML = html;
+    $('#hudGo')?.addEventListener('click', async () => {
+      const b = $('#hudGo'); b.disabled = true; b.textContent = 'Installing…';
+      try {
+        state.hud = await post('/api/mods/hud', {});
+        setMsg(`Paddock HUD ${esc(state.hud.installed)} installed. In game, enable “Paddock HUD” in the App Loader's app drawer (once).`);
+        window.dispatchEvent(new Event('paddock:hud'));
+        await load();
+      } catch (e) { setMsg(esc(e.message), 'error'); hudCard(); }
+    });
+  }
+
   function render() {
+    hudCard();
     $('#mRun').innerHTML = state.running ? `<div class="card error" style="padding:12px 16px">AC EVO is running. Close the game to install, disable or delete mods. Changing mod files while the game runs can crash it.</div>` : '';
     const q = state.q.toLowerCase();
     const list = state.mods.filter((m) => !q || m.name.toLowerCase().includes(q) || m.files.some((f) => f.path.toLowerCase().includes(q)));
@@ -155,7 +184,7 @@ export async function viewMods(view, cleanup) {
   await load();
   // keep the "game running" state fresh
   const timer = setInterval(async () => {
-    try { const r = await api('/api/mods'); if (r.running !== state.running) { state.mods = r.mods; state.running = r.running; render(); } } catch { /* offline */ }
+    try { const r = await api('/api/mods'); if (r.running !== state.running || r.hud?.state !== state.hud?.state) { state.mods = r.mods; state.running = r.running; state.hud = r.hud; render(); } } catch { /* offline */ }
   }, 3000);
   cleanup.push(() => clearInterval(timer));
 }

@@ -15,6 +15,9 @@ import * as game from './game.js';
 import * as race from './race.js';
 import * as cars from './cars.js';
 import * as mods from './mods.js';
+import * as hudInstall from './hudinstall.js';
+import * as setups from './setups.js';
+import * as carsetup from './carsetup.js';
 import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -42,9 +45,36 @@ const runCommand = (c) => {
   } catch (e) { console.log(`[hud] command ${c.cmd} failed: ${e.message}`); }
 };
 if (mockIdx < 0 || process.env.ACE_BRIDGE) {
+  hudInstall.startAuto(); // keeps the in-game HUD installed and current while the game is closed
   new GameBridge({ snapshot: () => ({ ...hud.snapshot(), order: game.currentOrder() }), onCommand: runCommand,
     onLaunchEvent: game.onLaunchEvent, onCatalogue: race.onCatalogue }).start();
 }
+// every start of the game goes through here: the HUD is brought up to date first (the game is still closed)
+function startGame(order) { if ((mockIdx < 0 || process.env.ACE_BRIDGE) && !game.isRunningNow()) hudInstall.autoUpdate('before starting the game'); return game.start(order); }
+/**
+ * What the AI setup engineer gets from the driver's laps with this car on this track: lap times and, for the best
+ * valid lap, the corner-by-corner comparison with the ideal lap (null when there are no laps). Laps are not linked
+ * to setups, so they may have been driven on other setups.
+ */
+function setupTelemetry(setup, trackId, layout) {
+  const laps = db.listLaps().filter((l) => l.source === 'local' && cars.match(l.car)?.id === setup.carId).filter((l) => {
+    const h = trackdata.find(l.track, l.layout);
+    return h && h.track.id === trackId && (!layout || h.layout.key === layout);
+  });
+  if (!laps.length) return null;
+  const valid = laps.filter((l) => l.valid);
+  const best = valid.reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
+  const out = { laps: laps.length, valid_laps: valid.length, recent_lap_times_ms: laps.slice(0, 15).map((l) => (l.valid ? l.lap_time_ms : `${l.lap_time_ms} (invalid)`)) };
+  if (best) {
+    try {
+      const cmp = svc.compare([best.id], 'ideal');
+      const lap = cmp.laps.find((l) => l.id === best.id);
+      if (lap) out.best_lap_vs_ideal = ai.buildSummary(cmp, lap);
+    } catch (e) { out.note = e.message; }
+  }
+  return out;
+}
+
 // a session is loaded in the game (driving, paused, in the pits or watching a replay)
 const inSession = () => ['live', 'pause', 'replay'].includes(recorder.state.status) && Date.now() - recorder.state.lastFrameAt < 5000;
 const clients = new Set();
@@ -160,7 +190,7 @@ async function route(req, res) {
   }
   // ---- Game tab
   if (p === '/api/game' && m === 'GET') return send(res, 200, { ...game.status(), telemetry: { ...recorder.state, live: recorder.live() } });
-  if (p === '/api/game/launch' && m === 'POST') return send(res, 200, game.start(null));
+  if (p === '/api/game/launch' && m === 'POST') return send(res, 200, startGame(null));
   if (p === '/api/game/cancel' && m === 'POST') { game.cancel(); return send(res, 200, { ok: true }); }
 
   // ---- cars, from AC EVO's own files
@@ -182,11 +212,11 @@ async function route(req, res) {
     const q = url.searchParams;
     return send(res, 200, race.comboStats(q.get('track'), q.get('layout'), { id: q.get('car'), name: q.get('carName'), display: q.get('display') }));
   }
-  if (p === '/api/race/scan' && m === 'POST') return send(res, 200, game.start(race.scanOrder()));
+  if (p === '/api/race/scan' && m === 'POST') return send(res, 200, startGame(race.scanOrder()));
   // development: run any steps on the game's Solo screen and get the answers in data/game-catalogue.json
   if (p === '/api/race/probe' && m === 'POST') {
     const { steps = [], car = null } = await readJson(req);
-    return send(res, 200, game.start({ kind: 'probe', car, steps: [...steps, { op: 'done', step: 'probed', msg: 'probe finished' }], summary: 'checking the game' }));
+    return send(res, 200, startGame({ kind: 'probe', car, steps: [...steps, { op: 'done', step: 'probed', msg: 'probe finished' }], summary: 'checking the game' }));
   }
   if (p === '/api/race/scan.json') {
     res.writeHead(200, { 'content-type': 'application/json', 'content-disposition': 'attachment; filename="game-catalogue.json"' });
@@ -199,11 +229,11 @@ async function route(req, res) {
       if (!s) return send(res, 400, { error: 'Saved server not found' });
       spec.server = { ip: s.ip, port: s.port, password: s.password };
     }
-    try { return send(res, 200, game.start(race.buildOrder(spec))); } catch (e) { return send(res, 400, { error: e.message }); }
+    try { return send(res, 200, startGame(race.buildOrder(spec))); } catch (e) { return send(res, 400, { error: e.message }); }
   }
   if (p === '/api/race/hotlap' && m === 'POST') {
     const { track, layout, car, endSession } = await readJson(req);
-    try { return send(res, 200, game.start(race.buildOrder({ ...race.hotlapSpec(track, layout, car), endSession: !!endSession }))); }
+    try { return send(res, 200, startGame(race.buildOrder({ ...race.hotlapSpec(track, layout, car), endSession: !!endSession }))); }
     catch (e) { return send(res, 400, { error: e.message }); }
   }
   if (p === '/api/race/presets' && m === 'POST') {
@@ -221,8 +251,54 @@ async function route(req, res) {
     return send(res, 200, race.lists());
   }
 
+  // ---- Setups tab: the game's own .carsetup files (loaded and saved in the game; read and edited here)
+  if (p.startsWith('/api/setups')) {
+    const q = url.searchParams;
+    try {
+      if (p === '/api/setups' && m === 'GET') {
+        const car = q.get('car');
+        const track = q.get('track') ? { id: q.get('track'), layout: q.get('layout') || null } : null;
+        return send(res, 200, { cars: setups.cars(), list: car ? setups.list(car, track) : [], ...setups.status() });
+      }
+      if (p === '/api/setups/meta') return send(res, 200, { groups: carsetup.GROUPS, corners: carsetup.CORNER_LABEL });
+      // edited values: {id, values: {name: value}, asName?} -> saved over the file, or as a new file when asName is given
+      if (p === '/api/setups/values' && m === 'POST') { const { id, values, asName, notes, from } = await readJson(req); return send(res, 200, setups.saveValues(id, values, { asName: asName ?? null, notes, from: from === 'ai' ? 'ai' : 'paddock' })); }
+      if (p === '/api/setups/copy' && m === 'POST') { const { id, track } = await readJson(req); return send(res, 200, setups.copyTo(id, track)); }
+      // the AI setup engineer: proposes changes (nothing is saved until the driver saves them as a new setup)
+      if (p === '/api/setups/ai' && m === 'POST') {
+        const { id, problem, track, layout } = await readJson(req);
+        const d = setups.detail(id);
+        if (!d) throw new Error('Setup not found');
+        if (!d.values) throw new Error(d.error || 'The values of this setup could not be read');
+        return send(res, 200, await ai.setupEngineer({ setup: d, problem, telemetry: setupTelemetry(d, track || d.track.id, layout) }));
+      }
+      if (p === '/api/setups/export') {
+        const { buf, filename } = setups.exportFile(q.get('id'));
+        res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${filename.replace(/["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}` });
+        return res.end(buf);
+      }
+      if (p === '/api/setups/import' && m === 'POST') {
+        const buf = await readBody(req);
+        try { return send(res, 200, setups.importFile(buf, { filename: q.get('filename') || '', trackId: q.get('track') || null })); }
+        catch (e) { if (e.needsTrack) return send(res, 409, { error: e.message, needsTrack: true, car: e.car }); throw e; }
+      }
+      if (p === '/api/setups/file') {
+        const id = q.get('id');
+        if (m === 'GET') { const d = setups.detail(id); return d ? send(res, 200, d) : send(res, 404, { error: 'Setup not found' }); }
+        if (m === 'PUT') return send(res, 200, setups.update(id, await readJson(req)));
+        if (m === 'DELETE') { setups.remove(id); return send(res, 200, { ok: true }); }
+      }
+      return send(res, 404, { error: 'not found' });
+    } catch (e) { return send(res, e.status || 400, { error: e.message }); }
+  }
+
   // ---- Mods tab
-  if (p === '/api/mods' && m === 'GET') return send(res, 200, { mods: mods.list(), running: game.isRunningNow() });
+  if (p === '/api/mods' && m === 'GET') return send(res, 200, { mods: mods.list(), running: game.isRunningNow(), hud: hudInstall.status() });
+  // the Paddock HUD shipped with this Paddock: installed / outdated? (Mods tab prompt, nav badge)
+  if (p === '/api/mods/hud' && m === 'GET') return send(res, 200, hudInstall.status());
+  if (p === '/api/mods/hud' && m === 'POST') {
+    try { return send(res, 200, hudInstall.install()); } catch (e) { return send(res, e.code || 500, { error: e.message }); }
+  }
   if (p === '/api/mods/upload' && m === 'POST') {
     // streamed to disk: mod packs can be far bigger than the JSON body limit
     fs.mkdirSync(mods.UPLOAD_DIR, { recursive: true });
