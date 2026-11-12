@@ -1,7 +1,7 @@
 {
   "name": "ac-evo-paddock",
   "productName": "AC EVO Paddock",
-  "version": "0.2.0-beta.1",
+  "version": "0.3.0-beta.1",
   "description": "Local telemetry & AI coach for Assetto Corsa EVO",
   "type": "module",
   "main": "desktop/main.cjs",

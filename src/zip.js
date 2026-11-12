@@ -61,6 +61,22 @@ export function list(file) {
   } finally { fs.closeSync(fd); }
 }
 
+// the same, synchronously and in memory (for small zips such as the bundled App Loader)
+export function extractSync(file, entry, dest) {
+  if (entry.encrypted) throw new Error(`${entry.name} is password-protected`);
+  if (entry.method !== 0 && entry.method !== 8) throw new Error(`${entry.name}: unsupported compression (method ${entry.method})`);
+  const fd = fs.openSync(file, 'r');
+  let data;
+  try {
+    const h = readAt(fd, entry.offset, 30);
+    if (h.readUInt32LE(0) !== LOC) throw new Error('Damaged zip entry');
+    data = readAt(fd, entry.offset + 30 + h.readUInt16LE(26) + h.readUInt16LE(28), entry.csize);
+  } finally { fs.closeSync(fd); }
+  if (entry.method === 8) data = zlib.inflateRawSync(data);
+  if (data.length !== entry.size) throw new Error(`${entry.name}: size mismatch after extracting`);
+  fs.writeFileSync(dest, data);
+}
+
 export async function extract(file, entry, dest) {
   if (entry.encrypted) throw new Error(`${entry.name} is password-protected`);
   if (entry.method !== 0 && entry.method !== 8) throw new Error(`${entry.name}: unsupported compression (method ${entry.method})`);

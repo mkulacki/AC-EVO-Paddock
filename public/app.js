@@ -612,6 +612,17 @@ async function viewGame() {
       <p class="muted">Set up a session (type, car, track, conditions, AI grid) or join a server in the <a href="#/race">Race</a> tab.</p>
       <div id="gLaunchState"></div></div>`;
 
+  // the ACE UI App Loader's state in plain words (Paddock installs it by itself): [ok, text]
+  const loaderLine = (l) => {
+    if (!l) return [false, 'unknown'];
+    const v = l.variant === 'alternate' ? `${l.bundled} (alternate build)` : l.bundled;
+    if (l.gameMatch === false) return [false, `built for AC EVO ${l.builtFor}, but the game is ${l.game}: update Paddock${l.installed ? '' : ' (the loader is not installed)'}`];
+    if (l.state === 'current') return [true, `installed · ${v}`];
+    if (l.removed) return [false, `${l.installed ? 'not the one Paddock ships' : 'removed'} (disabled or deleted in the Mods tab, so Paddock leaves it alone)`];
+    if (l.state === 'missing' || l.state === 'other') return [false, `${l.state === 'missing' ? 'missing' : 'a different version'}: Paddock installs ${l.bundled} as soon as AC EVO is closed`];
+    if (l.state === 'no-game') return [false, 'AC EVO has not been started yet'];
+    return [false, l.state];
+  };
   const yesNo = (ok, yes, no) => `<span class="${ok ? 'g-ok' : 'g-bad'}">${ok ? yes : no}</span>`;
 
   async function refresh() {
@@ -623,8 +634,8 @@ async function viewGame() {
       <tr><td>Game</td><td>${yesNo(g.running, 'running', 'not running')}${g.version ? ` · version ${esc(g.version)}` : ''}</td></tr>
       <tr><td>Telemetry</td><td>${t.status === 'live' && live ? `<span class="g-ok">live</span> · ${esc(prettyName(live.track))} ${esc(live.layout || '')} · ${esc(prettyName(live.car))} · lap ${fmt(live.lapTimeMs)}`
         : esc(t.status)} · ${t.savedLaps} lap(s) saved since start</td></tr>
-      <tr><td>ACE UI App Loader</td><td>${yesNo(g.loader, 'installed', 'missing')}</td></tr>
-      <tr><td>Paddock HUD</td><td>${g.hudVersion ? `<span class="g-ok">installed</span> · ${esc(g.hudVersion)}` : '<span class="g-bad">not installed</span> (install it in the <a href="#/mods">Mods</a> tab)'}
+      <tr><td>ACE UI App Loader</td><td>${(([ok, txt]) => yesNo(ok, esc(txt), esc(txt)))(loaderLine(g.loaderInfo))}</td></tr>
+      <tr><td>Paddock HUD</td><td>${g.hudVersion ? `<span class="g-ok">installed</span> · ${esc(g.hudVersion)}` : '<span class="g-bad">not installed</span> (Paddock installs it as soon as AC EVO is closed; see the <a href="#/mods">Mods</a> tab)'}
         · data feed ${yesNo(hudLive, 'updating', 'stopped')}</td></tr>
     </tbody></table>`;
     $('#gLaunch').textContent = g.running ? 'AC EVO is running' : 'Start AC EVO';
@@ -662,8 +673,8 @@ async function viewSettings() {
     <div class="card"><h2 style="margin-top:0">In-game HUD</h2>
       <p class="muted">Live delta to your all-time best, predicted lap, ideal lap, corner gain/loss inside AC EVO.</p>
       <ol class="muted" style="margin:0 0 8px 18px;padding:0">
-        <li>Install the community <a href="https://github.com/dreasgrech/ACEUIAppLoader/releases" target="_blank">ACE UI App Loader</a>.</li>
-        <li>Install the Paddock HUD in the <a href="#/mods">Mods</a> tab, then enable “Paddock HUD” in the loader's app drawer in game.</li>
+        <li>Nothing to install: Paddock puts the HUD, and the community <a href="https://github.com/dreasgrech/ACEUIAppLoader" target="_blank">ACE UI App Loader</a> it runs in, into the game by itself whenever AC EVO is closed. It is switched on by default. The <a href="#/game">Game</a> tab shows their state.</li>
+        <li>To hide it in game, move the mouse to the right edge of the screen and switch “Paddock HUD” off in the loader's app drawer.</li>
         <li>If the in-game panel says “Paddock offline”, use the desktop overlay instead: <code>npm run overlay</code> (borderless/windowed mode).</li>
       </ol>
       <div class="row"><a href="/hud.html" target="_blank"><button>Open HUD in browser</button></a></div></div>

@@ -1,8 +1,9 @@
 // Installs / updates the Paddock HUD app for the ACE UI App Loader (same layout as the loader's install_app.py):
 //   <Saved Games>\ACE\mods\uiresources\ACEUIAppLoader\trainerhud\   (app files)
 //   <Saved Games>\ACE\Video\ACEUIAppLoader-trainerhud.settingspreset (EMPTY marker the loader scans for)
-// The app ships with Paddock (mod/trainerhud); the Mods tab compares its version with the installed one
-// and offers to install or update it. Used by the Mods tab and by `npm run install-mod`.
+// The app ships with Paddock (mod/trainerhud), and so does the App Loader it runs in (loaderinstall.js):
+// Paddock installs and updates both by itself, so the player has nothing to install. The Mods tab shows the
+// state and has a button for when the automatic install could not run. Also used by `npm run install-mod`.
 //
 // Only with the game closed: replacing the app folder while the game runs makes the HUD's next live-slot
 // read fail, and a failed file open in the game's resource loader CRASHES AC EVO.
@@ -11,12 +12,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ACE, APP_DIR, padLive, SLOTS } from './gamebridge.js';
 import { isRunningNow } from './game.js';
+import * as loader from './loaderinstall.js';
 
 const NAME = 'trainerhud';
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'mod', NAME);
 const MARKER = path.join(ACE, 'Video', `ACEUIAppLoader-${NAME}.settingspreset`);
-export const LOADER = path.join(ACE, 'mods', 'ACEUIAppLoader.kspkg');
-export const LOADER_URL = 'https://github.com/dreasgrech/ACEUIAppLoader/releases';
+export const LOADER = loader.KSPKG;
+export const LOADER_URL = loader.LOADER_URL;
 
 const readApp = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'app.json'), 'utf8').replace(/^﻿/, '')); } catch { return null; } };
 // "0.10.0" > "0.9.2"; anything unreadable counts as older
@@ -36,8 +38,8 @@ export function status({ quick = false } = {}) {
   if (!fs.existsSync(ACE)) state = 'no-game';
   else if (!installed || !marker) state = 'missing';
   else { const c = cmpVersion(installed, bundled); state = c < 0 ? 'outdated' : c > 0 ? 'newer' : 'current'; }
-  return { state, bundled, installed, marker, loader: fs.existsSync(LOADER), loaderUrl: LOADER_URL, gameRunning: quick ? null : isRunningNow(),
-    removed: fs.existsSync(REMOVED_FLAG), autoError: lastAuto.error };
+  return { state, bundled, installed, marker, loader: fs.existsSync(LOADER), loaderUrl: LOADER_URL, loaderInfo: loader.status(),
+    gameRunning: quick ? null : isRunningNow(), removed: fs.existsSync(REMOVED_FLAG), autoError: lastAuto.error };
 }
 
 export class InstallError extends Error { constructor(msg, code = 400) { super(msg); this.code = code; } }
@@ -59,6 +61,12 @@ export function install({ force = false } = {}) {
   fs.writeFileSync(MARKER, ''); // must stay empty: the game deserialises every file in that folder
   fs.rmSync(REMOVED_FLAG, { force: true });
   console.log(`[hud] installed Paddock HUD ${app.version} in ${APP_DIR}`);
+  // and the loader it runs in, unless that is the bundled one already (a loader built for another game
+  // version is left alone; status().loaderInfo says so). Asked for by the player, so also after a removal.
+  const l = loader.status();
+  if (l.state !== 'current' || l.strays.length) {
+    try { loader.install({ force }); } catch (e) { if (!(e instanceof loader.LoaderError)) throw e; console.log(`[loader] ${e.message}`); }
+  }
   return status();
 }
 
@@ -78,6 +86,7 @@ const REMOVED_FLAG = path.join(path.resolve(process.env.ACEVO_DATA || 'data'), '
 const AUTO_MS = 15000;
 let lastAuto = { at: 0, error: null };
 export function autoUpdate(why = 'check') {
+  loader.autoUpdate(why);
   let s;
   try {
     s = status({ quick: true });

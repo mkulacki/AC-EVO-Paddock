@@ -16,6 +16,7 @@ import * as race from './race.js';
 import * as cars from './cars.js';
 import * as mods from './mods.js';
 import * as hudInstall from './hudinstall.js';
+import * as loaderInstall from './loaderinstall.js';
 import * as setups from './setups.js';
 import * as carsetup from './carsetup.js';
 import { pipeline } from 'node:stream/promises';
@@ -45,7 +46,7 @@ const runCommand = (c) => {
   } catch (e) { console.log(`[hud] command ${c.cmd} failed: ${e.message}`); }
 };
 if (mockIdx < 0 || process.env.ACE_BRIDGE) {
-  hudInstall.startAuto(); // keeps the in-game HUD installed and current while the game is closed
+  hudInstall.startAuto(); // keeps the App Loader and the in-game HUD installed and current while the game is closed
   new GameBridge({ snapshot: () => ({ ...hud.snapshot(), order: game.currentOrder() }), onCommand: runCommand,
     onLaunchEvent: game.onLaunchEvent, onCatalogue: race.onCatalogue }).start();
 }
@@ -189,7 +190,7 @@ async function route(req, res) {
     return send(res, 200, { track, layout: { key: l.key, name: l.name, lengthM: l.lengthM, hasMap: !!l.svg }, model, combos });
   }
   // ---- Game tab
-  if (p === '/api/game' && m === 'GET') return send(res, 200, { ...game.status(), telemetry: { ...recorder.state, live: recorder.live() } });
+  if (p === '/api/game' && m === 'GET') return send(res, 200, { ...game.status(), loaderInfo: loaderInstall.status(), telemetry: { ...recorder.state, live: recorder.live() } });
   if (p === '/api/game/launch' && m === 'POST') return send(res, 200, startGame(null));
   if (p === '/api/game/cancel' && m === 'POST') { game.cancel(); return send(res, 200, { ok: true }); }
 

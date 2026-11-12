@@ -23,7 +23,7 @@ function checkRunning() {
 }
 checkRunning();
 
-function gameVersion() {
+export function gameVersion() {
   try {
     const newest = fs.readdirSync(LOG_DIR).filter((f) => /^log-.*\.txt$/.test(f))
       .map((f) => ({ f, t: fs.statSync(path.join(LOG_DIR, f)).mtimeMs })).sort((a, b) => b.t - a.t)[0];

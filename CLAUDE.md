@@ -22,6 +22,7 @@ User-facing text says "AC EVO Paddock" / "Paddock" / "Paddock HUD".
 Ask the user before pushing, tagging or publishing. Each of those is public.
 
 1. **Version:** bump `version` in `package.json` and in both top-level entries of `package-lock.json` (semver; betas are `0.x.y-beta.N`). If the in-game HUD changed, also bump `mod/trainerhud/app.json` `version`.
+   If AC EVO updated since the last release, check that `mod/ACEUIAppLoader/loader.json` `game` matches the new game version. If it doesn't, replace both zips with the matching [ACE UI App Loader release](https://github.com/dreasgrech/ACEUIAppLoader/releases) and update `version`, `game` and the two `.kspkg` SHA-256s. Paddock never installs a loader that was built for a different game version.
 2. **Syntax check:** `for f in desktop/*.cjs desktop/*.mjs overlay/*.cjs src/*.js src/tools/*.js public/*.js mod/trainerhud/*.js; do node --check "$f" || echo FAIL $f; done`
 3. **Secret scan of what will be committed:**
    - `git diff --cached --name-only | grep -iE "^data/|node_modules|^dist/|\.db$|settings\.json|\.log$"` must print nothing.

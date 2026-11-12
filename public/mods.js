@@ -33,7 +33,14 @@ export async function viewMods(view, cleanup) {
   function hudCard() {
     const h = state.hud, box = $('#mHud');
     if (!h || !box) return;
-    const loader = h.loader ? '' : `<div class="muted" style="font-size:13px;margin-top:6px">The game loads it through the community <a href="${esc(h.loaderUrl)}" target="_blank">ACE UI App Loader</a>, which is not installed yet: download it and drop its zip on this page.</div>`;
+    // the community ACE UI App Loader the HUD runs in: Paddock installs it too, this only explains when it could not
+    const L = h.loaderInfo || {}, link = `<a href="${esc(h.loaderUrl)}" target="_blank">ACE UI App Loader</a>`;
+    const loaderMsg = L.gameMatch === false ? `The ${link} in this Paddock (${esc(L.bundled)}) is built for AC EVO ${esc(L.builtFor)}, but the game is ${esc(L.game)}. Update Paddock${L.installed ? '' : ', or install the loader release for this game version yourself'}.`
+      : L.state === 'current' || L.state === 'no-game' ? ''
+      : L.removed ? `The ${link} was disabled or deleted in this tab, so Paddock does not put it back by itself. The HUD needs it${L.installed ? '' : ': the button installs it again'}.`
+      : L.autoError ? `<span class="error">Installing the ${link} failed: ${esc(L.autoError)}</span>`
+      : `The HUD runs in the community ${link}. Paddock installs it (${esc(L.bundled)}) as soon as AC EVO is closed.`;
+    const loader = loaderMsg ? `<div class="muted" style="font-size:13px;margin-top:6px">${loaderMsg}</div>` : '';
     const btn = (label) => `<button class="primary" id="hudGo" ${state.running ? 'disabled title="Close AC EVO first"' : ''}>${label}</button>`;
     // Paddock installs / updates the HUD by itself while the game is closed; this card only shows when it could not yet
     const when = state.running ? '<div class="muted" style="font-size:13px;margin-top:6px">Paddock does this by itself as soon as AC EVO is closed (changing the HUD files while the game runs can crash it).</div>' : '';
@@ -43,13 +50,15 @@ export async function viewMods(view, cleanup) {
     else if (h.state === 'missing') html = `<div class="card hud-prompt"><div class="row"><div><b>The Paddock HUD is not installed yet.</b> <span class="muted">It shows the live delta and the corner cues in game, and it carries out the Race tab's starts.</span></div><span class="spacer"></span>${btn(`Install HUD ${esc(h.bundled)}`)}</div>${when}${failed}${loader}</div>`;
     else if (h.state === 'outdated') html = `<div class="card hud-prompt"><div class="row"><div><b>Paddock HUD update waiting:</b> ${esc(h.installed)} → <b>${esc(h.bundled)}</b></div><span class="spacer"></span>${btn('Update HUD')}</div>${when}${failed}${loader}</div>`;
     else if (h.state === 'newer') html = `<div class="card" style="padding:10px 16px"><span class="muted">The installed Paddock HUD (${esc(h.installed)}) is newer than the one in this Paddock (${esc(h.bundled)}). Update Paddock to match it.</span></div>`;
-    else if (h.state === 'current' && !h.loader) html = `<div class="card hud-prompt">Paddock HUD ${esc(h.installed)} is installed.${loader}</div>`;
+    else if (h.state === 'current' && loader) html = L.removed && !L.installed
+      ? `<div class="card hud-prompt"><div class="row"><div>Paddock HUD ${esc(h.installed)} is installed.</div><span class="spacer"></span>${btn(`Install loader ${esc(L.bundled)}`)}</div>${loader}</div>`
+      : `<div class="card hud-prompt">Paddock HUD ${esc(h.installed)} is installed.${loader}</div>`;
     box.innerHTML = html;
     $('#hudGo')?.addEventListener('click', async () => {
       const b = $('#hudGo'); b.disabled = true; b.textContent = 'Installing…';
       try {
         state.hud = await post('/api/mods/hud', {});
-        setMsg(`Paddock HUD ${esc(state.hud.installed)} installed. In game, enable “Paddock HUD” in the App Loader's app drawer (once).`);
+        setMsg(`Paddock HUD ${esc(state.hud.installed)} installed. It shows in game the next time AC EVO starts.`);
         window.dispatchEvent(new Event('paddock:hud'));
         await load();
       } catch (e) { setMsg(esc(e.message), 'error'); hudCard(); }
