@@ -59,9 +59,9 @@ export async function viewRace(view, cleanup) {
   // ---------------------------------------------------------------- header + launch progress
   function headInfo() {
     const at = cat.readAt ? new Date(cat.readAt) : null;
-    const when = at ? `<span class="muted" title="${esc(at.toLocaleString())} (${ago(cat.readAt)})">last updated ${esc(at.toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }))}</span>`
-      : '<span class="muted">never updated from game</span>';
-    $('#rInfo').innerHTML = `${cat.cars.length} cars · ${cat.tracks.length} tracks, from the game's own files · <a href="#" id="rScan" title="Starts the game and re-reads which layouts each session type offers and which cars the AI can drive. Only needed after a game update.">update from game</a> · ${when}`;
+    const when = at ? `<span title="${esc(at.toLocaleString())} (${ago(cat.readAt)})">Last read ${esc(at.toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }))}</span>`
+      : '<span>Not read from the game yet</span>';
+    $('#rInfo').innerHTML = `${cat.cars.length} cars and ${cat.tracks.length} tracks, read from the game's own files. ${when}. <a href="#" id="rScan" title="Starts the game and re-reads which layouts each session type offers and which cars the AI can drive. Only needed after a game update.">Read the game again</a>`;
     $('#rScan').onclick = async (e) => { e.preventDefault(); try { const r = await post('/api/race/scan', {}); msg(r.msg); } catch (err) { msg(err.message, true); } poll(); };
   }
   const msg = (text, bad) => { const el = $('#rMsg'); if (el) el.innerHTML = `<span class="${bad ? 'error' : 'muted'}">${esc(text)}</span>`; };
@@ -73,7 +73,7 @@ export async function viewRace(view, cleanup) {
     game = g;
     const L = g.launch, box = $('#rLaunch');
     if (!box) return;
-    const waiting = !g.running ? 'Waiting for the game to start…' : g.inSession ? 'A session is running in the game: leave it (Esc → quit session) and the Paddock HUD carries on.' : 'Waiting for the Paddock HUD on the game\'s menu…';
+    const waiting = !g.running ? 'Waiting for the game to start…' : g.inSession ? 'A session is running in the game. Leave it (Esc, then Quit session) and the Paddock HUD carries on.' : 'Waiting for the Paddock HUD on the game\'s menu…';
     box.innerHTML = L.order || L.events.length ? `<div class="card" style="margin:0">
       ${L.order ? `<div class="row"><span class="spinner"></span><b>${L.order.kind === 'solo' || L.order.kind === 'mp' ? 'Starting' : 'Reading the game'}</b><span class="muted">${esc(L.order.summary || '')}</span>
         <span class="spacer"></span><button class="small ghost" id="rCancel">Cancel</button></div>` : '<div class="row"><b>Last start</b><span class="spacer"></span><button class="small ghost" id="rHide">Hide</button></div>'}
@@ -192,7 +192,7 @@ export async function viewRace(view, cleanup) {
         <select id="rRandMode" title="what the dice may pick"><option value="any">Any car &amp; track</option><option value="driven">Combos I've driven</option><option value="new">New combos only</option></select>
         <button id="rRand" title="random car, track, time and weather">🎲 Random</button>
         <button id="rSave">Save preset</button>
-        <button class="primary big" id="rGo" ${blocked ? 'disabled' : ''}>Start ${esc(m.label)} ▸</button>
+        <button class="primary big" id="rGo" ${blocked ? 'disabled' : ''}>Start ${esc(m.label)}</button>
       </div>
       ${presetsCard()}
       ${recentCard()}`;
@@ -233,7 +233,7 @@ export async function viewRace(view, cleanup) {
   function summary() {
     const c = st.car?.id ? carById(st.car.id) : null, tl = trackOf(st.track);
     const el = $('#rSummary');
-    if (el) el.textContent = [st.kind === 'mp' ? 'Online' : mode().label, c ? `${c.brand} ${c.name}` : st.car?.display, tl ? `${tl.t.name} ${tl.l.name}` : null].filter(Boolean).join('  ·  ') || 'Choose a car and a track';
+    if (el) el.textContent = [st.kind === 'mp' ? 'Online' : mode().label, c ? `${c.brand} ${c.name}` : st.car?.display, tl ? `${tl.t.name} ${tl.l.name}` : null].filter(Boolean).join(', ') || 'Choose a car and a track';
   }
 
   // Start: also from a closed game. With a session running in the game, ask before ending it.
@@ -320,9 +320,9 @@ export async function viewRace(view, cleanup) {
   function describe(s) {
     if (!s) return '';
     const c = s.car?.id ? carById(s.car.id) : null;
-    if (s.kind === 'mp') return [`Online · ${data.servers.find((x) => x.id === s.serverId)?.name || ''}`, c?.name].filter(Boolean).join(' · ');
+    if (s.kind === 'mp') return [`Online on ${data.servers.find((x) => x.id === s.serverId)?.name || ''}`, c?.name].filter(Boolean).join(', ');
     const m = M.modes.find((x) => x.id === s.mode), tl = trackOf(s.track);
-    return [m?.label, tl && `${tl.t.name} ${tl.l.name}`, c ? c.name : s.car?.display].filter(Boolean).join(' · ');
+    return [m?.label, tl && `${tl.t.name} ${tl.l.name}`, c ? c.name : s.car?.display].filter(Boolean).join(', ');
   }
   function bindPresets() {
     const byId = (id) => data.presets.find((p) => p.id === id);
@@ -339,7 +339,7 @@ export async function viewRace(view, cleanup) {
   }
   async function savePreset() {
     const c = st.car?.id ? carById(st.car.id) : null, tl = trackOf(st.track);
-    const name = await askText('Preset name', [c?.name, tl?.t.name, st.kind === 'mp' ? null : mode().label].filter(Boolean).join(' · ') || 'My setup');
+    const name = await askText('Preset name', [c?.name, tl?.t.name, st.kind === 'mp' ? null : mode().label].filter(Boolean).join(', ') || 'My setup');
     if (!name) return;
     try { Object.assign(data, await post('/api/race/presets', { name, spec: st.kind === 'mp' ? { kind: 'mp', car: st.car, serverId: st.serverId } : spec() })); body(); msg(`Saved "${name}"`); }
     catch (e) { msg(e.message, true); }
@@ -350,7 +350,7 @@ export async function viewRace(view, cleanup) {
     return `<h3 style="margin:26px 0 10px">Quick picks <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· your recent combos, started as ${esc(mode().label)} with the conditions above</span></h3>
       <div class="mini-grid">${r.map((c, i) => { const car = c.car?.id ? carById(c.car.id) : null; const tl = c.trackRef ? trackOf(c.trackRef) : null; const ok = tl && offered(tl.l); return `<div class="mini">
         <div class="img">${car ? `<img loading="lazy" alt="" src="${thumbUrl(car.id)}">` : ''}${c.bestMs ? `<span class="time">${fmt(c.bestMs)}</span>` : ''}</div>
-        <div class="body"><b>${esc(car ? `${car.brand} ${car.name}` : prettyName(c.carName))} ${modBadge(car)}</b><span class="muted">${esc(tl ? `${tl.t.name} · ${tl.l.name}` : `${prettyName(c.track)} ${c.layout || ''}`)} · ${c.laps} laps · ${ago(c.lastAt)}</span><span class="spacer"></span>
+        <div class="body"><b>${esc(car ? `${car.brand} ${car.name}` : prettyName(c.carName))} ${modBadge(car)}</b><span class="muted">${esc(tl ? `${tl.t.name} ${tl.l.name}` : `${prettyName(c.track)} ${c.layout || ''}`)}, ${c.laps} lap${c.laps === 1 ? '' : 's'}, ${ago(c.lastAt)}</span><span class="spacer"></span>
           <div class="acts"><button class="small primary" data-rgo="${i}" ${ok ? '' : 'disabled title="this track is not offered for the chosen session type"'}>Start ▸</button><button class="small" data-rload="${i}" ${c.trackRef ? '' : 'disabled title="track not found in the game data"'}>Load</button></div></div></div>`; }).join('')}</div>`;
   }
   const useRecent = (c) => { st.car = c.car.id ? { id: c.car.id, mech: null, visual: null } : { display: c.car.display }; st.track = { ...c.trackRef }; remember(); };
@@ -367,7 +367,7 @@ export async function viewRace(view, cleanup) {
           ${st.car ? '<button class="ghost small" id="oKeep" style="margin-top:8px">Use the car selected in the game instead</button>' : ''}</div>
         <div class="card" style="margin:0"><h2>Server</h2>
           ${data.servers.length ? `<div style="display:flex;flex-direction:column;gap:8px">${data.servers.map((s) => `<label class="mode-card ${st.serverId === s.id ? 'on' : ''}" style="display:flex;align-items:center;gap:12px;cursor:pointer">
-            <input type="radio" name="srv" value="${s.id}" ${st.serverId === s.id ? 'checked' : ''}><span style="flex:1"><span class="t">${esc(s.name)}</span><span class="d">${esc(s.ip)}:${s.port}${s.hasPassword ? ' · password saved' : ''}</span></span>
+            <input type="radio" name="srv" value="${s.id}" ${st.serverId === s.id ? 'checked' : ''}><span style="flex:1"><span class="t">${esc(s.name)}</span><span class="d">${esc(s.ip)}:${s.port}${s.hasPassword ? ', password saved' : ''}</span></span>
             <button class="small ghost" data-sdel="${s.id}">Delete</button></label>`).join('')}</div>` : '<p class="muted">No saved servers yet.</p>'}
           <h3 style="margin-top:18px">Add a server</h3>
           <div class="fields"><label>Name</label><input id="sName" placeholder="e.g. league server">
@@ -378,7 +378,7 @@ export async function viewRace(view, cleanup) {
         </div>
       </div>
       <div class="actionbar"><div class="summary"><b id="rSummary"></b><span id="rMsg"></span></div><span class="spacer"></span>
-        <button id="rSave">Save preset</button><button class="primary big" id="oGo">Join server ▸</button></div>
+        <button id="rSave">Save preset</button><button class="primary big" id="oGo">Join server</button></div>
       ${presetsCard()}`;
     bindCarPanel(() => bodyOnline());
     if ($('#oKeep')) $('#oKeep').onclick = () => { st.car = null; remember(); bodyOnline(); };
@@ -396,7 +396,7 @@ export async function viewRace(view, cleanup) {
     $('#rSave').onclick = savePreset;
     summary();
     const srv = data.servers.find((s) => s.id === st.serverId);
-    if (srv) $('#rSummary').textContent = `Online · ${srv.name}${st.car?.id ? ' · ' + (carById(st.car.id)?.name || '') : ''}`;
+    if (srv) $('#rSummary').textContent = `Online on ${srv.name}${st.car?.id ? ', ' + (carById(st.car.id)?.name || '') : ''}`;
     bindPresets();
   }
 

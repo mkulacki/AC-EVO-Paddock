@@ -20,16 +20,23 @@ events.addEventListener('status', (e) => {
   const recording = state.status === 'live' && live;
   statusEl.className = `status ${recording ? 'live' : state.connected ? 'idle' : ''}`;
   statusEl.querySelector('.txt').textContent = recording
-    ? `Recording · ${prettyName(live.track)} · ${prettyName(live.car)} · ${fmt(live.lapTimeMs)}`
-    : `Game: ${state.status}`;
+    ? `Recording ${prettyName(live.car)} at ${prettyName(live.track)}, ${fmt(live.lapTimeMs)}`
+    : STATUS_TEXT[state.status] || `AC EVO: ${state.status}`;
+  statusEl.title = recording ? 'Every lap you finish is saved' : '';
 });
+// the recorder's state in plain words
+const STATUS_TEXT = {
+  offline: "AC EVO isn't running", 'waiting for game': "AC EVO isn't running", 'game not running': "AC EVO isn't running",
+  menu: 'AC EVO is in the menus', off: 'AC EVO is in the menus', pause: 'Paused', replay: 'Watching a replay',
+  live: 'On track', unknown: 'AC EVO is running',
+};
 events.addEventListener('lap', () => { if (currentRoute === 'laps') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
 let reloadT;
 
-// ------------------------------------------------------------------ developer: restart the app
-$('#devRestart').onclick = async () => {
-  const btn = $('#devRestart');
+// ------------------------------------------------------------------ restart the app (Settings), e.g. to load code changes
+async function restartPaddock(btn) {
   if (statusEl.classList.contains('live') && !confirm('A lap is being recorded.\n\nRestart anyway? The lap in progress is lost.')) return;
+  const label = btn.textContent;
   btn.disabled = true; btn.textContent = 'Restarting…';
   try { await post('/api/dev/restart', {}); } catch { /* already going down */ }
   // wait until the server has gone and is back, then load the new page code
@@ -40,11 +47,11 @@ $('#devRestart').onclick = async () => {
       await fetch('/api/status', { cache: 'no-store' }).then((r) => { if (!r.ok) throw new Error(); });
       if (wentDown || Date.now() - t0 > 4000) return location.reload();
     } catch { wentDown = true; }
-    if (Date.now() - t0 > 60000) { btn.disabled = false; btn.textContent = 'Developer: restart'; alert('Paddock did not come back within a minute. Check its console or log.'); return; }
+    if (Date.now() - t0 > 60000) { btn.disabled = false; btn.textContent = label; alert('Paddock did not come back within a minute. Check its console or log.'); return; }
     setTimeout(poll, 400);
   };
   setTimeout(poll, 600);
-};
+}
 
 api('/api/status').then((s) => { status = s.settings; });
 
@@ -149,7 +156,6 @@ async function viewLaps() {
     .filter((c) => (!lapView.track || c.track === lapView.track) && (!lapView.car || c.car === lapView.car))
     .sort(orders[lapView.order]?.[1] || orders.recent[1]);
   const comboLaps = (c) => o.laps.filter((l) => `${l.track}|${l.layout}|${l.car}` === c.key);
-  const invalidShown = combos.flatMap((c) => comboLaps(c).filter((l) => !l.valid).map((l) => l.id));
   const opts = (list, cur, all) => `<option value="">${all}</option>` + list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(prettyName(v))}</option>`).join('');
   view.innerHTML = `
     <div class="row" style="margin-bottom:16px">
@@ -157,13 +163,11 @@ async function viewLaps() {
       <select id="f-track" title="Filter by track">${opts(tracks, lapView.track, 'All tracks')}</select>
       <select id="f-car" title="Filter by car">${opts(cars, lapView.car, 'All cars')}</select>
       <select id="f-order" title="Order by">${Object.entries(orders).map(([k, [label]]) => `<option value="${k}" ${k === lapView.order ? 'selected' : ''}>${label}</option>`).join('')}</select>
-      ${invalidShown.length ? `<button id="rm-invalid" class="danger-ghost" title="Delete every invalid lap in the list below">Remove invalid laps (${invalidShown.length})</button>` : ''}
       <button id="imp">Import lap files…</button>
     </div>
-    ${combos.length ? '' : '<div class="card empty"><p>No laps match this track and car.</p></div>'}
+    ${combos.length ? '' : '<div class="card empty"><p>No laps match this track and car. Choose “All tracks” or “All cars” to see the rest.</p></div>'}
     ${combos.map((c) => comboCard(c, comboLaps(c), sessions)).join('')}`;
   bindImport($('#imp'));
-  if ($('#rm-invalid')) $('#rm-invalid').onclick = () => removeLaps(invalidShown, `invalid lap${invalidShown.length > 1 ? 's' : ''}${lapView.track || lapView.car ? ' (shown with the current filters)' : ''}`);
   view.querySelectorAll('th[data-sort]').forEach((th) => { th.onclick = () => { cycleLapSort(th.dataset.sort); render(); }; });
   [['#f-track', 'track'], ['#f-car', 'car'], ['#f-order', 'order']].forEach(([sel, k]) => {
     $(sel).onchange = (e) => { lapView[k] = e.target.value; render(); };
@@ -200,6 +204,11 @@ async function viewLaps() {
       const ids = rmc.dataset.rmInvalid.split(',').map(Number);
       removeLaps(ids, `invalid lap${ids.length > 1 ? 's' : ''} of this car and track`);
     };
+    // a click anywhere on a lap row (not on its checkbox or tools) opens it against the best lap, or the best lap against the ideal
+    card.querySelectorAll('tr[data-open]').forEach((tr) => tr.onclick = (e) => {
+      if (e.target.closest('input, button, a, label')) return;
+      location.hash = tr.dataset.open;
+    });
     card.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
       if (!confirm('Delete this lap permanently?')) return;
       await api(`/api/laps/${b.dataset.del}`, { method: 'DELETE' });
@@ -229,23 +238,33 @@ function comboCard(c, laps, sessions) {
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(l);
   }
+  // timing-sheet colours: purple = best lap of this car and track, green = fastest valid lap of its session
+  const sessionBest = new Map();
+  for (const l of laps) if (l.valid && l.source !== 'import') {
+    const b = sessionBest.get(l.session_id);
+    if (!b || l.lap_time_ms < b.lap_time_ms) sessionBest.set(l.session_id, l);
+  }
+  // one driver for every lap: the Driver column says nothing
+  const showDriver = new Set(laps.map((l) => l.driver || '')).size > 1;
   const row = (l) => {
       const gap = c.bestMs ? l.lap_time_ms - c.bestMs : null;
       const isBest = l.id === c.bestLapId;
-      return `<tr class="${l.valid ? '' : 'invalid'}">
-        <td><input type="checkbox" data-lap="${l.id}"></td>
+      const isPb = !isBest && l.valid && sessionBest.get(l.session_id)?.id === l.id;
+      const open = isBest ? `#/compare?laps=${l.id}&ref=ideal` : `#/compare?laps=${l.id}&ref=best`;
+      return `<tr class="${l.valid ? '' : 'invalid'}" data-open="${open}" title="${isBest ? 'Compare with the ideal lap' : 'Compare with your best lap'}">
+        <td><input type="checkbox" data-lap="${l.id}" aria-label="Select lap for comparison"></td>
         <td class="muted">${l.lap_number ?? ''}</td>
-        <td class="time"><b>${fmt(l.lap_time_ms)}</b> ${isBest ? '<span class="badge best">best</span>' : ''} ${l.valid ? '' : '<span class="badge bad">invalid</span>'}</td>
-        <td class="${gapClass(gap)}">${isBest ? '' : fmtGap(gap)}</td>
-        <td class="secondary">${esc(l.driver || '')}${l.source === 'import' ? ' <span class="badge">imported</span>' : ''}</td>
+        <td class="time${isBest ? ' best' : isPb ? ' pb' : ''}"><a href="${open}"><b>${fmt(l.lap_time_ms)}</b></a> ${isBest ? '<span class="badge best">Best</span>' : isPb ? '<span class="badge pb">Session best</span>' : ''} ${l.valid ? '' : '<span class="badge bad">Invalid</span>'}</td>
+        <td class="secondary">${isBest ? '' : fmtGap(gap)}</td>
+        ${showDriver ? `<td class="secondary">${esc(l.driver || '')}${l.source === 'import' ? ' <span class="badge">Imported</span>' : ''}</td>` : ''}
         <td class="muted" style="white-space:nowrap">${esc(fmtStamp(l.recorded_at))}</td>
         <td class="actions">
-          <a href="#/compare?laps=${l.id}&ref=best"><button class="small ghost" ${isBest ? 'disabled' : ''}>vs best</button></a>
-          <a href="#/compare?laps=${l.id}&ref=ideal"><button class="small ghost">vs ideal</button></a>
-          <a href="/api/laps/${l.id}/export" download><button class="small ghost" title="Export lap file">⇩</button></a>
-          <button class="small ghost" data-del="${l.id}" title="Delete lap">✕</button>
+          <a href="#/compare?laps=${l.id}&ref=ideal"><button class="small ghost" title="Compare with the ideal lap (your best sectors)">Ideal</button></a>
+          <a href="/api/laps/${l.id}/export" download><button class="small ghost" title="Export lap file" aria-label="Export lap file">⇩</button></a>
+          <button class="small ghost" data-del="${l.id}" title="Delete lap" aria-label="Delete lap">✕</button>
         </td></tr>`;
   };
+  const cols = showDriver ? 7 : 6;
   let rows;
   const sortCol = lapSort && LAP_COLS[lapSort.col];
   if (sortCol) {
@@ -256,10 +275,11 @@ function comboCard(c, laps, sessions) {
   } else {
     rows = [...groups.entries()].map(([g, ls]) => {
       const s = sessions.get(g);
-      const head = g === 'import' ? 'Imported laps'
-        : `${s ? new Date(s.started_at).toLocaleString() : 'Session'} · ${SESSION_TYPES[s?.session_type] || 'Session'} · ${ls.length} laps`;
+      const when = s ? new Date(s.started_at).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+      const head = g === 'import' ? '<b>Imported laps</b>'
+        : `<b>${esc(SESSION_TYPES[s?.session_type] || 'Session')}</b> on ${esc(when)}, ${ls.length} lap${ls.length === 1 ? '' : 's'}`;
       const sorted = g === 'import' ? ls.sort((a, b) => a.lap_time_ms - b.lap_time_ms) : ls.sort((a, b) => a.recorded_at - b.recorded_at);
-      return `<tr class="session"><td colspan="7">${esc(head)}</td></tr>` + sorted.map(row).join('');
+      return `<tr class="session"><td colspan="${cols}">${head}</td></tr>` + sorted.map(row).join('');
     }).join('');
   }
   const th = (col) => {
@@ -272,23 +292,24 @@ function comboCard(c, laps, sessions) {
   return `<section class="card" data-combo="${esc(c.key)}">
     <div class="combo-head">
       <div><div class="title">${esc(prettyName(c.track))} <span class="muted">${esc(prettyName(c.layout))}</span></div><div class="secondary">${esc(prettyName(c.car))}</div></div>
-      <div class="stat"><span class="k">Best lap</span><span class="v">${fmt(c.bestMs)}</span></div>
-      <div class="stat"><span class="k">Ideal lap</span><span class="v">${fmt(c.idealMs)} <small class="${gapClass(gapIdeal)}">${gapIdeal != null ? fmtGap(gapIdeal) : ''}</small></span></div>
-      <div class="stat"><span class="k">Laps</span><span class="v">${c.validLaps}<small class="muted"> valid / ${c.laps}</small></span></div>
+      <div class="stat"><span class="k">Best lap</span><span class="v best">${fmt(c.bestMs)}</span></div>
+      <div class="stat"><span class="k">Ideal lap</span><span class="v">${fmt(c.idealMs)} <small class="secondary">${gapIdeal != null ? fmtGap(gapIdeal) : ''}</small></span></div>
+      <div class="stat"><span class="k">Valid laps</span><span class="v">${c.validLaps}<small class="muted"> of ${c.laps}</small></span></div>
       <span class="spacer"></span>
-      <div class="row">
-        <button class="hotlap" data-hotlap title="Start AC EVO in Hotlap mode with this track and car: clear weather, optimum grip">Start hotlap</button>
-        ${c.validLaps >= 1 ? `<a href="#/progress?combo=${encodeURIComponent(c.key)}"><button>Progress</button></a>` : ''}
-        ${c.validLaps >= 2 ? `<a href="#/consistency?combo=${encodeURIComponent(c.key)}"><button>Consistency</button></a>` : ''}
-        ${c.bestLapId && c.idealMs ? `<a href="#/compare?laps=${c.bestLapId}&ref=ideal"><button>Best vs ideal</button></a>` : ''}
-        <select class="ref-sel" title="Reference lap">
-          <option value="best">vs my best lap</option><option value="ideal">vs ideal lap</option><option value="first">vs first selected lap</option>
-        </select>
-        <button class="primary cmp-sel" disabled>Compare selected</button>
-        ${invalidIds.length ? `<button class="danger-ghost" data-rm-invalid="${invalidIds.join(',')}" title="Delete the invalid laps of this car and track">Remove invalid (${invalidIds.length})</button>` : ''}
-      </div>
+      <button class="primary" data-hotlap title="Start AC EVO in Hotlap mode with this track and car: clear weather, optimum grip">Start hotlap</button>
     </div>
-    <table><thead><tr><th></th>${th('lap')}${th('time')}${th('gap')}${th('driver')}${th('recorded')}<th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="row" style="margin-bottom:12px">
+      ${c.validLaps >= 1 ? `<a href="#/progress?combo=${encodeURIComponent(c.key)}"><button>Progress</button></a>` : ''}
+      ${c.validLaps >= 2 ? `<a href="#/consistency?combo=${encodeURIComponent(c.key)}"><button>Consistency</button></a>` : ''}
+      ${c.bestLapId && c.idealMs ? `<a href="#/compare?laps=${c.bestLapId}&ref=ideal"><button>Best lap against ideal</button></a>` : ''}
+      <span class="spacer"></span>
+      <button class="cmp-sel" disabled>Compare selected</button>
+      <select class="ref-sel" title="Reference lap">
+        <option value="best">with my best lap</option><option value="ideal">with the ideal lap</option><option value="first">with the first one selected</option>
+      </select>
+      ${invalidIds.length ? `<button class="danger-ghost" data-rm-invalid="${invalidIds.join(',')}" title="Delete the invalid laps of this car and track">Remove invalid laps (${invalidIds.length})</button>` : ''}
+    </div>
+    <table class="laps"><thead><tr><th></th>${th('lap')}${th('time')}${th('gap')}${showDriver ? th('driver') : ''}${th('recorded')}<th></th></tr></thead><tbody>${rows}</tbody></table>
   </section>`;
 }
 
@@ -331,9 +352,9 @@ async function viewCompare(params) {
   const chip = (label, ms, i, extra = '') => `<div class="chip"><span class="sw" style="background:${color(i)}"></span><span>${label}</span><span class="t">${fmt(ms)}</span>${extra}</div>`;
   view.innerHTML = `
     <div class="cmp-head">
-      <a href="#/"><button class="ghost">← Laps</button></a>
+      <a href="#/"><button class="ghost">Back to laps</button></a>
       <div><h1>${esc(prettyName(data.combo.track))} <span class="muted">${esc(prettyName(data.combo.layout))}</span></h1>
-        <div class="secondary">${esc(prettyName(data.combo.car))} · best ${fmt(data.bestMs)} · ideal ${fmt(data.idealMs)}</div></div>
+        <div class="secondary">${esc(prettyName(data.combo.car))}. Best lap ${fmt(data.bestMs)}, ideal lap ${fmt(data.idealMs)}</div></div>
       <span class="spacer"></span>
       <label class="row">Reference <select id="refSel">
         <option value="best">My best lap</option><option value="ideal">Ideal lap (best segments)</option>
@@ -341,25 +362,25 @@ async function viewCompare(params) {
       </select></label>
     </div>
     <div class="chips" style="margin-bottom:16px">
-      ${chip(`Ref · ${esc(data.ref.label)}${data.ref.meta?.driver ? ' · ' + esc(data.ref.meta.driver) : ''}`, data.ref.lapTimeMs, 0)}
-      ${laps.map((l, i) => chip(`Lap #${l.id}${l.meta.source === 'import' ? ' · ' + esc(l.meta.driver) : ''}${l.meta.valid ? '' : ' (invalid)'}`, l.meta.lap_time_ms, i + 1,
+      ${chip(`Reference: ${esc(data.ref.label)}${data.ref.meta?.driver ? ` (${esc(data.ref.meta.driver)})` : ''}`, data.ref.lapTimeMs, 0)}
+      ${laps.map((l, i) => chip(`Lap #${l.id}${l.meta.source === 'import' ? ` (${esc(l.meta.driver)})` : ''}${l.meta.valid ? '' : ' (invalid)'}`, l.meta.lap_time_ms, i + 1,
         `<span class="num ${gapClass(l.meta.lap_time_ms - data.ref.lapTimeMs)}">${fmtGap(l.meta.lap_time_ms - data.ref.lapTimeMs)}</span>`)).join('')}
     </div>
-    ${!laps.length ? '<div class="card muted">This lap is the reference itself - pick another reference (e.g. ideal lap) to see deltas.</div>' : ''}
-    ${data.ref.sources ? `<div class="card"><h2>Ideal lap is built from</h2><div class="row">${data.ref.sources.map((s) =>
-      `<span class="badge">${s.corner}: <a href="#/compare?laps=${s.lapId}&ref=ideal">lap #${s.lapId}</a> ${(s.timeMs / 1000).toFixed(3)}s</span>`).join('')}</div></div>` : ''}
+    ${!laps.length ? '<div class="card muted">This lap is the reference itself. Choose another reference, such as the ideal lap, to see where time goes.</div>' : ''}
+    ${data.ref.sources ? `<div class="card plain"><h3>The ideal lap joins your best sectors</h3><div class="ideal-src">${data.ref.sources.map((s) =>
+      `<span><b>${s.corner}</b> ${(s.timeMs / 1000).toFixed(3)}s from <a href="#/compare?laps=${s.lapId}&ref=ideal">lap #${s.lapId}</a></span>`).join('')}</div></div>` : ''}
     <div class="tabs"><a href="${hrefTab('charts')}" class="${tab === 'charts' ? 'on' : ''}">Charts &amp; analysis</a><a href="${hrefTab('line')}" class="${tab === 'line' ? 'on' : ''}">Racing line replay</a></div>
     <div id="tabBody">
     <div class="grid2">
       <div class="card mapwrap"><h2>Track map</h2><canvas id="map"></canvas>
-        <div class="legend-scale">${laps.length ? `<span>Gaining</span><span class="bar"></span><span>Losing</span><span class="muted">time vs reference (Lap #${laps[0]?.id})</span>` : ''}</div></div>
+        <div class="legend-scale">${laps.length ? `<span>Gaining</span><span class="bar"></span><span>Losing</span><span class="muted">lap #${laps[0]?.id} against the reference</span>` : ''}</div></div>
       <div class="card"><div class="row" style="margin-bottom:8px"><h2 style="margin:0">Corners</h2><span class="spacer"></span>
         ${laps.length > 1 ? `<label class="row">Lap <select id="focusSel">${laps.map((l, i) => `<option value="${i}">#${l.id}</option>`).join('')}</select></label>` : ''}
-        <span class="muted" style="font-size:12px">click a corner to zoom</span></div>
+        <span class="muted" style="font-size:12px">Click a corner to zoom the charts to it</span></div>
         <div class="corner-table" id="corners"></div></div>
     </div>
-    <div class="card charts" id="charts"></div>
-    <div class="card" id="ai"></div>
+    <div class="card plain charts" id="charts"></div>
+    <div class="card plain" id="ai"></div>
     </div>`;
 
   $('#refSel').value = String(ref);
@@ -397,7 +418,7 @@ async function viewCompare(params) {
           <td>${m.coastM ? `<span class="${m.coastM > r.coastM + 5 ? 'pos' : ''}">${m.coastM}</span>` : '<span class="muted">0</span>'}</td>
           <td class="num">${[m.entryWide, m.apexWide, m.exitWide].map((v) => `<span class="${v != null && Math.abs(v) >= 0.5 ? 'secondary' : 'muted'}">${wideTxt(v)}</span>`).join(' / ')}</td></tr>`;
       }).join('')}</tbody></table>
-      <p class="muted" style="font-size:12px;margin:8px 0 0">Small numbers = difference vs reference. Brake point: + means braking later. Throttle on: − means earlier. Line: + = wider than the reference (towards the outside of the corner), − = tighter.</p>`;
+      <p class="foot-note" style="margin:8px 0 0;max-width:80ch">Small numbers are the difference to the reference. A positive brake point means you braked later; a negative throttle point means you were back on the throttle earlier. On the line, positive is wider than the reference (towards the outside of the corner) and negative is tighter.</p>`;
     $('#corners').querySelectorAll('tr[data-c]').forEach((tr) => tr.onclick = () => {
       const i = +tr.dataset.c;
       selCorner = selCorner === i ? null : i;
@@ -521,7 +542,8 @@ async function viewCompare(params) {
   });
   function makeChart(title, series, values, { height = 120, range, stepped = false, labels = false, fmtV = (v) => v } = {}) {
     const el = document.createElement('div');
-    el.innerHTML = `<div class="chart-title">${title}</div>`;
+    const [t, note] = Array.isArray(title) ? title : [title];
+    el.innerHTML = `<div class="chart-title">${t}${note ? `<span>${note}</span>` : ''}</div>`;
     $('#charts').appendChild(el);
     const opts = {
       width: $('#charts').clientWidth - 32, height,
@@ -549,15 +571,15 @@ async function viewCompare(params) {
   }
   const lapSeries = (fmtLabel) => all.map((_, i) => ({ label: fmtLabel ? fmtLabel(i) : name(i), stroke: color(i), width: i === 0 ? 1.5 : 1.5 }));
   if (laps.length) {
-    makeChart('Time delta vs reference (s) — rising = losing time', [{ label: 'Ref', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 2 }))],
+    makeChart(['Gap to reference, in seconds', 'rising means losing time'], [{ label: 'Ref', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 2 }))],
       [d.map(() => 0), ...laps.map((l) => l.delta)], { height: 150, fmtV: (v) => `${v > 0 ? '+' : ''}${(+v).toFixed(2)}s` });
     const sgn = mirror ? -1 : 1;
-    makeChart('Racing line vs reference (m) — above = left of reference line on the map', [{ label: 'Ref line', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 1.5 }))],
+    makeChart(['Racing line against the reference, in metres', 'above zero means left of the reference on the map'], [{ label: 'Ref line', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 1.5 }))],
       [d.map(() => 0), ...laps.map((l) => l.offset.map((v) => v * sgn))], { height: 130, fmtV: (v) => sideTxt(v * sgn, mirror) });
   }
-  makeChart('Speed (km/h)', lapSeries(), all.map((l) => l.trace.spd), { height: 220, labels: true, fmtV: (v) => Math.round(v) });
-  makeChart('Throttle (%)', lapSeries(), all.map((l) => l.trace.thr.map((v) => v * 100)), { range: [0, 102], fmtV: (v) => `${Math.round(v)}%` });
-  makeChart('Brake (%)', lapSeries(), all.map((l) => l.trace.brk.map((v) => v * 100)), { range: [0, 102], fmtV: (v) => `${Math.round(v)}%` });
+  makeChart(['Speed', 'km/h'], lapSeries(), all.map((l) => l.trace.spd), { height: 220, labels: true, fmtV: (v) => Math.round(v) });
+  makeChart(['Throttle', '%'], lapSeries(), all.map((l) => l.trace.thr.map((v) => v * 100)), { range: [0, 102], fmtV: (v) => `${Math.round(v)}%` });
+  makeChart(['Brake', '%'], lapSeries(), all.map((l) => l.trace.brk.map((v) => v * 100)), { range: [0, 102], fmtV: (v) => `${Math.round(v)}%` });
   makeChart('Steering', lapSeries(), all.map((l) => l.trace.str), { fmtV: (v) => (+v).toFixed(2) });
   makeChart('Gear', lapSeries(), all.map((l) => l.trace.gear), { height: 100, stepped: true, fmtV: gearTxt });
 
@@ -576,8 +598,8 @@ async function viewCompare(params) {
     const lap = laps[focus];
     const box = $('#ai');
     if (!lap) { box.innerHTML = ''; return; }
-    box.innerHTML = `<div class="row"><h2 style="margin:0">AI driving coach</h2><span class="muted">Lap #${lap.id} vs ${esc(data.ref.label)}</span><span class="spacer"></span>
-        <a class="muted" style="font-size:12px" href="/api/ai/summary?lap=${lap.id}&ref=${refKey}" target="_blank">what is sent to the AI?</a>
+    box.innerHTML = `<div class="row"><h2 style="margin:0">AI driving coach</h2><span class="muted">Lap #${lap.id} against ${esc(data.ref.label)}</span><span class="spacer"></span>
+        <a class="muted" style="font-size:12px" href="/api/ai/summary?lap=${lap.id}&ref=${refKey}" target="_blank">What is sent to the AI?</a>
         <button class="primary" id="aiGo" ${status.hasKey ? '' : 'disabled'}>Analyze my driving</button></div>
       ${status.hasKey ? '' : '<p class="muted">Add a free Google Gemini API key in <a href="#/settings">Settings</a> to enable the AI coach.</p>'}
       <div class="ai-out" id="aiOut"></div>
@@ -590,7 +612,7 @@ async function viewCompare(params) {
       try {
         const r = await post('/api/ai/analyze', { lap: lap.id, ref: refKey, ...body });
         holder.innerHTML = (body.question ? `<p class="secondary"><b>Q:</b> ${esc(body.question)}</p>` : '') + md(r.text) +
-          `<p class="muted" style="font-size:12px">${esc(r.model)} · ${new Date(r.createdAt).toLocaleString()}${r.cached ? ' · saved analysis <button class="small ghost" id="aiRe">re-analyze</button>' : ''}</p>`;
+          `<p class="muted" style="font-size:12px">${r.cached ? 'Saved analysis from' : 'Analysis by'} ${esc(r.model)}, ${new Date(r.createdAt).toLocaleString()}${r.cached ? ' <button class="small ghost" id="aiRe">Analyze again</button>' : ''}</p>`;
         if (r.cached) holder.querySelector('#aiRe').onclick = () => run({ force: true });
         $('#aiQ').hidden = false;
       } catch (e) { holder.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
@@ -607,7 +629,7 @@ async function viewCompare(params) {
 async function viewGame() {
   view.innerHTML = `<div class="card"><div class="row"><h1 style="margin:0">AC EVO</h1><span class="spacer"></span>
       <button class="primary" id="gLaunch">Start AC EVO</button></div>
-      <div id="gStatus" class="game-status muted" style="margin-top:12px">loading…</div></div>
+      <div id="gStatus" class="game-status muted" style="margin-top:12px">Checking the game…</div></div>
     <div class="card"><h2 style="margin-top:0">Drive</h2>
       <p class="muted">Set up a session (type, car, track, conditions, AI grid) or join a server in the <a href="#/race">Race</a> tab.</p>
       <div id="gLaunchState"></div></div>`;
@@ -617,7 +639,7 @@ async function viewGame() {
     if (!l) return [false, 'unknown'];
     const v = l.variant === 'alternate' ? `${l.bundled} (alternate build)` : l.bundled;
     if (l.gameMatch === false) return [false, `built for AC EVO ${l.builtFor}, but the game is ${l.game}: update Paddock${l.installed ? '' : ' (the loader is not installed)'}`];
-    if (l.state === 'current') return [true, `installed · ${v}`];
+    if (l.state === 'current') return [true, `installed, ${v}`];
     if (l.removed) return [false, `${l.installed ? 'not the one Paddock ships' : 'removed'} (disabled or deleted in the Mods tab, so Paddock leaves it alone)`];
     if (l.state === 'missing' || l.state === 'other') return [false, `${l.state === 'missing' ? 'missing' : 'a different version'}: Paddock installs ${l.bundled} as soon as AC EVO is closed`];
     if (l.state === 'no-game') return [false, 'AC EVO has not been started yet'];
@@ -631,12 +653,12 @@ async function viewGame() {
     const t = g.telemetry, live = t.live;
     const hudLive = g.liveAgeMs != null && g.liveAgeMs < 2000;
     $('#gStatus').innerHTML = `<table class="kv"><tbody>
-      <tr><td>Game</td><td>${yesNo(g.running, 'running', 'not running')}${g.version ? ` · version ${esc(g.version)}` : ''}</td></tr>
-      <tr><td>Telemetry</td><td>${t.status === 'live' && live ? `<span class="g-ok">live</span> · ${esc(prettyName(live.track))} ${esc(live.layout || '')} · ${esc(prettyName(live.car))} · lap ${fmt(live.lapTimeMs)}`
-        : esc(t.status)} · ${t.savedLaps} lap(s) saved since start</td></tr>
+      <tr><td>Game</td><td>${yesNo(g.running, 'running', 'not running')}${g.version ? `, version ${esc(g.version)}` : ''}</td></tr>
+      <tr><td>Telemetry</td><td>${t.status === 'live' && live ? `<span class="g-ok">live</span>: ${esc(prettyName(live.car))} at ${esc(prettyName(live.track))} ${esc(live.layout || '')}, lap time ${fmt(live.lapTimeMs)}`
+        : esc(STATUS_TEXT[t.status] || t.status)}. ${t.savedLaps} lap${t.savedLaps === 1 ? '' : 's'} saved since Paddock started</td></tr>
       <tr><td>ACE UI App Loader</td><td>${(([ok, txt]) => yesNo(ok, esc(txt), esc(txt)))(loaderLine(g.loaderInfo))}</td></tr>
-      <tr><td>Paddock HUD</td><td>${g.hudVersion ? `<span class="g-ok">installed</span> · ${esc(g.hudVersion)}` : '<span class="g-bad">not installed</span> (Paddock installs it as soon as AC EVO is closed; see the <a href="#/mods">Mods</a> tab)'}
-        · data feed ${yesNo(hudLive, 'updating', 'stopped')}</td></tr>
+      <tr><td>Paddock HUD</td><td>${g.hudVersion ? `<span class="g-ok">installed</span>, ${esc(g.hudVersion)}` : '<span class="g-bad">not installed</span> (Paddock installs it as soon as AC EVO is closed; see the <a href="#/mods">Mods</a> tab)'}
+        . Data feed ${yesNo(hudLive, 'updating', 'stopped')}</td></tr>
     </tbody></table>`;
     $('#gLaunch').textContent = g.running ? 'AC EVO is running' : 'Start AC EVO';
     $('#gLaunch').disabled = g.running;
@@ -646,7 +668,7 @@ async function viewGame() {
       ${L.order ? `<div class="row"><b>${L.order.kind === 'scan' ? 'Scanning' : 'Launching'}:</b>&nbsp;${esc(L.order.summary || '')}
         <span class="spacer"></span><button class="small ghost" id="gCancel">Cancel</button></div>` : ''}
       ${L.events.length ? `<ol class="muted" style="margin:6px 0 0 18px;padding:0">${L.events.map((e) =>
-        `<li class="${e.step === 'error' ? 'g-bad' : e.step === 'started' || e.step === 'scandone' ? 'g-ok' : ''}">${esc(e.msg || e.step)}</li>`).join('')}</ol>` : '<div class="muted">waiting for the game…</div>'}
+        `<li class="${e.step === 'error' ? 'g-bad' : e.step === 'started' || e.step === 'scandone' ? 'g-ok' : ''}">${esc(e.msg || e.step)}</li>`).join('')}</ol>` : '<div class="muted">Waiting for the game…</div>'}
     </div>` : '';
     if ($('#gCancel')) $('#gCancel').onclick = async () => { await post('/api/game/cancel', {}); refresh(); };
   }
@@ -704,9 +726,12 @@ async function viewSettings() {
         <li>If the in-game panel says “Paddock offline”, use the desktop overlay instead: <code>npm run overlay</code> (borderless/windowed mode).</li>
       </ol>
       <div class="row"><a href="/hud.html" target="_blank"><button>Open HUD in browser</button></a></div></div>
+    <div class="card"><div class="row"><h2 style="margin:0">Restart Paddock</h2><span class="spacer"></span><button id="restart">Restart Paddock</button></div>
+      <p class="muted" style="margin-bottom:0">Closes and reopens Paddock, for example after changing its files. The page reloads by itself when Paddock is back.</p></div>
     <div class="card"><div class="row"><h2 style="margin:0">Telemetry debug</h2><span class="spacer"></span><button id="rawGo">Show live raw values</button></div>
       <p class="muted">Use this while driving to check that speed, pedals, lap time, track position (npos) and coordinates look right.</p>
       <pre class="raw" id="raw" hidden></pre></div>`;
+  $('#restart').onclick = (e) => restartPaddock(e.currentTarget);
   $('#save').onclick = async () => {
     const body = Object.fromEntries(['driverName', 'geminiApiKey', 'geminiModel', 'language', 'gamePath'].map((k) => [k, $('#' + k).value.trim()]));
     try { status = await post('/api/settings', body); $('#saved').textContent = 'Saved ✓'; $('#geminiApiKey').value = status.geminiApiKey; }
@@ -763,7 +788,7 @@ async function viewSettings() {
     try {
       const models = await api('/api/ai/models');
       const cur = $('#geminiModel').value;
-      $('#geminiModel').innerHTML = models.map((m) => `<option value="${esc(m.id)}" ${m.id === cur ? 'selected' : ''}>${esc(m.id)} — ${esc(m.name)}</option>`).join('');
+      $('#geminiModel').innerHTML = models.map((m) => `<option value="${esc(m.id)}" ${m.id === cur ? 'selected' : ''}>${esc(m.name)} (${esc(m.id)})</option>`).join('');
     } catch (e) { alert(e.message + '\n\n(Save your API key first.)'); }
   };
   let timer;

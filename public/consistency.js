@@ -7,9 +7,9 @@ const METRICS = [
   { k: 'minSpeed', label: 'Min speed', unit: 'km/h', hint: '+ = more speed through the apex' },
   { k: 'throttlePickup', label: 'Throttle on', unit: 'm', hint: '− = back on throttle earlier' },
   { k: 'exitSpeed', label: 'Exit speed', unit: 'km/h', hint: '+ = faster exit' },
-  { k: 'entryWide', label: 'Line at turn-in', unit: 'm', hint: 'vs best lap line: + = wider (outside), − = tighter' },
-  { k: 'apexWide', label: 'Line at apex', unit: 'm', hint: 'vs best lap line: + = wider (outside), − = tighter' },
-  { k: 'exitWide', label: 'Line at exit', unit: 'm', hint: 'vs best lap line: + = wider (outside), − = tighter' },
+  { k: 'entryWide', label: 'Line at turn-in', unit: 'm', hint: 'Against your best lap line: positive is wider (outside), negative is tighter' },
+  { k: 'apexWide', label: 'Line at apex', unit: 'm', hint: 'Against your best lap line: positive is wider (outside), negative is tighter' },
+  { k: 'exitWide', label: 'Line at exit', unit: 'm', hint: 'Against your best lap line: positive is wider (outside), negative is tighter' },
 ];
 
 export async function viewConsistency(view, params, cleanup) {
@@ -37,22 +37,22 @@ export async function viewConsistency(view, params, cleanup) {
 
   view.innerHTML = `
     <div class="cmp-head">
-      <a href="#/"><button class="ghost">← Laps</button></a>
-      <div><h1>Consistency · ${esc(prettyName(track))} <span class="muted">${esc(prettyName(layout))}</span></h1>
+      <a href="#/"><button class="ghost">Back to laps</button></a>
+      <div><h1>Consistency at ${esc(prettyName(track))} <span class="muted">${esc(prettyName(layout))}</span></h1>
         <div class="secondary">${esc(prettyName(car))}</div></div>
       <span class="spacer"></span>
       <label class="row">Session <select id="sess"><option value="all">All sessions</option>
-        ${data.sessions.map((s) => `<option value="${s.id}">${new Date(s.startedAt).toLocaleString()} · ${SESSION_TYPES[s.type] || ''}</option>`).join('')}</select></label>
-      <label class="row"><input type="checkbox" id="inv" ${invalid ? 'checked' : ''}> include invalid laps</label>
+        ${data.sessions.map((s) => `<option value="${s.id}">${SESSION_TYPES[s.type] || 'Session'} on ${new Date(s.startedAt).toLocaleString()}</option>`).join('')}</select></label>
+      <label class="row"><input type="checkbox" id="inv" ${invalid ? 'checked' : ''}> Include invalid laps</label>
     </div>
-    ${laps.length < 2 ? '<div class="card empty">Need at least 2 laps for a consistency analysis.</div>' : `
+    ${laps.length < 2 ? '<div class="card empty">Drive at least 2 laps here to see how consistent you are.</div>' : `
     <div class="tiles">
       <div class="card stat"><span class="k">Laps</span><span class="v">${laps.length}</span></div>
       <div class="card stat"><span class="k">Best</span><span class="v">${fmt(times.min)}</span></div>
       <div class="card stat"><span class="k">Average</span><span class="v">${fmt(times.mean)}</span></div>
       <div class="card stat"><span class="k">Spread (σ)</span><span class="v">±${(times.sd / 1000).toFixed(3)}s</span></div>
       <div class="card stat"><span class="k">Ideal lap</span><span class="v">${fmt(data.idealMs)}</span></div>
-      <div class="card stat"><span class="k">Avg → ideal</span><span class="v pos">${fmtGap(times.mean - data.idealMs)}</span></div>
+      <div class="card stat"><span class="k">Average to ideal</span><span class="v pos">${fmtGap(times.mean - data.idealMs)}</span></div>
     </div>
     ${focus.length ? `<div class="card"><h2>Focus corners</h2><p class="secondary" style="margin:0">On average you lose the most time compared with your own fastest pass in
       ${focus.map((n) => { const c = corners.find((x) => x.n === n); return `<b>${c.name}</b> (${(c.opp / 1000).toFixed(3)}s)`; }).join(', ')}.
@@ -66,7 +66,7 @@ export async function viewConsistency(view, params, cleanup) {
       <thead><tr><th>Corner</th><th>Avg time left</th><th>Corner time σ</th><th>Brake point σ</th><th>Min speed σ</th><th>Throttle on σ</th><th>Exit speed σ</th><th>Apex line σ</th></tr></thead>
       <tbody>${corners.map((c) => {
         const sd = (k, unit, d = 1) => (c.s[k] ? `${c.s[k].sd.toFixed(d)} ${unit}` : '–');
-        return `<tr><td><b>${c.name}</b> ${focus.includes(c.n) ? '<span class="badge bad">focus</span>' : ''}</td>
+        return `<tr><td><b>${c.name}</b> ${focus.includes(c.n) ? '<span class="badge bad">Focus</span>' : ''}</td>
           <td class="${c.opp > 50 ? 'pos' : ''}">${(c.opp / 1000).toFixed(3)}s</td>
           <td>${sd('timeMs', 'ms', 0)}</td><td>${sd('brakePoint', 'm')}</td><td>${sd('minSpeed', 'km/h')}</td>
           <td>${sd('throttlePickup', 'm')}</td><td>${sd('exitSpeed', 'km/h')}</td><td>${sd('apexWide', 'm', 2)}</td></tr>`;
@@ -97,7 +97,7 @@ export async function viewConsistency(view, params, cleanup) {
         tip.hidden = i == null;
         if (i == null) return;
         const l = laps[i];
-        tip.innerHTML = `Lap #${l.id} · <b>${fmt(l.lapTimeMs)}</b> ${l.valid ? '' : '(invalid)'} <span class="${l.lapTimeMs - times.min > 0 ? 'pos' : ''}">${fmtGap(l.lapTimeMs - times.min)}</span>`;
+        tip.innerHTML = `Lap #${l.id}: <b>${fmt(l.lapTimeMs)}</b> ${l.valid ? '' : '(invalid)'} <span class="${l.lapTimeMs - times.min > 0 ? 'pos' : ''}">${fmtGap(l.lapTimeMs - times.min)}</span>`;
         tip.style.left = `${u.valToPos(i + 1, 'x') + 50}px`;
       }],
     },

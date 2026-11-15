@@ -17,10 +17,10 @@ export async function viewTracks(view) {
   }
   const layouts = tracks.flatMap((t) => t.layouts.map((l) => ({ t, l })));
   view.innerHTML = `<div class="card"><div class="row"><h1 style="margin:0">Tracks</h1>
-      <span class="muted">${tracks.length} tracks · ${layouts.length} layouts · read from AC EVO's own track data</span>
+      <span class="muted">${tracks.length} tracks and ${layouts.length} layouts, read from AC EVO's own track data</span>
       <span class="spacer"></span>
-      <input id="tq" placeholder="search track, layout, country" style="width:240px">
-      <label class="row" style="gap:6px"><input type="checkbox" id="tdriven"> only tracks I've driven</label></div></div>
+      <input id="tq" placeholder="Search track, layout or country" style="width:240px">
+      <label class="row" style="gap:6px"><input type="checkbox" id="tdriven"> Only tracks I've driven</label></div></div>
     <div class="track-grid" id="tgrid"></div>`;
   const render = () => {
     const q = $('#tq').value.trim().toLowerCase(), driven = $('#tdriven').checked;
@@ -31,7 +31,7 @@ export async function viewTracks(view) {
           <div class="row"><b>${esc(t.name)}</b><span class="spacer"></span><span class="tag">${esc(t.country)}</span></div>
           <div class="muted">${esc(l.name)}</div>
           <div class="track-facts"><span>${km(l.lengthM)}</span><span>${l.corners ?? '—'} corners</span><span>${l.width?.known ? `${l.width.median} m wide` : ''}</span></div>
-          ${l.laps ? `<div class="track-mine"><span class="g-ok">${l.laps} lap${l.laps > 1 ? 's' : ''}</span> · best ${fmt(l.bestMs)}</div>` : '<div class="track-mine muted">not driven yet</div>'}
+          ${l.laps ? `<div class="track-mine"><span class="g-ok">${l.laps} lap${l.laps > 1 ? 's' : ''}</span>, best ${fmt(l.bestMs)}</div>` : '<div class="track-mine muted">Not driven yet</div>'}
         </div></a>`).join('') || '<div class="card muted">No track matches.</div>';
   };
   $('#tq').oninput = render; $('#tdriven').onchange = render;
@@ -43,11 +43,11 @@ export async function viewTrack(view, params, cleanup) {
   const id = params.get('id'), key = params.get('layout');
   const d = await api(`/api/tracks/detail?track=${encodeURIComponent(id)}&layout=${encodeURIComponent(key)}`);
   const { track: t, layout: l, model: m, combos } = d;
-  view.innerHTML = `<div class="row" style="margin-bottom:12px"><a href="#/tracks"><button class="ghost">← Tracks</button></a>
+  view.innerHTML = `<div class="row" style="margin-bottom:12px"><a href="#/tracks"><button class="ghost">All tracks</button></a>
       <div><h1 style="margin:0">${esc(t.name)} <span class="muted">${esc(l.name)}</span></h1>
-        <div class="muted">${esc([t.countryName || t.country, t.region].filter(Boolean).join(' · '))}</div></div>
+        <div class="muted">${esc([t.countryName || t.country, t.region].filter(Boolean).join(', '))}</div></div>
       <span class="spacer"></span>
-      ${t.layouts.length > 1 ? `<select id="tlayout">${t.layouts.map((x) => `<option value="${esc(x.key)}" ${x.key === l.key ? 'selected' : ''}>${esc(x.name)} · ${km(x.lengthM)}</option>`).join('')}</select>` : ''}</div>
+      ${t.layouts.length > 1 ? `<select id="tlayout">${t.layouts.map((x) => `<option value="${esc(x.key)}" ${x.key === l.key ? 'selected' : ''}>${esc(x.name)}, ${km(x.lengthM)}</option>`).join('')}</select>` : ''}</div>
     <div class="track-detail">
       <div class="card"><div class="row"><h2 style="margin:0">Track map</h2><span class="spacer"></span>
           <label class="row" style="gap:6px"><input type="checkbox" id="tline" checked> ideal line</label>

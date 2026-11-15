@@ -24,11 +24,11 @@ export async function viewProgress(view, params, cleanup) {
 
   view.innerHTML = `
     <div class="cmp-head">
-      <a href="#/"><button class="ghost">← Laps</button></a>
-      <div><h1>Progress · ${esc(prettyName(track))} <span class="muted">${esc(prettyName(layout))}</span></h1>
+      <a href="#/"><button class="ghost">Back to laps</button></a>
+      <div><h1>Progress at ${esc(prettyName(track))} <span class="muted">${esc(prettyName(layout))}</span></h1>
         <div class="secondary">${esc(prettyName(car))}</div></div>
       <span class="spacer"></span>
-      <label class="row">Car and track <select id="pCombo">${combos.map((c) => `<option value="${esc(c.key)}" ${c.key === key ? 'selected' : ''}>${esc(prettyName(c.track))} ${esc(prettyName(c.layout))} · ${esc(prettyName(c.car))}</option>`).join('')}</select></label>
+      <label class="row">Car and track <select id="pCombo">${combos.map((c) => `<option value="${esc(c.key)}" ${c.key === key ? 'selected' : ''}>${esc(prettyName(c.track))} ${esc(prettyName(c.layout))}, ${esc(prettyName(c.car))}</option>`).join('')}</select></label>
     </div>
     ${!timed.length ? '<div class="card empty">No valid laps for this car and track yet.</div>' : `
     <div class="tiles">
@@ -46,14 +46,14 @@ export async function viewProgress(view, params, cleanup) {
       <p class="muted" style="margin:0 0 8px;font-size:12px">Spread (σ) of the day's clean laps: valid laps within ${data.cleanWithinPct}% of that day's best. Lower = more repeatable. Needs 3 clean laps.</p>
       <div id="pSpread"></div></div>
     <div class="card"><h2>Days</h2><div class="tablewrap"><table>
-      <thead><tr><th>Day</th><th>Laps</th><th>Best of the day</th><th>vs best before</th><th>All-time best</th><th>Ideal lap</th><th>Typical lap</th><th>Spread (σ)</th><th></th></tr></thead>
+      <thead><tr><th>Day</th><th>Laps</th><th>Best of the day</th><th>Against best before</th><th>All-time best</th><th>Ideal lap</th><th>Typical lap</th><th>Spread (σ)</th><th></th></tr></thead>
       <tbody>${[...days].reverse().map((d) => {
         const i = days.indexOf(d);
         const before = days.slice(0, i).map((x) => x.allTimeBestMs).filter((x) => x != null).pop() ?? null;
         const gap = d.bestMs != null && before != null ? d.bestMs - before : null;
         return `<tr><td><b>${esc(dayLabel(d.day, true))}</b></td>
           <td>${d.validLaps}<span class="muted"> valid / ${d.laps}</span></td>
-          <td class="time"><b>${fmt(d.bestMs)}</b> ${d.newBest && i > 0 ? '<span class="badge best">new best</span>' : ''}</td>
+          <td class="time"><b>${fmt(d.bestMs)}</b> ${d.newBest && i > 0 ? '<span class="badge best">New best</span>' : ''}</td>
           <td class="${gap == null ? 'muted' : gap < 0 ? 'neg' : gap > 0 ? 'pos' : ''}">${gap == null ? (d.bestMs != null ? 'first day' : '–') : fmtGap(gap)}</td>
           <td>${fmt(d.allTimeBestMs)}</td><td>${fmt(d.idealMs)}</td><td>${fmt(d.medianMs)}</td>
           <td>${d.sdMs != null ? `±${(d.sdMs / 1000).toFixed(3)}s` : `<span class="muted">${d.cleanLaps} clean</span>`}</td>
@@ -89,7 +89,7 @@ export async function viewProgress(view, params, cleanup) {
     hooks: { setCursor: [(u) => {
       const i = u.cursor.idx; timesTip.hidden = i == null; if (i == null) return;
       const d = days[i];
-      timesTip.innerHTML = `<b>${esc(dayLabel(d.day, true))}</b> · best ${fmt(d.bestMs)}${d.newBest && i > 0 ? ' <span class="neg">new best</span>' : ''} · all-time ${fmt(d.allTimeBestMs)} · ideal ${fmt(d.idealMs)} · ${d.validLaps} valid laps`;
+      timesTip.innerHTML = `<b>${esc(dayLabel(d.day, true))}</b>: best ${fmt(d.bestMs)}${d.newBest && i > 0 ? ' <span class="neg">new best</span>' : ''}, all-time ${fmt(d.allTimeBestMs)}, ideal ${fmt(d.idealMs)}, ${d.validLaps} valid laps`;
       timesTip.style.left = `${Math.min(u.valToPos(i + 1, 'x') + 60, timesEl.clientWidth - 420)}px`;
     }] },
   }, [xs, ...S.map((s) => days.map((d) => sec(d[s.k])))], timesEl);
@@ -105,7 +105,7 @@ export async function viewProgress(view, params, cleanup) {
     hooks: { setCursor: [(u) => {
       const i = u.cursor.idx; spreadTip.hidden = i == null; if (i == null) return;
       const d = days[i];
-      spreadTip.innerHTML = `<b>${esc(dayLabel(d.day, true))}</b> · ${d.sdMs != null ? `±${(d.sdMs / 1000).toFixed(3)}s over ${d.cleanLaps} clean laps` : `only ${d.cleanLaps} clean lap${d.cleanLaps === 1 ? '' : 's'}`}`;
+      spreadTip.innerHTML = `<b>${esc(dayLabel(d.day, true))}</b>: ${d.sdMs != null ? `±${(d.sdMs / 1000).toFixed(3)}s over ${d.cleanLaps} clean laps` : `only ${d.cleanLaps} clean lap${d.cleanLaps === 1 ? '' : 's'}`}`;
       spreadTip.style.left = `${Math.min(u.valToPos(i + 1, 'x') + 60, spreadEl.clientWidth - 320)}px`;
     }] },
   }, [xs, days.map((d) => sec(d.sdMs))], spreadEl);

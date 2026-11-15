@@ -73,15 +73,15 @@ export async function viewMods(view, cleanup) {
     const on = state.mods.filter((m) => m.enabled).length;
     const dis = state.running ? 'disabled title="Close AC EVO first"' : '';
     $('#mList').innerHTML = !state.mods.length ? '<div class="empty"><p>No mods installed.</p></div>' : `
-      <div class="row" style="margin-bottom:8px"><h2 style="margin:0">Installed</h2><span class="muted">${on} enabled · ${state.mods.length - on} disabled</span></div>
+      <div class="row" style="margin-bottom:8px"><h2 style="margin:0">Installed</h2><span class="muted">${on} on, ${state.mods.length - on} off</span></div>
       <table class="mods"><thead><tr><th>Mod</th><th>Type</th><th>Files</th><th>Size</th><th>Date</th><th></th></tr></thead><tbody>
       ${list.map((m) => `
         <tr class="${m.enabled ? '' : 'off'}" data-id="${esc(m.id)}">
           <td><button class="ghost small tog" data-open="${esc(m.id)}" title="Show files">${state.open.has(m.id) ? '▾' : '▸'}</button>
             <b>${esc(m.name)}</b>
             ${m.protected ? '<span class="badge accent" title="Paddock needs this mod for the in-game HUD">Required by Paddock</span>' : ''}
-            ${m.enabled ? '' : '<span class="badge bad">disabled</span>'}
-            ${m.managed ? '' : '<span class="badge" title="Installed outside Paddock; files grouped by name">detected</span>'}</td>
+            ${m.enabled ? '' : '<span class="badge bad">Off</span>'}
+            ${m.managed ? '' : '<span class="badge" title="Installed outside Paddock; files grouped by name">Detected</span>'}</td>
           <td class="secondary">${esc(m.kind)}</td>
           <td>${m.files.length}</td>
           <td>${fmtSize(m.size)}</td>
@@ -143,7 +143,7 @@ export async function viewMods(view, cleanup) {
     return new Promise((resolve) => {
       const x = new XMLHttpRequest();
       x.open('POST', `/api/mods/upload?name=${encodeURIComponent(file.name)}${overwrite ? '&overwrite=1' : ''}`);
-      x.upload.onprogress = (e) => { if (e.lengthComputable) $('#mProg').innerHTML = `<div class="mod-prog"><span style="width:${(e.loaded / e.total * 100).toFixed(1)}%"></span></div><span class="muted">${esc(file.name)} · ${fmtSize(e.loaded)} / ${fmtSize(e.total)}</span>`; };
+      x.upload.onprogress = (e) => { if (e.lengthComputable) $('#mProg').innerHTML = `<div class="mod-prog"><span style="width:${(e.loaded / e.total * 100).toFixed(1)}%"></span></div><span class="muted">${esc(file.name)}: ${fmtSize(e.loaded)} of ${fmtSize(e.total)}</span>`; };
       x.upload.onload = () => { $('#mProg').innerHTML = `<span class="spinner"></span> <span class="muted">Installing ${esc(file.name)}…</span>`; };
       x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch { /* not json */ } resolve({ status: x.status, body: j }); };
       x.onerror = () => resolve({ status: 0, body: { error: 'Upload failed (is Paddock still running?)' } });

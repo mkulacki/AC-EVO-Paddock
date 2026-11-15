@@ -19,6 +19,8 @@
   },
   "license": "GPL-3.0-or-later",
   "dependencies": {
+    "@fontsource/barlow": "^5.3.0",
+    "@fontsource/barlow-condensed": "^5.3.0",
     "koffi": "^3.3.7",
     "uplot": "^1.6.32"
   },
