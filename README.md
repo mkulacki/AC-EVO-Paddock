@@ -16,6 +16,8 @@ Everything runs on your PC. The app is served at http://localhost:8080, or runs 
 4. Your laps and settings are stored in the `data\` folder next to the `.exe`. To update, quit the app from the tray icon, then replace everything except `data\`.
 5. For the in-game HUD, see [In-game HUD](#in-game-hud-paddock-hud) below. Install it from the tray menu.
 
+`Saved Games\ACE` in this README means AC EVO's own user folder. Paddock asks Windows where your Saved Games folder is, so it also works if you moved it or it has another name, for example `I:\Games\Parties enregistrées`. If Paddock still can't find it, enter it under *Settings → Game files folder* and restart Paddock.
+
 ## Run from source
 
 **Requirements:** Windows, AC EVO from Steam, Node.js 22.5 or newer (the database uses the built-in `node:sqlite`).

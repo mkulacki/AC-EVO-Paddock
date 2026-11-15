@@ -16,13 +16,40 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import koffi from 'koffi';
+import * as settings from './settings.js';
 
 export const LIVE_SIZE = 16384;
 export const SLOTS = 8;
 export const WINDOW_MS = 50;
 export const AHEAD = 4;        // Paddock writes the slot AHEAD windows ahead
 export const READ_PHASE_MS = 20; // the HUD only starts a read in the first 20 ms of a window
-export const ACE = process.env.ACE_DIR || path.join(os.homedir(), 'Saved Games', 'ACE');
+// AC EVO's user folder (mods, setups, logs, HUD files). Windows lets people move "Saved Games" (e.g. to
+// I:\JMC\Parties enregistrées), so ask Windows for the real place instead of assuming <home>\Saved Games.
+// Order: ACE_DIR env, the "Game files folder" setting, the Saved Games known folder, <home>\Saved Games.
+export function savedGamesDir() {
+  try {
+    const GUID = koffi.struct('PaddockGUID', { a: 'uint32_t', b: 'uint16_t', c: 'uint16_t', d: koffi.array('uint8_t', 8) });
+    const getPath = koffi.load('shell32.dll').func('int32_t __stdcall SHGetKnownFolderPath(const PaddockGUID *rfid, uint32_t flags, void *token, _Out_ void **path)');
+    const free = koffi.load('ole32.dll').func('void __stdcall CoTaskMemFree(void *p)');
+    const out = [null];
+    // FOLDERID_SavedGames {4C5C32FF-BB9D-43B0-B5B4-2D72E54EAAA4}
+    const hr = getPath({ a: 0x4C5C32FF, b: 0xBB9D, c: 0x43B0, d: [0xB5, 0xB4, 0x2D, 0x72, 0xE5, 0x4E, 0xAA, 0xA4] }, 0, null, out);
+    if (hr === 0 && out[0]) {
+      const dir = koffi.decode(out[0], 'char16_t', -1);
+      free(out[0]);
+      if (dir) return dir;
+    }
+  } catch { /* not Windows, or the call failed: use the default below */ }
+  return path.join(os.homedir(), 'Saved Games');
+}
+// A setting may name the ACE folder itself or the Saved Games folder that holds it.
+function fromSetting(dir) {
+  if (!dir) return '';
+  return path.basename(dir).toLowerCase() !== 'ace' && fs.existsSync(path.join(dir, 'ACE')) ? path.join(dir, 'ACE') : dir;
+}
+export const ACE_AUTO = path.join(savedGamesDir(), 'ACE');
+export const ACE = process.env.ACE_DIR || fromSetting(settings.get().aceDir) || ACE_AUTO;
 export const APP_DIR = path.join(ACE, 'mods', 'uiresources', 'ACEUIAppLoader', 'trainerhud');
 export const LOG_DIR = path.join(ACE, 'Logs');
 const CMD_TAG = '[TrainerHUD-cmd] ';
