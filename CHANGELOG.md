@@ -23,6 +23,7 @@ Changes merged to `main` that are not in a release yet. Move them under a versio
 - **Restart Paddock** moved from the "Developer: restart" header button to a card on the Game page.
 - **Wording:** text across the app (Laps, Compare, Consistency, Progress, Tracks, Garage, Setups, Race, Mods, Game, Settings) now uses plain sentences instead of `·` separators and shorthand like "vs", "+ =" and "−". Badges are capitalised ("Best", "Off", "Detected", "Imported").
 - Gemini models in Settings are listed by name with the model ID in brackets.
+- **Running from source:** `start.bat` now runs `npm install` again whenever `package-lock.json` changes, not only on first run. If you start Paddock by hand, run `npm install` once after updating so you get the new font packages. Release zip users don't need to do anything.
 - Accessibility: added labels to icon-only buttons (export, delete) and to the lap selection checkboxes.
 
 ## 0.4.0-beta.1

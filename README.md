@@ -20,7 +20,9 @@ Everything runs on your PC. The app is served at http://localhost:8080, or runs 
 
 **Requirements:** Windows, AC EVO from Steam, Node.js 22.5 or newer (the database uses the built-in `node:sqlite`).
 
-- Double-click `start.bat` (installs the dependencies on first run and opens the browser), or run `npm start`.
+- Double-click `start.bat`. It installs the dependencies, and installs them again whenever `package-lock.json` changes, then opens the browser.
+- Or run it by hand: `npm install` first, then `npm start`. **Run `npm install` again after every `git pull`**, because new versions can add packages. For example, the bundled fonts (`@fontsource/barlow`, `@fontsource/barlow-condensed`) were added after 0.4.0-beta.1. Without them the page falls back to system fonts.
+- The release zip already contains everything, so people using it never run these commands.
 - Start AC EVO and drive. Laps are saved automatically when you cross the line.
   Out laps, laps that pass through the pits and incomplete or restarted laps are discarded. Invalid laps are kept and marked.
 
@@ -37,7 +39,7 @@ Paddock also runs as a standalone Windows app (Electron) with its own window and
 - Closing the window keeps the app in the tray, so laps are still recorded. Right-click the tray icon to quit.
 - The tray menu also toggles the desktop overlay (Ctrl+Shift+H hides it), installs or removes the in-game HUD,
   and opens the data folder or the log.
-- `npm run app` runs the app from source, using this project's `data\`.
+- `npm run app` runs the app from source, using this project's `data\`. Run `npm install` first, as above.
 - The app and `npm start` use the same port (8080), so run only one of them at a time.
 - Shortcuts: F5 reload, F11 full screen, Ctrl +/−/0 zoom, F12 developer tools.
 - `npm run make-icon` regenerates `desktop/icon.ico` and `icon.png`.
