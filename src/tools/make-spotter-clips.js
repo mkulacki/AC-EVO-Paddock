@@ -1,15 +1,22 @@
 // Generates the brake spotter's voice clips (public/audio/spotter/*.wav) with Gemini text-to-speech.
 // Only needed to (re)make the clips; they are shipped with the app. Uses GEMINI_API_KEY, else the key in
-// data/settings.json. Only the words below are sent.
-//   node src/tools/make-spotter-clips.js [voiceName]      (default voice: Charon)
+// data/settings.json. Only the words and the style direction below are sent.
+//   node src/tools/make-spotter-clips.js [--voice Fenrir] [--model gemini-2.5-pro-preview-tts] [--radio] [--out dir]
+//   --radio adds a team-radio sound: telephone band, light crunch, a little static.
 import fs from 'node:fs';
 import path from 'node:path';
 
-const MODEL = process.env.TTS_MODEL || 'gemini-2.5-flash-preview-tts';
-const VOICE = process.argv[2] || 'Charon';
-const OUT = path.resolve('public/audio/spotter');
-const WORDS = { three: 'Three.', two: 'Two.', one: 'One.', brake: 'Brake!', lift: 'Lift!' };
-const STYLE = 'Say this as one short word, crisp and clear, like a calm race engineer on team radio, no pause before it:';
+const arg = (name, d) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : d; };
+const MODEL = arg('model', 'gemini-2.5-pro-preview-tts');
+const VOICE = arg('voice', 'Fenrir');
+const RADIO = process.argv.includes('--radio');
+const OUT = path.resolve(arg('out', 'public/audio/spotter'));
+const WORDS = { three: 'Three!', two: 'Two!', one: 'One!', brake: 'BRAKE!', lift: 'LIFT!' };
+const STYLE = {
+  three: 'You are a race engineer on team radio, counting the driver down to the braking point on a qualifying lap. Punchy, urgent and confident, slightly raised voice, clipped. Say only this one word:',
+  brake: 'You are a race engineer on team radio. This is the braking point on a flying qualifying lap: shout this one command, sharp, loud and urgent, like a call that must be obeyed instantly. Say only:',
+};
+const styleFor = (n) => (n === 'brake' || n === 'lift' ? STYLE.brake : STYLE.three);
 
 function apiKey() {
   if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
@@ -17,39 +24,79 @@ function apiKey() {
   try { return JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).geminiApiKey || ''; } catch { return ''; }
 }
 
-async function tts(text, key) {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-    method: 'POST',
-    headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: `${STYLE} ${text}` }] }],
-      generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } } } },
-    }),
-  });
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const j = await res.json();
-  const part = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
-  if (!part) throw new Error('no audio in the answer');
-  const rate = Number(/rate=(\d+)/.exec(part.inlineData.mimeType)?.[1] || 24000);
-  return { pcm: Buffer.from(part.inlineData.data, 'base64'), rate };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function tts(text, style, key) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `${style} ${text}` }] }],
+        generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } } } },
+      }),
+    });
+    if (res.status === 429 || res.status >= 500) { // rate limit or busy: wait and try again
+      if (attempt >= 6) throw new Error(`Gemini ${res.status} after retries`);
+      const body = await res.text();
+      const wait = Number(/"retryDelay":\s*"(\d+)/.exec(body)?.[1] || 20);
+      await sleep((wait + 2) * 1000);
+      continue;
+    }
+    if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const j = await res.json();
+    const part = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
+    if (!part) throw new Error('no audio in the answer');
+    const rate = Number(/rate=(\d+)/.exec(part.inlineData.mimeType)?.[1] || 24000);
+    const pcm = Buffer.from(part.inlineData.data, 'base64');
+    const s = new Float32Array(pcm.length >> 1);
+    for (let i = 0; i < s.length; i++) s[i] = pcm.readInt16LE(i * 2) / 32768;
+    return { s, rate };
+  }
 }
 
-// cut silence at both ends (keeps 10 ms before the word, so it starts the moment it is played) and normalise
-function tidy(pcm, rate) {
-  const n = pcm.length >> 1, s = new Int16Array(n);
-  for (let i = 0; i < n; i++) s[i] = pcm.readInt16LE(i * 2);
-  const thr = 600;
-  let a = 0, b = n - 1;
-  while (a < n && Math.abs(s[a]) < thr) a++;
+// cut silence at both ends (10 ms kept before the word, so it starts the moment it is played)
+function trim(s, rate) {
+  const thr = 0.02;
+  let a = 0, b = s.length - 1;
+  while (a < s.length && Math.abs(s[a]) < thr) a++;
   while (b > a && Math.abs(s[b]) < thr) b--;
-  a = Math.max(0, a - Math.round(rate * 0.01)); b = Math.min(n - 1, b + Math.round(rate * 0.06));
-  let peak = 1;
-  for (let i = a; i <= b; i++) peak = Math.max(peak, Math.abs(s[i]));
-  const g = (32767 * 0.89) / peak, len = b - a + 1, fade = Math.round(rate * 0.005);
-  const out = Buffer.alloc(len * 2);
-  for (let i = 0; i < len; i++) {
-    const env = Math.min(1, i / fade, (len - 1 - i) / fade);
-    out.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(s[a + i] * g * env))), i * 2);
+  return s.slice(Math.max(0, a - Math.round(rate * 0.01)), Math.min(s.length, b + Math.round(rate * 0.06)));
+}
+
+// simple biquad (RBJ cookbook)
+function biquad(s, rate, type, f0, q = 0.707) {
+  const w = 2 * Math.PI * f0 / rate, al = Math.sin(w) / (2 * q), c = Math.cos(w);
+  let b0, b1, b2;
+  if (type === 'hp') { b0 = (1 + c) / 2; b1 = -(1 + c); b2 = (1 + c) / 2; } else { b0 = (1 - c) / 2; b1 = 1 - c; b2 = (1 - c) / 2; }
+  const a0 = 1 + al, a1 = -2 * c, a2 = 1 - al;
+  const out = new Float32Array(s.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < s.length; i++) {
+    const x = s[i], y = (b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+    out[i] = y; x2 = x1; x1 = x; y2 = y1; y1 = y;
+  }
+  return out;
+}
+
+// team radio: 350 Hz - 3.2 kHz band, soft clipping for crunch, a little hiss under the voice
+function radio(s, rate) {
+  let o = biquad(biquad(s, rate, 'hp', 350), rate, 'hp', 350);
+  o = biquad(biquad(o, rate, 'lp', 3200), rate, 'lp', 3200);
+  let peak = 1e-6;
+  for (const v of o) peak = Math.max(peak, Math.abs(v));
+  let seed = 1;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1;
+  for (let i = 0; i < o.length; i++) o[i] = Math.tanh((o[i] / peak) * 2.2) / Math.tanh(2.2) + rnd() * 0.015;
+  return biquad(o, rate, 'lp', 3600);
+}
+
+function finish(s, rate) {
+  let peak = 1e-6;
+  for (const v of s) peak = Math.max(peak, Math.abs(v));
+  const g = 0.89 / peak, fade = Math.round(rate * 0.005), out = Buffer.alloc(s.length * 2);
+  for (let i = 0; i < s.length; i++) {
+    const env = Math.min(1, i / fade, (s.length - 1 - i) / fade);
+    out.writeInt16LE(Math.round(Math.max(-1, Math.min(1, s[i] * g * env)) * 32767), i * 2);
   }
   return out;
 }
@@ -66,10 +113,19 @@ function wav(pcm, rate) {
 const key = apiKey();
 if (!key) { console.error('No Gemini API key: set GEMINI_API_KEY or save one in Settings.'); process.exit(1); }
 fs.mkdirSync(OUT, { recursive: true });
-for (const [name, text] of Object.entries(WORDS)) {
-  const { pcm, rate } = await tts(text, key);
-  const clip = tidy(pcm, rate);
-  fs.writeFileSync(path.join(OUT, `${name}.wav`), wav(clip, rate));
-  console.log(`${name}.wav  ${(clip.length / 2 / rate).toFixed(2)} s`);
+// --from dir: reuse raw takes saved by an earlier run (to try the radio effect without new requests)
+const FROM = arg('from', null);
+for (const name of Object.keys(WORDS)) {
+  let s, rate;
+  const raw = path.join(FROM || OUT, `${name}.raw.json`);
+  if (FROM && fs.existsSync(raw)) ({ s, rate } = (({ s, rate }) => ({ s: Float32Array.from(s), rate }))(JSON.parse(fs.readFileSync(raw, 'utf8'))));
+  else {
+    ({ s, rate } = await tts(WORDS[name], styleFor(name), key));
+    if (arg('keep-raw', null)) fs.writeFileSync(path.join(arg('keep-raw'), `${name}.raw.json`), JSON.stringify({ s: Array.from(s), rate }));
+  }
+  let clip = trim(s, rate);
+  if (RADIO) clip = radio(clip, rate);
+  fs.writeFileSync(path.join(OUT, `${name}.wav`), wav(finish(clip, rate), rate));
+  console.log(`${name}.wav  ${(clip.length / rate).toFixed(2)} s`);
 }
-console.log(`voice ${VOICE}, model ${MODEL} -> ${OUT}`);
+console.log(`voice ${VOICE}, model ${MODEL}${RADIO ? ', team radio' : ''} -> ${OUT}`);
