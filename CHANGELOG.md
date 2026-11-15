@@ -6,6 +6,11 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### Fixes
+
+- **Game files folder found when Saved Games was moved or renamed** ([#3](https://github.com/mkulacki/AC-EVO-Paddock/issues/3)). Paddock used to assume `<user>\Saved Games\ACE`. It now asks Windows where Saved Games really is, so a moved folder like `I:\JMC\Parties enregistrées\ACE` is found. This affected installing the HUD, mods, setups and in-game features.
+- New setting **Game files folder** to enter that folder by hand if needed. It accepts either the `ACE` folder or the Saved Games folder that contains it. The Settings page shows which folder is in use and warns if it doesn't exist. Changing it needs a restart, and the page offers a "Restart now" button.
+
 ### Design pass on the desktop app
 
 - **New look:** a new colour palette with light and dark themes. Lap-time colours are now consistent: purple for best, green for session best, yellow for slow, blue for faster and red for slower. The accent colour is lime green, and the Mods tab has its own teal.

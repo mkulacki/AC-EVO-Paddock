@@ -701,6 +701,10 @@ async function viewSettings() {
       <label>Coach language</label><input id="language" value="${esc(s.language)}" placeholder="English">
       <label>AC EVO folder</label><input id="gamePath" value="${esc(s.gamePath || '')}" placeholder="found automatically through Steam">
       <div class="hint">Track data (maps, edges, corners) is read from the game's content.kspkg in this folder, read-only.</div>
+      <label>Game files folder</label><input id="aceDir" value="${esc(s.aceDir || '')}" placeholder="${esc(s.aceAuto || 'found automatically')}">
+      <div class="hint" id="aceHint">Where AC EVO keeps your mods, setups and logs, and where the Paddock HUD is installed: the <code>ACE</code> folder inside your Saved Games folder.
+        Leave it empty to use the folder Windows reports. Fill it in only if Paddock can't find it, for example <code>I:\\Games\\Parties enregistrées\\ACE</code>.
+        ${s.aceExists ? `In use: <code>${esc(s.aceInUse)}</code>.` : `<span class="g-bad">Not found: <code>${esc(s.aceInUse)}</code>.</span> Start AC EVO once so it creates the folder, or enter where it is.`}</div>
       <span></span><div class="row"><button class="primary" id="save">Save</button><span id="saved" class="muted"></span></div>
     </div></div>
     <div class="card"><div class="row"><h2 style="margin:0">Paddock HUD</h2><span class="spacer"></span><span id="hudSaved" class="muted"></span><button class="small" id="hudReset">Reset to defaults</button></div>
@@ -733,8 +737,15 @@ async function viewSettings() {
       <pre class="raw" id="raw" hidden></pre></div>`;
   $('#restart').onclick = (e) => restartPaddock(e.currentTarget);
   $('#save').onclick = async () => {
-    const body = Object.fromEntries(['driverName', 'geminiApiKey', 'geminiModel', 'language', 'gamePath'].map((k) => [k, $('#' + k).value.trim()]));
-    try { status = await post('/api/settings', body); $('#saved').textContent = 'Saved ✓'; $('#geminiApiKey').value = status.geminiApiKey; }
+    const body = Object.fromEntries(['driverName', 'geminiApiKey', 'geminiModel', 'language', 'gamePath', 'aceDir'].map((k) => [k, $('#' + k).value.trim()]));
+    try {
+      status = await post('/api/settings', body); $('#saved').textContent = 'Saved ✓'; $('#geminiApiKey').value = status.geminiApiKey;
+      // the game files folder is read when Paddock starts
+      if ((body.aceDir || '') !== (s.aceDir || '')) {
+        $('#saved').innerHTML = 'Saved ✓. Restart Paddock to use the new game files folder. <button class="small" id="restartAce">Restart now</button>';
+        $('#restartAce').onclick = (e) => restartPaddock(e.currentTarget);
+      }
+    }
     catch (e) { $('#saved').textContent = e.message; }
   };
   // Paddock HUD look: saved on every change (the HUD picks it up with its next data read)

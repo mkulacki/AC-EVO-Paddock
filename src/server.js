@@ -10,7 +10,7 @@ import * as ai from './ai.js';
 import { Recorder } from './recorder.js';
 import * as trackdata from './trackdata.js';
 import { LiveHud } from './live.js';
-import { GameBridge } from './gamebridge.js';
+import { GameBridge, ACE, ACE_AUTO } from './gamebridge.js';
 import * as game from './game.js';
 import * as race from './race.js';
 import * as cars from './cars.js';
@@ -395,7 +395,8 @@ async function route(req, res) {
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
     }
-    return send(res, 200, settings.publicView());
+    // the game files folder in use (read at start) and the one Windows reports, for the Settings page
+    return send(res, 200, { ...settings.publicView(), aceInUse: ACE, aceAuto: ACE_AUTO, aceExists: fs.existsSync(ACE) });
   }
   if (p === '/api/ai/models') return send(res, 200, await ai.listModels());
   if (p === '/api/ai/analyze' && m === 'POST') {
