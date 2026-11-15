@@ -40,9 +40,7 @@ export async function viewSetups(view, params, cleanup) {
   view.innerHTML = `
     <div class="row" style="margin-bottom:6px"><h1>Setups</h1><span class="spacer"></span>
       <button id="sImport">Import…</button><input type="file" id="sFile" accept=".carsetup" multiple hidden></div>
-    <p class="muted" style="margin:0 0 16px">The setups you save in AC EVO's setup screen, per car and track. Read and change their values here, or ask the
-      AI setup engineer, and save the result as a new setup: in the game it is in the setup screen's <b>Load</b> list for that car and track.
-      Share a setup as its <code>.carsetup</code> file.</p>
+    <p class="muted" style="margin:0 0 16px;max-width:80ch">Setups you saved in AC EVO. Change them here or with the AI engineer; new ones appear in the game&#39;s <b>Load</b> list.</p>
     <div id="sMsg"></div>
     <div class="setups-layout"><div id="sSide"></div><div id="sMain"></div></div>`;
   const msg = (text, bad = false) => { $('#sMsg').innerHTML = text ? `<div class="card ${bad ? 'error' : ''}" style="padding:10px 16px">${esc(text)}</div>` : ''; };
@@ -71,7 +69,7 @@ export async function viewSetups(view, params, cleanup) {
   function listHtml() {
     if (!st.car) return '<div class="card empty"><p>Choose a car to see its setups.</p></div>';
     if (!st.list.length) return `<div class="card empty"><p>No saved setups for the ${esc(carLabel(st.car))} yet.</p>
-      <p class="muted">Save one in AC EVO's setup screen (in the pits: <b>Setup</b> → <b>Save</b>), or import a shared <code>.carsetup</code> file.</p></div>`;
+      <p class="muted">Save one in AC EVO's setup screen (in the pits: <b>Setup</b>, then <b>Save</b>), or import a shared <code>.carsetup</code> file.</p></div>`;
     const here = st.list.filter((s) => s.forTrack), byTrack = new Map();
     for (const s of st.list.filter((x) => !x.forTrack)) { if (!byTrack.has(s.track.name)) byTrack.set(s.track.name, []); byTrack.get(s.track.name).push(s); }
     const row = (s) => `<tr class="${s.id === st.open ? 'on' : ''}" data-open="${esc(s.id)}">
@@ -124,11 +122,11 @@ export async function viewSetups(view, params, cleanup) {
     const res = a.result;
     const label = (name) => { const v = s.values.find((x) => x.name === name); return v ? `${v.label}${v.corner ? ` ${CORNER[v.corner] || v.corner}` : ''}` : name; };
     const val = (name, x) => { const v = s.values.find((y) => y.name === name); return v ? `${show(v, x)} ${v.unit}` : x; };
-    return `<div class="card" style="margin-top:16px">
-      <div class="row"><h2 style="margin:0">AI setup engineer</h2><span class="spacer"></span><span class="muted" style="font-size:12px">Gemini · uses your laps with this car on ${esc((trackOf(st.track)?.t.id === s.track.id && trackOf(st.track)?.t.name) || s.track.name)}</span></div>
+    return `<div class="card plain" style="margin-top:16px">
+      <div class="row"><h2 style="margin:0">AI setup engineer</h2><span class="spacer"></span><span class="muted" style="font-size:12px">Gemini, using your laps with this car at ${esc((trackOf(st.track)?.t.id === s.track.id && trackOf(st.track)?.t.name) || s.track.name)}</span></div>
       <p class="muted" style="margin:6px 0 8px;font-size:13px">Describe what the car does (e.g. "understeer in slow corners, rear steps out on throttle at T6"). The engineer proposes a few changes; nothing is saved until you save them as a new setup.</p>
       <textarea id="aiProblem" rows="3" style="width:100%" placeholder="What should be better? Leave empty for a baseline for this track.">${esc(a.problem || '')}</textarea>
-      <div class="row" style="margin-top:8px"><span class="spacer"></span><button class="primary" id="aiAsk" ${a.busy ? 'disabled' : ''}>${a.busy ? '<span class="spinner"></span> Thinking…' : res ? 'Ask again' : 'Ask the engineer'}</button></div>
+      <div class="row" style="margin-top:8px"><span class="spacer"></span><button id="aiAsk" ${a.busy ? 'disabled' : ''}>${a.busy ? '<span class="spinner"></span> Thinking…' : res ? 'Ask again' : 'Ask the engineer'}</button></div>
       ${a.error ? `<p class="error">${esc(a.error)}</p>` : ''}
       ${res ? `<div class="ai-out" style="margin-top:10px">
           <div class="md">${md(res.summary)}</div>
@@ -139,7 +137,7 @@ export async function viewSetups(view, params, cleanup) {
           : '<p class="muted">No setup changes proposed.</p>'}
           ${res.skipped?.length ? `<p class="muted" style="font-size:12px">Ignored (not adjustable on this car): ${esc(res.skipped.join(', '))}</p>` : ''}
           ${res.testPlan ? `<h3 style="margin-top:12px">On track</h3><div class="md">${md(res.testPlan)}</div>` : ''}
-          <p class="muted" style="font-size:12px">${esc(res.model)} · ${res.usedLaps ? `${res.usedLaps} lap${res.usedLaps === 1 ? '' : 's'} used` : 'no laps recorded on this track yet'}</p>
+          <p class="muted" style="font-size:12px">${esc(res.model)}, ${res.usedLaps ? `${res.usedLaps} lap${res.usedLaps === 1 ? '' : 's'} used` : 'no laps recorded on this track yet'}</p>
         </div>` : ''}
     </div>`;
   }
@@ -190,12 +188,12 @@ export async function viewSetups(view, params, cleanup) {
   }
   function detailHtml() {
     const s = st.setup, n = changedCount();
-    return `<div class="card setup-detail">
-      <div class="row"><button class="small ghost" data-close>← All setups</button><span class="spacer"></span>
+    return `<div class="card plain setup-detail">
+      <div class="row"><button class="small ghost" data-close>All setups</button><span class="spacer"></span>
         ${s.from && FROM[s.from] ? `<span class="badge">${esc(FROM[s.from])}</span>` : ''}<span class="muted" style="font-size:12px">saved ${esc(ago(s.updatedAt))}</span></div>
       <div class="fields" style="margin-top:12px">
         <label>Name</label><div class="row" style="gap:8px"><input id="eName" value="${esc(s.name)}" style="flex:1"><button class="small" id="eRename">Rename</button></div>
-        <label>Car · track</label><div>${esc(s.carName)} · ${esc(s.track.name)} <span class="muted" style="font-size:12px">(folder ${esc(s.carFolder)}\\${esc(s.track.folder)})</span>
+        <label>Car and track</label><div>${esc(s.carName)} at ${esc(s.track.name)} <span class="muted" style="font-size:12px">(folder ${esc(s.carFolder)}\\${esc(s.track.folder)})</span>
           ${s.basedOn ? `<div class="muted" style="font-size:12px">made from ${esc(s.basedOn)}</div>` : ''}</div>
         <label>Notes</label><div><textarea id="eNotes" rows="3" style="width:100%" placeholder="What it is good at, what to try next…">${esc(s.notes)}</textarea></div>
       </div>

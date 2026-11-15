@@ -101,7 +101,7 @@ setInterval(() => {
     if (f.packetId !== lastPacket) { lastPacket = f.packetId; lastPacketChange = Date.now(); stale = false; }
     else if (Date.now() - lastPacketChange > 3000 && f.status !== 3) {
       if (!stale) { stale = true; recorder.endSession(); }
-      recorder.state.status = 'no data (game closed?)';
+      recorder.state.status = 'game not running';
       return;
     }
     recorder.onFrame(f);
@@ -127,7 +127,7 @@ const readBody = (req) => new Promise((resolve, reject) => {
 });
 const readJson = async (req) => { const b = await readBody(req); return b.length ? JSON.parse(b.toString()) : {}; };
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const MIME = { '.woff2': 'font/woff2', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
 function serveStatic(res, file) {
   fs.readFile(file, (err, buf) => {
     if (err) return send(res, 404, { error: 'not found' });
@@ -422,6 +422,8 @@ async function route(req, res) {
 
   // static files
   if (p.startsWith('/vendor/uplot/')) return serveStatic(res, path.join(ROOT, 'node_modules/uplot/dist', path.basename(p)));
+  // bundled typefaces, so the page looks the same offline
+  if (p.startsWith('/vendor/fonts/')) return serveStatic(res, path.join(ROOT, 'node_modules/@fontsource', p.split('/')[3] === 'barlow-condensed' ? 'barlow-condensed' : 'barlow', 'files', path.basename(p)));
   // the in-game app's files, reused by the desktop overlay page (hud.html)
   if (p.startsWith('/mod/')) return serveStatic(res, path.join(ROOT, 'mod/trainerhud', path.basename(p)));
   const file = path.normalize(path.join(ROOT, 'public', p === '/' ? 'index.html' : p));

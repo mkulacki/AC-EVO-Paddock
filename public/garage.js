@@ -48,7 +48,7 @@ function categoryGroup(f, types = []) {
 export function badges(car, v) {
   const b = [sourceBadge(car)];
   if (v?.category) b.push(`<span class="badge">${esc(v.category)}</span>`);
-  if (v?.raceClass) b.push(`<span class="badge accent">${esc(v.raceClass)}</span>`);
+  if (v?.raceClass) b.push(`<span class="badge">${esc(v.raceClass)}</span>`);
   return b.join('');
 }
 
@@ -285,7 +285,7 @@ export function openTrackPicker(opts) {
         <div class="track-map" data-go="${esc(l.key)}">${l.hasMap ? `<img loading="lazy" alt="" src="/api/tracks/map?track=${encodeURIComponent(t.id)}&layout=${encodeURIComponent(l.key)}">` : ''}</div>
         <div class="body"><div class="row" style="gap:8px"><b>${esc(t.name)}</b>${sourceBadge(t)}<span class="spacer"></span><span class="muted" style="font-size:12px">${esc(t.country || '')}</span></div>
           ${mine}
-          <div class="pills">${t.layouts.map((x) => { const d = dOf(t, x); return `<button class="pill ${t.id === sel.id && x.key === sel.layout ? 'on' : ''}" data-l="${esc(x.key)}" title="${x.lengthM ? (x.lengthM / 1000).toFixed(2) + ' km' : ''}${d?.laps ? ` · ${d.laps} laps` : ''}">${esc(x.name)}${x.lengthM ? ` <span class="muted">${(x.lengthM / 1000).toFixed(1)} km</span>` : ''}${d?.bestMs ? ` · ${fmt(d.bestMs)}` : ''}</button>`; }).join('')}</div></div></div>`;
+          <div class="pills">${t.layouts.map((x) => { const d = dOf(t, x); return `<button class="pill ${t.id === sel.id && x.key === sel.layout ? 'on' : ''}" data-l="${esc(x.key)}" title="${x.lengthM ? (x.lengthM / 1000).toFixed(2) + ' km' : ''}${d?.laps ? `, ${d.laps} laps` : ''}">${esc(x.name)}${x.lengthM ? ` <span class="muted">${(x.lengthM / 1000).toFixed(1)} km</span>` : ''}${d?.bestMs ? `, ${fmt(d.bestMs)}` : ''}</button>`; }).join('')}</div></div></div>`;
     }).join('') || '<p class="muted">No track matches these filters.</p>');
     grid.querySelectorAll('[data-t]').forEach((card) => {
       const choose = (layout) => { opts.onPick?.({ id: card.dataset.t, layout }); m.close(); };
