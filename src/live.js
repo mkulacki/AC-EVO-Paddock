@@ -238,6 +238,22 @@ export class LiveHud {
     this.lastCorner = { name: c.name, deltaMs: Math.round((tEnd - ta) - refDt), at: Date.now() };
   }
 
+  // the next brake (or lift) point ahead of the car on the reference lap, for the audio spotter.
+  // Same rules as the HUD cues: live, on a timed lap, out of the pits.
+  nextBrake() {
+    const f = this.frame, lap = this.rec.lap;
+    if (this.rec.state.status !== 'live' || !f || !lap?.full || f.inPit || !this.delta || !this.rec.session) return null;
+    const refs = this.loadRefs(), ref = refs?.[this.mode];
+    if (!ref || !refs.corners?.length) return null;
+    const d = this.delta.d;
+    const k = ref.metrics.findIndex((m) => m.apexAt > d);
+    if (k < 0) return null;
+    const m = ref.metrics[k], bp = m.brakePoint ?? m.liftPoint;
+    if (bp == null || bp <= d) return null;
+    return { k, lap: lap.lapNumber, corner: refs.corners[k].name, kind: m.brakePoint != null ? 'brake' : 'lift',
+      inM: bp - d, speedMs: (f.speed || 0) / 3.6, dropKmh: (m.entrySpeed ?? 0) - (m.minSpeed ?? 0) };
+  }
+
   // ------------------------------------------------------------ payload for the HUD
   snapshot() {
     const f = this.frame, st = this.rec.state, s = this.rec.session, lap = this.rec.lap;

@@ -6,7 +6,8 @@ const FILE = path.join(DATA_DIR, 'settings.json');
 const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName: '', language: 'English', port: 8080,
   gamePath: '', // AC EVO folder; empty = found automatically through Steam
   aceDir: '', // AC EVO's user folder (Saved Games\ACE); empty = found automatically. Read at start, so a change needs a restart
-  hud: null }; // Paddock HUD look (see HUD_DEFAULTS); null = defaults
+  hud: null, // Paddock HUD look (see HUD_DEFAULTS); null = defaults
+  spotter: null }; // audio brake spotter (see SPOTTER_DEFAULTS); null = defaults
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
 export const HUD_PARTS = ['lap', 'ref', 'delta', 'current', 'speed', 'predicted', 'best', 'session', 'last', 'cues', 'ideal', 'corners', 'footer',
@@ -20,17 +21,30 @@ function normHud(h) {
   return { parts, scale: clampNum(h?.scale, 60, 160, HUD_DEFAULTS.scale), opacity: clampNum(h?.opacity, 0, 100, HUD_DEFAULTS.opacity) };
 }
 
+// audio brake spotter: voice clips or beeps counting down to the reference lap's brake points
+export const SPOTTER_DEFAULTS = { on: false, sound: 'voice', volume: 80, countdown: 'full', corners: 'all', offsetMs: 0 };
+const pick = (v, allowed, d) => (allowed.includes(v) ? v : d);
+function normSpotter(p) {
+  const D = SPOTTER_DEFAULTS;
+  return { on: typeof p?.on === 'boolean' ? p.on : D.on, sound: pick(p?.sound, ['voice', 'beep'], D.sound),
+    volume: clampNum(p?.volume, 0, 100, D.volume), countdown: pick(p?.countdown, ['full', 'brake'], D.countdown),
+    corners: pick(p?.corners, ['all', 'big'], D.corners), offsetMs: clampNum(p?.offsetMs, -500, 500, D.offsetMs) };
+}
+
 let current = { ...DEFAULTS };
 try { current = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; } catch { /* first run */ }
 let hud = normHud(current.hud); // cached: sent to the HUD 20 times a second
+let spotter = normSpotter(current.spotter); // cached: read 60 times a second
 
 export const get = () => current;
 export const hudConfig = () => hud;
+export const spotterConfig = () => spotter;
 export function update(patch) {
   for (const k of Object.keys(DEFAULTS)) if (patch[k] !== undefined) current[k] = patch[k];
   if (patch.hud !== undefined) current.hud = hud = normHud(patch.hud);
+  if (patch.spotter !== undefined) current.spotter = spotter = normSpotter({ ...spotter, ...patch.spotter });
   fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
   return current;
 }
 // settings safe to send to the browser
-export const publicView = () => ({ ...current, hud, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey });
+export const publicView = () => ({ ...current, hud, spotter, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey });

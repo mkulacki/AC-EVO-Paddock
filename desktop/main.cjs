@@ -53,7 +53,9 @@ function createMain() {
   win = new BrowserWindow({
     ...b, minWidth: 900, minHeight: 600, show: false, icon: ICON, title: 'AC EVO Paddock',
     backgroundColor: '#08090b', autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false },
+    // the brake spotter plays from this window, also while it is hidden in the tray: no timer
+    // throttling in the background, and sound without a click first
+    webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
   });
   if (state.maximized) win.maximize();
   win.once('ready-to-show', () => win.show());

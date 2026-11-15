@@ -174,6 +174,16 @@ In the other direction, the HUD writes tagged lines to the game log (`Saved Game
 
 If the panel says **"Paddock offline"**, start Paddock; meanwhile the panel shows the game's own delta. As an alternative to the in-game panel, use the **desktop overlay**: it's built into the desktop app (tray menu), or run `npm run overlay` next to `npm start`. It is a transparent, always-on-top window, and it only works when the game runs in borderless or windowed mode. Ctrl+Shift+H hides and shows it. You can also open `http://localhost:8080/hud.html` on a second screen.
 
+## Brake spotter (audio)
+
+A voice or beeps count down to each braking point while you drive: "three, two, one, brake", or "lift" where you only lifted. This way you don't have to look at the HUD. Switch it on in **Settings → Brake spotter**. It's off by default.
+
+- The braking points are the ones the HUD shows: those of its reference lap, which is your all-time best unless you switch the HUD to the ideal lap or session best. So you need at least one lap on that track and car.
+- The countdown is in seconds from your current speed, not in metres. On short straights the earlier numbers are skipped. It is silent in the pits, on out laps and under ~55 km/h.
+- Settings: voice or beeps, full countdown or only "brake", every point or big stops only (at least 40 km/h slower), volume, and timing (up to 500 ms earlier or later). The *Test* button plays a sample.
+- Sound plays from Paddock on your default Windows audio device, so it also works in VR. In the desktop app it keeps playing while the window is in the tray. When running from source in a browser, keep one Paddock tab open and click on it once, because browsers block sound until you do.
+- The voice clips are in `public/audio/spotter/`. They were generated with Gemini text-to-speech by `node src/tools/make-spotter-clips.js [voice]`. Only needed to remake them; it uses your Gemini key.
+
 ## Data
 
 Everything lives in `data\` (for the desktop app: next to the `.exe`; `ACEVO_DATA` overrides the location):
@@ -181,7 +191,7 @@ Everything lives in `data\` (for the desktop app: next to the `.exe`; `ACEVO_DAT
 | File / folder | Contents |
 | --- | --- |
 | `telemetry.db` | laps, sessions and saved AI answers (SQLite) |
-| `settings.json` | driver name, Gemini key and model, coach language, game folder, port |
+| `settings.json` | driver name, Gemini key and model, coach language, game folders, port, HUD look, brake spotter |
 | `race.json` | Race tab presets, saved servers and the last setup |
 | `setup-meta.json` | Setups tab notes and where each setup came from (the setups themselves are the game's files in `Saved Games\ACE\Car Setups`) |
 | `game-catalogue.json`, `game-applied.json` | what the HUD read in game: track lists per session type, AI cars, the last applied settings |
@@ -213,6 +223,7 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/analysis.js`, `src/service.js`, `src/track.js` | resampling, corners, ideal lap, compare / consistency / progress |
 | `src/trackdata.js`, `src/cars.js`, `src/kspkg.js`, `src/pb.js`, `src/bc7.js` | reading tracks, cars and thumbnails from the game's archives |
 | `src/live.js`, `src/gamebridge.js` | HUD data and the file/log bridge to the game |
+| `src/spotter.js`, `public/spotter.js` | audio brake spotter: when to speak (server), playing it (page) |
 | `src/game.js`, `src/race.js` | game status, launch orders, Race tab |
 | `src/mods.js`, `src/zip.js` | Mods tab |
 | `src/setups.js`, `src/carsetup.js` | Setups tab: the game's setup files, reading / writing `.carsetup` with the car's limits |

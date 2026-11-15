@@ -11,6 +11,7 @@ import { Recorder } from './recorder.js';
 import * as trackdata from './trackdata.js';
 import { LiveHud } from './live.js';
 import { GameBridge, ACE, ACE_AUTO } from './gamebridge.js';
+import { createSpotter } from './spotter.js';
 import * as game from './game.js';
 import * as race from './race.js';
 import * as cars from './cars.js';
@@ -86,6 +87,9 @@ function setupTelemetry(setup, trackId, layout) {
 const inSession = () => ['live', 'pause', 'replay'].includes(recorder.state.status) && Date.now() - recorder.state.lastFrameAt < 5000;
 const clients = new Set();
 const broadcast = (type, data) => { const msg = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`; for (const c of clients) c.write(msg); };
+// audio brake spotter: the open Paddock page plays what it says (sound and volume travel with each cue)
+const spotter = createSpotter({ config: settings.spotterConfig,
+  emit: (cue) => { const c = settings.spotterConfig(); broadcast('spotter', { ...cue, sound: c.sound, volume: c.volume }); } });
 
 recorder.on('lap', (l) => { svc.invalidate(); broadcast('lap', l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
 recorder.on('session', (s) => console.log(`[session] ${s.track} ${s.layout} / ${s.car}`));
@@ -106,6 +110,7 @@ setInterval(() => {
     }
     recorder.onFrame(f);
     hud.onFrame(f);
+    spotter.tick(hud.nextBrake());
   } catch (e) { console.error('telemetry error', e); }
 }, 1000 / 60);
 
@@ -127,7 +132,7 @@ const readBody = (req) => new Promise((resolve, reject) => {
 });
 const readJson = async (req) => { const b = await readBody(req); return b.length ? JSON.parse(b.toString()) : {}; };
 
-const MIME = { '.woff2': 'font/woff2', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const MIME = { '.wav': 'audio/wav', '.woff2': 'font/woff2', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
 function serveStatic(res, file) {
   fs.readFile(file, (err, buf) => {
     if (err) return send(res, 404, { error: 'not found' });
@@ -387,6 +392,7 @@ async function route(req, res) {
     svc.invalidate();
     return send(res, 200, { ok: true, id });
   }
+  if (p === '/api/spotter/test' && m === 'POST') { spotter.test(); return send(res, 200, { ok: true }); }
   if (p === '/api/settings') {
     if (m === 'POST') {
       const body = await readJson(req);

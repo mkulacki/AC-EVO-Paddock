@@ -6,6 +6,14 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### New: brake spotter (audio)
+
+- A voice or beeps count down to each braking point while you drive: "three, two, one, brake", or "lift" where the reference lap only lifted. Suggested in [#3](https://github.com/mkulacki/AC-EVO-Paddock/issues/3), so you can keep your eyes on the road. It also works in VR.
+- It uses the braking points of the HUD's reference lap (all-time best by default). The countdown is in seconds from your current speed.
+- Settings → Brake spotter: on/off (off by default), voice or beeps, full countdown or only "brake", every point or big stops only, volume, timing (±500 ms), and a Test button.
+- Sound plays from Paddock on the default audio device, also while the desktop app is in the tray.
+- The voice clips were generated with Gemini text-to-speech and ship with the app (`src/tools/make-spotter-clips.js` remakes them).
+
 ### Fixes
 
 - **Game files folder found when Saved Games was moved or renamed** ([#3](https://github.com/mkulacki/AC-EVO-Paddock/issues/3)). Paddock used to assume `<user>\Saved Games\ACE`. It now asks Windows where Saved Games really is, so a moved folder like `I:\JMC\Parties enregistrées\ACE` is found. This affected installing the HUD, mods, setups and in-game features.
