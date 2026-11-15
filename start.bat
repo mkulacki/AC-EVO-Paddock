@@ -7,7 +7,7 @@ if errorlevel 1 (
   copy /y package-lock.json node_modules\.paddock-installed-lock >nul
 )
 start "" http://localhost:8080
-rem "Restart Paddock" (Game page) ends the server with code 75: start it again
+rem "Restart Paddock" (Settings page) ends the server with code 75: start it again
 set TRAINER_SUPERVISED=1
 :run
 node --no-warnings src/server.js
