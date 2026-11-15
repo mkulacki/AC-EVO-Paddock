@@ -5,6 +5,7 @@ import { DATA_DIR } from './db.js';
 const FILE = path.join(DATA_DIR, 'settings.json');
 const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName: '', language: 'English', port: 8080,
   gamePath: '', // AC EVO folder; empty = found automatically through Steam
+  aceDir: '', // AC EVO's user folder (Saved Games\ACE); empty = found automatically. Read at start, so a change needs a restart
   hud: null }; // Paddock HUD look (see HUD_DEFAULTS); null = defaults
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
