@@ -91,7 +91,14 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 
 ## Sessions tab
 
-- **Lap list:** per track/layout/car, with your best lap, ideal lap and every session. Filter by track or car and sort.
+- **Sessions:** *By track & car* (a card per track/layout/car with your best and ideal lap) or *By date* (newest first). Each session is one row with its best lap, change against the last session or a new PB, average, consistency, laps, setup and weakest corners. Filter by track or car.
+- **Session page** (click a session): a *Telemetry* tab and a *Report & targets* tab (see Session reports). Sessions under 3 laps show the basics and the telemetry. Imported laps are listed under their track and car.
+- **Telemetry** (session page, and Compare): opens on the session's best lap against the ideal lap.
+  - *Your lap* and *Reference* are drop-down menus: every lap of the session (and of other sessions), the ideal lap or your all-time best. *+ Add a lap* overlays up to 3 laps; ← / → steps your lap through its session.
+  - *Where the time went*: the lap as one bar, a segment per corner, red where you lost time and blue where you gained it. Click a corner to zoom the charts and the map to it; the map then shows both driven lines and both brake points.
+  - The corner card says what was different at entry, apex and exit, with one tip. Without a corner selected it lists your three biggest losses.
+  - Charts: gap to the reference, speed, pedals (throttle up, brake down) and steering; gear, RPM and racing line on request. One cursor: hovering a chart or the map moves the cursor on every chart and the cars on the map. Drag to zoom, double-click for the whole lap.
+  - All laps of the session are in a folded table under the telemetry: click one to analyse it.
 - **Start hotlap:** starts that car and track in Hotlap mode with clear weather and optimum grip. Progress shows on the Race tab.
 - **Compare:** up to 3 laps against a reference:
   - *my best lap*,
@@ -117,7 +124,7 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 
 ## Session reports
 
-When you leave a session with at least 3 laps (one of them valid), Paddock writes a report and the desktop app shows a notification. Open it under **Sessions → Reports**, or with the *Report* link on a session in **Sessions → Laps** (older sessions get one on request).
+When you leave a session with at least 3 laps (one of them valid), Paddock writes a report and the desktop app shows a notification. Every session in the **Sessions** tab shows its summary; *Open session* shows the full report and that session's laps. Sessions can be listed by track and car or by date.
 
 - **Best lap and session average** (clean laps: valid and within 7 % of the session's best), and the change against your previous session and your all-time best.
 - **Three best and three weakest corners:** your typical time through each corner against your fastest pass ever, with what differs on the weak ones (braking earlier, less apex speed, later throttle, running wide…).
@@ -129,6 +136,19 @@ When you leave a session with at least 3 laps (one of them valid), Paddock write
 - **AI debrief** (button, Gemini): a short debrief with a plan for the next session.
 
 **How the setup is recognised:** AC EVO does not say which setup is loaded, so Paddock takes a fingerprint while the car stands in the pit box (tyre pressures, camber, brake bias, fuel) and matches it with your saved setups for that car and track. No match = **Standard**. These shared-memory values are not confirmed in game yet: check them once in **Setups → Setup recognition** with a saved setup loaded, standing in the pit box.
+
+### Car & setup (session page)
+
+What the car did in the session, from tyre, brake and suspension data Paddock now records 10 times a second with every lap (laps driven before this have none):
+
+- **Tyres:** inner, middle and outer tread temperature, core temperature and hot pressure per tyre, drawn as the four corners of the car. The spread across the tread hints at camber (outer edge hotter = more negative camber), the middle against the edges at pressure (middle hotter = over-inflated).
+- **Brakes:** peak temperature per wheel and every lock-up, with the corner where it happened.
+- **Suspension:** travel per wheel, how often it reaches the end of its travel (bump stops) and where, lowest ride height.
+- **Balance:** front against rear slip angle while cornering, for corner entry, mid-corner and exit: understeer or oversteer, and in which corners.
+- **Wheelspin** on corner exits, and a lap-by-lap table of tyre temperatures, pressures and brake peaks.
+- **Setup suggestions** from these readings (rules of thumb, e.g. "mid-corner understeer: soften the front anti-roll bar"), ranked by importance. The **AI engineer** in Setups gets the same data for the latest session on that track, with the setup it was driven on.
+
+The tyre data comes from AC EVO's own tyre block; suspension travel and slip angles from the ACC-style physics block. None of it is confirmed in game yet: **Setups → Setup recognition → Tyres, brakes and suspension** shows the live values to compare with the game's tyre screen.
 
 ## Tracks tab and track data
 
@@ -230,6 +250,7 @@ Open **Settings → Telemetry debug → Show live raw values** while driving, an
 - `npos` going from 0 to 1 over a lap
 - `x`/`z` coordinates changing
 - `probe`: tyre pressures (PSI), camber (°), brake bias and air / track temperature (°C), used for setup recognition and the report's conditions (ACC's physics layout; **Setups → Setup recognition** compares them with a saved setup)
+- `carData`: per wheel, AC EVO's tyre block (tread and core temperatures, pressure, brake temperature, lock-up, and the game's window values) and, from the physics block, suspension travel, slip angle and slip ratio. Used by the Car & setup report; **Setups → Setup recognition → Tyres, brakes and suspension** shows them live
 
 If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src/shm.js`.
 `npm run check-limits [laps]` prints the track-limit channels (tyres out, wheel positions, kerbs) of the most recent laps, to check those offsets.
@@ -240,7 +261,8 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | --- | --- |
 | `src/server.js` | HTTP server and API, 60 Hz telemetry loop |
 | `src/shm.js`, `src/mock.js` | telemetry sources: game shared memory, simulated car |
-| `src/recorder.js`, `src/db.js` | turning frames into laps, storage |
+| `src/recorder.js`, `src/db.js` | turning frames into laps (with 10 Hz car data in `data.car`), storage |
+| `src/carreport.js`, `public/carsetup.js` | Car & setup report: tyres, brakes, suspension, balance, setup suggestions |
 | `src/analysis.js`, `src/service.js`, `src/track.js` | resampling, corners, ideal lap, compare / consistency / progress |
 | `src/trackdata.js`, `src/cars.js`, `src/kspkg.js`, `src/pb.js`, `src/bc7.js` | reading tracks, cars and thumbnails from the game's archives |
 | `src/live.js`, `src/gamebridge.js` | HUD data and the file/log bridge to the game |

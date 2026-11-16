@@ -6,11 +6,19 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### New: Car & setup report
+
+- Paddock now records tyre temperatures (inner, middle, outer and core), hot pressures, brake temperatures and lock-ups, suspension travel, ride height and slip angles with every lap, 10 times a second.
+- A **Car & setup** tab on the session page: the four tyres with their tread temperatures, pressures, brakes and suspension; balance (understeer / oversteer) at corner entry, mid-corner and exit; wheelspin; a lap-by-lap table; and setup suggestions such as camber, pressures, brake bias, springs, anti-roll bars.
+- The AI engineer in Setups gets the same data for the latest session on that track.
+- The readings are not confirmed in game yet: **Setups → Setup recognition** shows them live to compare with the game's tyre screen.
+
 ### New: session reports
 
 - After every session of 3 laps or more, a report: best lap and session average, change against the previous session and your all-time best, three best and three weakest corners (with what differs from your best pass), consistency, setup used, conditions, and next practice targets.
 - Also: lap-time trend chart, theoretical best of the session, where laps went invalid, a check of the previous report's targets, and an AI debrief on request (Gemini).
-- A Windows notification when it is ready (desktop app); the **Laps** tab is now **Sessions**, with two pages: *Laps* and *Reports*; each session in Laps has a *Report* link. Older sessions get a report on request.
+- **Telemetry on the session page**, in a new layout also used by Compare: your lap (the session best by default) against the ideal lap, picked from drop-down menus; a "where the time went" bar per corner; click a corner to zoom the charts and the map (both lines and brake points shown) and read what was different at entry, apex and exit; one cursor across the charts and the map; throttle and brake in one chart. The session's laps are in a folded table below.
+- A Windows notification when it is ready (desktop app); the **Laps** tab is now **Sessions**: one row per session with its summary (best lap and change or new PB, average, consistency, laps, setup, weakest corners), listed *By track & car* or *By date*. Click a session to open it: the full report and that session's laps (compare, export, delete). Sessions under 3 laps open with the basics and their laps. Older sessions get a report on request.
 - **Every lap now remembers its setup.** Paddock recognises the setup from a fingerprint taken in the pit box (pressures, camber, brake bias, fuel) and matches it with your saved setups; no match is called *Standard*. It can be corrected in the report. The readings still need a one-time check in game: **Setups → Setup recognition**.
 
 ### New: brake spotter (audio)

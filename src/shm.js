@@ -10,6 +10,9 @@ export const OFFSETS = {
     accG: 44, wheelsPressure: 88, camberRAD: 168, numberOfTyresOut: 244,
     // ACC layout (the offsets around these match): setup fingerprint + conditions, not yet checked in game
     rideHeight: 268, airTemp: 288, roadTemp: 292, brakeBias: 564, clutch: 364, tyreContactPoint: 420, tcInAction: 672, absInAction: 676, kerbVibration: 784,
+    // car & setup report (src/carreport.js): ACC layout, not yet checked in game. Per wheel FL, FR, RL, RR
+    wheelLoad: 72, tyreCoreTemp: 152, suspensionTravel: 184, brakeTemp: 348, tyreTempI: 368, tyreTempM: 384, tyreTempO: 400,
+    slipRatio: 640, slipAngle: 656,
   },
   graphics: {
     name: 'Local\\acevo_pmf_graphics', size: 4900,
@@ -17,6 +20,11 @@ export const OFFSETS = {
     steerDegrees: 156, currentLapMs: 188, npos: 1244, totalLapCount: 2384,
     lastLapMs: 2396, bestLapMs: 2400, driverName: 3020, driverSurname: 3053, carModel: 3086,
     inPitBox: 3119, inPitLane: 3120, validLap: 3121, carCoordinates: 3124, carIds: 3940,
+    // EVO's own tyre state, 256 bytes per wheel (FL, FR, RL, RR) from 220; fields inside a block (pack 4).
+    // Not yet checked in game (Setups → Setup recognition shows them next to the physics values)
+    tyres: 220, tyreSize: 256,
+    tyre: { lock: 4, pressure: 8, core: 12, brakeTemp: 16, inner: 24, middle: 28, outer: 32,
+      nPressure: 104, nInner: 108, nMiddle: 112, nOuter: 116, nBrake: 120, nCore: 124 },
   },
   static: {
     name: 'Local\\acevo_pmf_static', size: 208,
@@ -130,7 +138,20 @@ export class ShmSource {
       rideHeight: [p.readFloatLE(P.rideHeight) * 1000, p.readFloatLE(P.rideHeight + 4) * 1000],
       brakeBias: p.readFloatLE(P.brakeBias), airTemp: p.readFloatLE(P.airTemp), roadTemp: p.readFloatLE(P.roadTemp),
     };
+    // car & setup report: tyres (EVO's own block), brakes, suspension, slip
+    const T = G.tyre;
+    const tyres = [0, 1, 2, 3].map((w) => {
+      const o = G.tyres + w * G.tyreSize, gf = (k) => g.readFloatLE(o + T[k]);
+      return { lock: g[o + T.lock] !== 0, p: gf('pressure'), core: gf('core'), brake: gf('brakeTemp'), i: gf('inner'), m: gf('middle'), o: gf('outer'),
+        nP: gf('nPressure'), nI: gf('nInner'), nM: gf('nMiddle'), nO: gf('nOuter'), nB: gf('nBrake'), nC: gf('nCore') };
+    });
+    const carData = {
+      tyres, susp: f4(P.suspensionTravel).map((v) => v * 1000), load: f4(P.wheelLoad), slipAngle: f4(P.slipAngle), slipRatio: f4(P.slipRatio),
+      // the same in the ACC-style physics block, for the in-game check
+      phys: { core: f4(P.tyreCoreTemp), i: f4(P.tyreTempI), m: f4(P.tyreTempM), o: f4(P.tyreTempO), brake: f4(P.brakeTemp) },
+    };
     const frame = {
+      carData,
       packetId: p.readInt32LE(P.packetId),
       status: g.readInt32LE(G.status),
       gas: p.readFloatLE(P.gas), brake: p.readFloatLE(P.brake), clutch: p.readFloatLE(P.clutch), fuel: p.readFloatLE(P.fuel),

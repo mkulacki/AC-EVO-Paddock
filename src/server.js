@@ -27,6 +27,7 @@ import * as carsetup from './carsetup.js';
 import { createSetupTracker } from './setupmatch.js';
 import * as setupmatch from './setupmatch.js';
 import * as report from './report.js';
+import * as carreport from './carreport.js';
 import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -82,6 +83,13 @@ function setupTelemetry(setup, trackId, layout) {
   const valid = laps.filter((l) => l.valid);
   const best = valid.reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
   const out = { laps: laps.length, valid_laps: valid.length, recent_lap_times_ms: laps.slice(0, 15).map((l) => (l.valid ? l.lap_time_ms : `${l.lap_time_ms} (invalid)`)) };
+  // what the car did in the latest session with car data (tyres, brakes, suspension, balance)
+  for (const sid of [...new Set(laps.map((l) => l.session_id).filter(Boolean))].slice(0, 5)) {
+    try {
+      const r = carreport.build(sid);
+      if (r.available) { out.car_behaviour_latest_session = { session_laps: r.laps, setup_driven: laps.find((l) => l.session_id === sid)?.setup_name ?? 'unknown', ...carreport.forAi(r) }; break; }
+    } catch { /* skip */ }
+  }
   if (best) {
     try {
       const cmp = svc.compare([best.id], 'ideal');
@@ -400,10 +408,17 @@ async function route(req, res) {
   if (p === '/api/report' && m === 'GET') {
     const id = Number(url.searchParams.get('session'));
     let r = db.getReport(id);
-    if (!r) { try { report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); } }
+    const laps = db.lapsOfSession(id).map(({ setup_info: _, ...l }) => l);
+    if (!r) {
+      // too short for a report: the session page shows the basics and the laps
+      if (!laps.length) return send(res, 404, { error: 'This session has no laps.' });
+      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return send(res, 200, { data: null, session: db.getSession(id) ?? null, laps, hasKey: !!settings.get().geminiApiKey, probeConfirmed: !!settings.get().probeConfirmed });
+      try { report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); }
+    }
     const c = r.data.combo;
     return send(res, 200, { ...r, setupChoices: setupmatch.candidates(c.car, c.track, c.layout).map((x) => ({ name: x.file.name, rel: x.file.rel })),
-      probeConfirmed: !!settings.get().probeConfirmed, hasKey: !!settings.get().geminiApiKey });
+      probeConfirmed: !!settings.get().probeConfirmed, hasKey: !!settings.get().geminiApiKey,
+      laps });
   }
   if (p === '/api/report/regenerate' && m === 'POST') {
     const { session } = await readJson(req);
@@ -429,7 +444,18 @@ async function route(req, res) {
   // ---- setup fingerprint check (Setups tab): what Paddock reads in the pits against the saved setups
   if (p === '/api/setupcheck' && m === 'GET') {
     return send(res, 200, { live: setupTracker.live(), current: setupTracker.current(), conditions: setupTracker.conditions(),
-      probe: source.lastRaw?.frame?.probe ?? null, inSession: inSession(), confirmed: !!settings.get().probeConfirmed });
+      probe: source.lastRaw?.frame?.probe ?? null, carData: source.lastRaw?.frame?.carData ?? null, inSession: inSession(), confirmed: !!settings.get().probeConfirmed });
+  }
+  // car & setup report of a session (tyres, brakes, suspension, balance): Car & setup tab
+  if (p === '/api/carreport' && m === 'GET') {
+    try {
+      const r = carreport.build(Number(url.searchParams.get('session')));
+      if (r.combo) { // ids the Setups page knows, for "Ask the AI engineer"
+        const h = trackdata.find(r.combo.track, r.combo.layout);
+        r.links = { car: cars.match(r.combo.car)?.id ?? null, track: h?.track.id ?? null, layout: h?.layout.key ?? null };
+      }
+      return send(res, 200, r);
+    } catch (e) { return send(res, 400, { error: e.message }); }
   }
   if (p === '/api/setupcheck/confirm' && m === 'POST') {
     const { ok } = await readJson(req);
@@ -437,7 +463,11 @@ async function route(req, res) {
     return send(res, 200, { confirmed: !!ok });
   }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
-  if (p === '/api/overview') return send(res, 200, svc.overview());
+  // the Sessions page: laps, sessions, and from each saved report what the session strip shows
+  if (p === '/api/overview') {
+    const reports = Object.fromEntries(db.listReports().map((r) => [r.sessionId, { weakest: (r.data.corners?.weakest || []).map((w) => w.name) }]));
+    return send(res, 200, { ...svc.overview(), reports });
+  }
   if (p === '/api/consistency') {
     const q = url.searchParams;
     return send(res, 200, svc.consistency({ track: q.get('track'), layout: q.get('layout'), car: q.get('car') },

@@ -1,5 +1,5 @@
 // AC EVO Paddock - browser app (no build step)
-import { $, css, esc, api, post, fmt, fmtGap, gapClass, prettyName, SESSION_TYPES, SERIES, idxAt, md, getMirror, sideTxt, wideTxt, fitProjection, gearTxt } from './util.js';
+import { $, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES } from './util.js';
 import { mountReplay } from './replay.js';
 import { viewConsistency } from './consistency.js';
 import { viewTracks, viewTrack } from './tracks.js';
@@ -7,7 +7,8 @@ import { viewRace } from './race.js';
 import { viewProgress } from './progress.js';
 import { viewMods } from './mods.js';
 import { viewSetups } from './setups.js';
-import { viewReports, viewReport, sessionsHead } from './reports.js';
+import { viewReport, lapsBlock, bindLaps } from './reports.js';
+import { mountTelemetry, getCompare, forgetCompare } from './telemetry.js';
 import { initSpotter, spotterAudioState, loadVoice } from './spotter.js';
 
 const view = $('#view');
@@ -36,9 +37,9 @@ const STATUS_TEXT = {
   live: 'On track', unknown: 'AC EVO is running',
 };
 events.addEventListener('lap', () => { if (currentRoute === 'laps') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
-// a session report was just made: a dot on the Sessions tab until Reports is opened (the desktop app also notifies)
+// a session report was just made: a dot on the Sessions tab until it is opened (the desktop app also notifies)
 events.addEventListener('report', () => {
-  if (currentRoute === 'reports') { render(); return; }
+  if (currentRoute === 'laps') { render(); return; }
   const a = document.querySelector('nav a[data-nav=laps]');
   if (a && !a.querySelector('.nav-dot')) a.insertAdjacentHTML('beforeend', '<span class="nav-dot" title="New session report"></span>');
 });
@@ -85,10 +86,10 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/').split('?');
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/reports': 'reports', '/report': 'report' }[path] || 'laps';
+  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/report': 'report' }[path] || 'laps';
   if (currentRoute === 'laps' && prevRoute !== 'laps') lapView = { ...LAP_VIEW_DEFAULT };
   const navKey = currentRoute === 'track' ? 'tracks' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
-  if (currentRoute === 'reports' || currentRoute === 'report') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
+  if (navKey === 'laps') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
     if (currentRoute === 'game') await viewGame();
@@ -101,9 +102,8 @@ async function render() {
     else if (currentRoute === 'consistency') await viewConsistency(view, params, cleanup);
     else if (currentRoute === 'progress') await viewProgress(view, params, cleanup);
     else if (currentRoute === 'settings') await viewSettings();
-    else if (currentRoute === 'reports') await viewReports(view);
     else if (currentRoute === 'report') await viewReport(view, params, cleanup);
-    else await viewLaps();
+    else await viewLaps(params);
   } catch (e) {
     view.innerHTML = `<div class="card error">Error: ${esc(e.message)}</div>`;
   }
@@ -111,38 +111,99 @@ async function render() {
 window.addEventListener('hashchange', render);
 queueMicrotask(render); // after all module-level declarations are initialised
 
-// ================================================================== LAPS
-const selected = new Map(); // comboKey -> Set(lapId)
+// ================================================================== SESSIONS
+// The Sessions page lists sessions, by track & car (one card per combo) or by date. A row is the session's summary;
+// opening it shows the session page (public/reports.js): its report and its laps.
 const LAP_VIEW_DEFAULT = { track: '', car: '', order: 'recent' };
 let lapView = { ...LAP_VIEW_DEFAULT }; // filters/order; kept across auto-refreshes, reset when leaving the page
-// column sort of the lap tables: null = grouped by session (oldest first); otherwise one flat list
-let lapSort = null;
-try { lapSort = JSON.parse(localStorage.getItem('laps.sort') || 'null'); } catch { /* none */ }
-const LAP_COLS = {
-  lap: ['Lap', (l) => l.lap_number ?? -1],
-  time: ['Time', (l) => l.lap_time_ms],
-  gap: ['Gap', (l) => l.lap_time_ms],
-  driver: ['Driver', (l) => String(l.driver || '').toLowerCase()],
-  recorded: ['Recorded', (l) => l.recorded_at],
-};
-// header click: ascending -> descending -> back to the session groups
-function cycleLapSort(col) {
-  lapSort = lapSort?.col !== col ? { col, dir: 1 } : lapSort.dir === 1 ? { col, dir: -1 } : null;
-  try { localStorage.setItem('laps.sort', JSON.stringify(lapSort)); } catch { /* ignore */ }
-}
-const fmtStamp = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const MIN_REPORT_LAPS = 3; // = MIN_LAPS in src/report.js
+const CLEAN_WITHIN = 1.07; // same "clean lap" rule as the report and the Progress page
+let sessBy = 'combo';
+try { if (localStorage.getItem('sessions.by') === 'date') sessBy = 'date'; } catch { /* none */ }
+const sessDay = (t) => new Date(t).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+const sessTime = (t) => new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const comboOf = (l) => `${l.track}|${l.layout}|${l.car}`;
 async function removeLaps(ids, what) {
   if (!ids.length) return;
   if (!confirm(`Delete ${ids.length} ${what} permanently?\n\nThis cannot be undone.`)) return;
   await post('/api/laps/delete', { ids });
-  for (const s of selected.values()) for (const id of ids) s.delete(id);
   render();
 }
 
-async function viewLaps() {
+// per session: best, clean average, spread, consistency score, setups; against the previous session and the PB before
+function sessionSummaries(o, sessions) {
+  const out = new Map();
+  for (const l of o.laps) if (l.source !== 'import') {
+    if (!out.has(l.session_id)) out.set(l.session_id, { sid: l.session_id, key: comboOf(l), laps: [] });
+    out.get(l.session_id).laps.push(l);
+  }
+  const byCombo = new Map();
+  for (const m of out.values()) {
+    m.laps.sort((a, b) => a.recorded_at - b.recorded_at);
+    m.s = sessions.get(m.sid);
+    m.start = m.s?.started_at ?? m.laps[0].recorded_at;
+    const valid = m.laps.filter((l) => l.valid);
+    m.valid = valid.length;
+    m.best = valid.reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
+    const clean = m.best ? valid.map((l) => l.lap_time_ms).filter((t) => t <= m.best.lap_time_ms * CLEAN_WITHIN) : [];
+    m.avg = clean.length ? clean.reduce((a, b) => a + b, 0) / clean.length : null;
+    m.sd = clean.length >= 3 ? Math.sqrt(clean.reduce((a, t) => a + (t - m.avg) ** 2, 0) / clean.length) : null;
+    m.score = m.sd != null ? Math.max(0, Math.min(100, Math.round(100 - (4000 * m.sd) / m.avg))) : null;
+    m.setups = [...new Set(m.laps.map((l) => l.setup_name).filter(Boolean))];
+    m.full = m.laps.length >= MIN_REPORT_LAPS && m.valid > 0; // gets a report
+    m.weakest = o.reports?.[m.sid]?.weakest ?? null;
+    if (!byCombo.has(m.key)) byCombo.set(m.key, []);
+    byCombo.get(m.key).push(m);
+  }
+  const comboLaps = new Map();
+  for (const l of o.laps) if (l.valid) { if (!comboLaps.has(comboOf(l))) comboLaps.set(comboOf(l), []); comboLaps.get(comboOf(l)).push(l); }
+  for (const [key, list] of byCombo) {
+    list.sort((a, b) => a.start - b.start);
+    let prev = null;
+    for (const m of list) {
+      if (!m.best) continue;
+      if (prev) m.lastDelta = m.best.lap_time_ms - prev.best.lap_time_ms;
+      prev = m;
+      const first = m.laps[0].recorded_at;
+      const before = (comboLaps.get(key) || []).filter((l) => l.recorded_at < first && l.session_id !== m.sid);
+      if (before.length) {
+        const pb = Math.min(...before.map((l) => l.lap_time_ms));
+        m.newPb = m.best.lap_time_ms < pb; m.pbDelta = m.best.lap_time_ms - pb;
+      }
+    }
+  }
+  return out;
+}
+
+// one session = one row; combo given: the track and car too (By date, where the day is the card title)
+function sessionRow(m, combo) {
+  const n = m.laps.length;
+  const dCls = (d) => (d < 0 ? 'neg' : d > 0 ? 'pos' : '');
+  const cell = (k, v, sub = '', cls = '') => `<div class="sr-cell ${cls}"><span class="k">${k}</span><span class="v">${v}</span>${sub ? `<span class="sub">${sub}</span>` : ''}</div>`;
+  const change = m.newPb ? `<span class="badge best" title="Faster than every lap before this session">New PB ${fmtGap(m.pbDelta)}</span>`
+    : m.lastDelta != null ? `<span class="${dCls(m.lastDelta)}" title="Best lap against the previous session's best">${fmtGap(m.lastDelta)} vs last</span>` : '';
+  return `<a class="sess-row${combo ? ' with-combo' : ''}" href="#/report?session=${m.sid}" title="Open the session: report and laps">
+    ${combo ? cell(esc(SESSION_TYPES[m.s?.session_type] || 'Session'), esc(sessTime(m.start)), '', 'when') // the day is the card's title
+      : cell(esc(SESSION_TYPES[m.s?.session_type] || 'Session'), esc(sessDay(m.start)), esc(sessTime(m.start)), 'when')}
+    ${combo ? cell(esc(prettyName(combo.car)), `${esc(prettyName(combo.track))} <span class="muted">${esc(prettyName(combo.layout))}</span>`, '', 'combo') : ''}
+    ${cell('Best lap', m.best ? fmt(m.best.lap_time_ms) : '–', m.best ? change : 'no valid lap')}
+    ${cell('Average', m.full && m.avg != null ? fmt(Math.round(m.avg)) : '–')}
+    ${cell('Consistency', m.full && m.score != null ? `${m.score}` : '–', m.full && m.sd != null ? `±${(m.sd / 1000).toFixed(2)} s` : '')}
+    ${cell('Laps', `${m.valid}<small class="muted"> / ${n}</small>`, m.valid < n ? `${n - m.valid} invalid` : '')}
+    ${cell('Setup', m.setups.length ? m.setups.map(esc).join(', ') : '<span class="muted">–</span>', '', 'text')}
+    ${cell('Weakest corners', m.full && m.weakest?.length ? m.weakest.map(esc).join(', ') : '<span class="muted">–</span>', '', 'text')}
+    <span class="sr-go" aria-hidden="true">›</span>
+  </a>`;
+}
+
+async function viewLaps(params) {
+  const by = params.get('by');
+  if (by === 'combo' || by === 'date') { sessBy = by; try { localStorage.setItem('sessions.by', by); } catch { /* ignore */ } }
+  const head = `<div class="race-head"><div><h1>Sessions</h1></div><span class="spacer"></span>
+    <div class="tabs"><a href="#/?by=combo" class="${sessBy === 'combo' ? 'on' : ''}">By track &amp; car</a><a href="#/?by=date" class="${sessBy === 'date' ? 'on' : ''}">By date</a></div></div>`;
   const o = await api('/api/overview');
   if (!o.combos.length) {
-    view.innerHTML = `${sessionsHead('laps')}<div class="card empty">
+    view.innerHTML = `${head}<div class="card empty">
       <h2>No laps yet</h2>
       <p>Start Assetto Corsa EVO and drive. Laps are saved automatically when you cross the line.</p>
       <p class="muted">Want to try it first? Run <code>npm run seed</code> for demo laps, or start with <code>npm run mock</code>.</p>
@@ -152,6 +213,7 @@ async function viewLaps() {
     return;
   }
   const sessions = new Map(o.sessions.map((s) => [s.id, s]));
+  const summaries = sessionSummaries(o, sessions);
   const uniq = (k, list = o.combos) => [...new Set(list.map((c) => c[k]))].sort((a, b) => prettyName(a).localeCompare(prettyName(b)));
   // drop a filter whose value no longer exists (e.g. last lap of that car deleted, or a car never driven on the newly picked track)
   if (!uniq('track').includes(lapView.track)) lapView.track = '';
@@ -169,66 +231,46 @@ async function viewLaps() {
   const combos = o.combos
     .filter((c) => (!lapView.track || c.track === lapView.track) && (!lapView.car || c.car === lapView.car))
     .sort(orders[lapView.order]?.[1] || orders.recent[1]);
-  const comboLaps = (c) => o.laps.filter((l) => `${l.track}|${l.layout}|${l.car}` === c.key);
+  const comboLaps = (c) => o.laps.filter((l) => comboOf(l) === c.key);
   const opts = (list, cur, all) => `<option value="">${all}</option>` + list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(prettyName(v))}</option>`).join('');
-  view.innerHTML = `
-    ${sessionsHead('laps')}
+  const none = '<div class="card empty"><p>Nothing matches this track and car. Choose “All tracks” or “All cars” to see the rest.</p></div>';
+
+  let body;
+  if (sessBy === 'date') {
+    // one card per day, newest first
+    const byKey = new Map(combos.map((c) => [c.key, c]));
+    const list = [...summaries.values()].filter((m) => byKey.has(m.key)).sort((a, b) => b.start - a.start);
+    const days = new Map();
+    for (const m of list) { const d = sessDay(m.start); if (!days.has(d)) days.set(d, []); days.get(d).push(m); }
+    body = list.length ? [...days.entries()].map(([d, ms]) => `<section class="card"><h2>${esc(d)}</h2>
+      <div class="sess-list">${ms.map((m) => sessionRow(m, byKey.get(m.key))).join('')}</div></section>`).join('') : none;
+  } else {
+    body = combos.length ? combos.map((c) => comboCard(c, comboLaps(c), summaries)).join('') : none;
+  }
+  view.innerHTML = `${head}
     <div class="row" style="margin-bottom:16px">
-      <span class="spacer"></span>
       <select id="f-track" title="Filter by track">${opts(tracks, lapView.track, 'All tracks')}</select>
       <select id="f-car" title="Filter by car">${opts(cars, lapView.car, 'All cars')}</select>
-      <select id="f-order" title="Order by">${Object.entries(orders).map(([k, [label]]) => `<option value="${k}" ${k === lapView.order ? 'selected' : ''}>${label}</option>`).join('')}</select>
+      ${sessBy === 'combo' ? `<select id="f-order" title="Order by">${Object.entries(orders).map(([k, [label]]) => `<option value="${k}" ${k === lapView.order ? 'selected' : ''}>${label}</option>`).join('')}</select>` : ''}
+      <span class="spacer"></span>
       <button id="imp">Import lap files…</button>
     </div>
-    ${combos.length ? '' : '<div class="card empty"><p>No laps match this track and car. Choose “All tracks” or “All cars” to see the rest.</p></div>'}
-    ${combos.map((c) => comboCard(c, comboLaps(c), sessions)).join('')}`;
+    ${body}`;
   bindImport($('#imp'));
-  view.querySelectorAll('th[data-sort]').forEach((th) => { th.onclick = () => { cycleLapSort(th.dataset.sort); render(); }; });
   [['#f-track', 'track'], ['#f-car', 'car'], ['#f-order', 'order']].forEach(([sel, k]) => {
-    $(sel).onchange = (e) => { lapView[k] = e.target.value; render(); };
+    if ($(sel)) $(sel).onchange = (e) => { lapView[k] = e.target.value; render(); };
   });
-
   view.querySelectorAll('[data-combo]').forEach((card) => {
     const key = card.dataset.combo;
-    if (!selected.has(key)) selected.set(key, new Set());
-    const sel = selected.get(key);
-    const btn = card.querySelector('.cmp-sel');
-    const upd = () => { btn.disabled = !sel.size; btn.textContent = `Compare selected (${sel.size})`; };
-    card.querySelectorAll('input[data-lap]').forEach((cb) => {
-      cb.checked = sel.has(+cb.dataset.lap);
-      cb.onchange = () => {
-        const id = +cb.dataset.lap;
-        if (cb.checked) { if (sel.size >= 3) { cb.checked = false; alert('Compare up to 3 laps against the reference.'); return; } sel.add(id); } else sel.delete(id);
-        upd();
-      };
-    });
-    upd();
-    btn.onclick = () => {
-      const ref = card.querySelector('.ref-sel').value;
-      let ids = [...sel];
-      let r = ref;
-      if (ref === 'first') { r = ids[0]; }
-      location.hash = `#/compare?laps=${ids.join(',')}&ref=${r}`;
-    };
-    card.querySelector('[data-hotlap]').onclick = () => {
-      const c = o.combos.find((x) => x.key === key);
-      if (c) startHotlap(c);
-    };
+    const hot = card.querySelector('[data-hotlap]');
+    if (hot) hot.onclick = () => { const c = o.combos.find((x) => x.key === key); if (c) startHotlap(c); };
     const rmc = card.querySelector('[data-rm-invalid]');
     if (rmc) rmc.onclick = () => {
       const ids = rmc.dataset.rmInvalid.split(',').map(Number);
       removeLaps(ids, `invalid lap${ids.length > 1 ? 's' : ''} of this car and track`);
     };
-    // a click anywhere on a lap row (not on its checkbox or tools) opens it against the best lap, or the best lap against the ideal
-    card.querySelectorAll('tr[data-open]').forEach((tr) => tr.onclick = (e) => {
-      if (e.target.closest('input, button, a, label')) return;
-      location.hash = tr.dataset.open;
-    });
-    card.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
-      if (!confirm('Delete this lap permanently?')) return;
-      await api(`/api/laps/${b.dataset.del}`, { method: 'DELETE' });
-      sel.delete(+b.dataset.del); render();
-    });
+    const imp = card.querySelector('[data-imported]');
+    if (imp) bindLaps(imp, o.laps.filter((l) => l.source === 'import' && comboOf(l) === key), () => render());
   });
 }
 
@@ -246,63 +288,10 @@ async function startHotlap(c) {
   } catch (e) { alert(`Could not start the hotlap: ${e.message}`); }
 }
 
-function comboCard(c, laps, sessions) {
-  const groups = new Map();
-  for (const l of laps) {
-    const g = l.source === 'import' ? 'import' : l.session_id;
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(l);
-  }
-  // timing-sheet colours: purple = best lap of this car and track, green = fastest valid lap of its session
-  const sessionBest = new Map();
-  for (const l of laps) if (l.valid && l.source !== 'import') {
-    const b = sessionBest.get(l.session_id);
-    if (!b || l.lap_time_ms < b.lap_time_ms) sessionBest.set(l.session_id, l);
-  }
-  // one driver for every lap: the Driver column says nothing
-  const showDriver = new Set(laps.map((l) => l.driver || '')).size > 1;
-  const row = (l) => {
-      const gap = c.bestMs ? l.lap_time_ms - c.bestMs : null;
-      const isBest = l.id === c.bestLapId;
-      const isPb = !isBest && l.valid && sessionBest.get(l.session_id)?.id === l.id;
-      const open = isBest ? `#/compare?laps=${l.id}&ref=ideal` : `#/compare?laps=${l.id}&ref=best`;
-      return `<tr class="${l.valid ? '' : 'invalid'}" data-open="${open}" title="${isBest ? 'Compare with the ideal lap' : 'Compare with your best lap'}">
-        <td><input type="checkbox" data-lap="${l.id}" aria-label="Select lap for comparison"></td>
-        <td class="muted">${l.lap_number ?? ''}</td>
-        <td class="time${isBest ? ' best' : isPb ? ' pb' : ''}"><a href="${open}"><b>${fmt(l.lap_time_ms)}</b></a> ${isBest ? '<span class="badge best">Best</span>' : isPb ? '<span class="badge pb">Session best</span>' : ''} ${l.valid ? '' : '<span class="badge bad">Invalid</span>'}</td>
-        <td class="secondary">${isBest ? '' : fmtGap(gap)}</td>
-        ${showDriver ? `<td class="secondary">${esc(l.driver || '')}${l.source === 'import' ? ' <span class="badge">Imported</span>' : ''}</td>` : ''}
-        <td class="muted" style="white-space:nowrap">${esc(fmtStamp(l.recorded_at))}</td>
-        <td class="actions">
-          <a href="#/compare?laps=${l.id}&ref=ideal"><button class="small ghost" title="Compare with the ideal lap (your best sectors)">Ideal</button></a>
-          <a href="/api/laps/${l.id}/export" download><button class="small ghost" title="Export lap file" aria-label="Export lap file">⇩</button></a>
-          <button class="small ghost" data-del="${l.id}" title="Delete lap" aria-label="Delete lap">✕</button>
-        </td></tr>`;
-  };
-  const cols = showDriver ? 7 : 6;
-  let rows;
-  const sortCol = lapSort && LAP_COLS[lapSort.col];
-  if (sortCol) {
-    // one flat list sorted by the clicked column (ties: oldest first)
-    const key = sortCol[1];
-    const cmp = (a, b) => { const x = key(a), y = key(b); return x < y ? -1 : x > y ? 1 : 0; };
-    rows = [...laps].sort((a, b) => lapSort.dir * cmp(a, b) || a.recorded_at - b.recorded_at).map(row).join('');
-  } else {
-    rows = [...groups.entries()].map(([g, ls]) => {
-      const s = sessions.get(g);
-      const when = s ? new Date(s.started_at).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-      const head = g === 'import' ? '<b>Imported laps</b>'
-        : `<b>${esc(SESSION_TYPES[s?.session_type] || 'Session')}</b> on ${esc(when)}, ${ls.length} lap${ls.length === 1 ? '' : 's'}`
-          + (s && ls.some((l) => l.valid) ? ` <a href="#/report?session=${s.id}" class="session-report" title="Session report: best, average, corners, consistency, targets">Report</a>` : '');
-      const sorted = g === 'import' ? ls.sort((a, b) => a.lap_time_ms - b.lap_time_ms) : ls.sort((a, b) => a.recorded_at - b.recorded_at);
-      return `<tr class="session"><td colspan="${cols}">${head}</td></tr>` + sorted.map(row).join('');
-    }).join('');
-  }
-  const th = (col) => {
-    const on = lapSort?.col === col;
-    const tip = !on ? 'Sort by this column' : lapSort.dir === 1 ? 'Sorted ascending: click for descending' : 'Sorted descending: click to group by session again';
-    return `<th data-sort="${col}" class="sortable${on ? ' on' : ''}" title="${tip}">${LAP_COLS[col][0]}<span class="arrow">${on ? (lapSort.dir === 1 ? '▲' : '▼') : ''}</span></th>`;
-  };
+// By track & car: one card per car and track with its sessions, newest first (imported laps have no session: listed below)
+function comboCard(c, laps, summaries) {
+  const ms = [...summaries.values()].filter((m) => m.key === c.key).sort((a, b) => b.start - a.start);
+  const imported = laps.filter((l) => l.source === 'import').sort((a, b) => a.lap_time_ms - b.lap_time_ms);
   const invalidIds = laps.filter((l) => !l.valid).map((l) => l.id);
   const gapIdeal = c.bestMs && c.idealMs ? c.idealMs - c.bestMs : null;
   return `<section class="card" data-combo="${esc(c.key)}">
@@ -319,13 +308,11 @@ function comboCard(c, laps, sessions) {
       ${c.validLaps >= 2 ? `<a href="#/consistency?combo=${encodeURIComponent(c.key)}"><button>Consistency</button></a>` : ''}
       ${c.bestLapId && c.idealMs ? `<a href="#/compare?laps=${c.bestLapId}&ref=ideal"><button>Best lap against ideal</button></a>` : ''}
       <span class="spacer"></span>
-      <button class="cmp-sel" disabled>Compare selected</button>
-      <select class="ref-sel" title="Reference lap">
-        <option value="best">with my best lap</option><option value="ideal">with the ideal lap</option><option value="first">with the first one selected</option>
-      </select>
       ${invalidIds.length ? `<button class="danger-ghost" data-rm-invalid="${invalidIds.join(',')}" title="Delete the invalid laps of this car and track">Remove invalid laps (${invalidIds.length})</button>` : ''}
     </div>
-    <table class="laps"><thead><tr><th></th>${th('lap')}${th('time')}${th('gap')}${showDriver ? th('driver') : ''}${th('recorded')}<th></th></tr></thead><tbody>${rows}</tbody></table>
+    ${ms.length ? `<div class="sess-list">${ms.map((m) => sessionRow(m)).join('')}</div>` : ''}
+    ${imported.length ? `<details class="imported" data-imported><summary><b>Imported laps</b> <span class="muted">${imported.length}</span></summary>
+      ${lapsBlock(imported, { bestMs: c.bestMs, bestLapId: c.bestLapId, bestLabel: 'Best' })}</details>` : ''}
   </section>`;
 }
 
@@ -345,300 +332,33 @@ function bindImport(btn) {
   };
 }
 
-// ================================================================== COMPARE
-let cmpCache = null; // last comparison payload, reused when switching tabs
-events.addEventListener('lap', () => { cmpCache = null; });
+// ================================================================== COMPARE: laps against a reference (public/telemetry.js) and the racing line replay
+events.addEventListener('lap', () => forgetCompare()); // a new lap can change the best and the ideal lap
 async function viewCompare(params) {
-  const lapIds = params.get('laps');
+  const lapIds = (params.get('laps') || '').split(',').map(Number).filter(Boolean);
   const ref = params.get('ref') || 'best';
   const tab = params.get('tab') === 'line' ? 'line' : 'charts';
-  const key = `${lapIds}|${ref}`;
-  if (cmpCache?.key !== key) {
-    view.innerHTML = '<div class="card"><span class="spinner"></span> Loading telemetry…</div>';
-    cmpCache = { key, data: await api(`/api/compare?laps=${lapIds}&ref=${ref}`) };
-  }
-  const data = cmpCache.data;
-  const laps = data.laps;
-  const mirror = getMirror();
-  const hrefTab = (t) => `#/compare?laps=${lapIds}&ref=${ref}${t === 'line' ? '&tab=line' : ''}`;
-  const color = (i) => css(SERIES[i]); // 0 = reference
-  const step = data.ref.trace.d[1] - data.ref.trace.d[0];
-  let focus = 0; // index into laps used for table/map/AI
-
-  const chip = (label, ms, i, extra = '') => `<div class="chip"><span class="sw" style="background:${color(i)}"></span><span>${label}</span><span class="t">${fmt(ms)}</span>${extra}</div>`;
+  view.innerHTML = '<div class="card"><span class="spinner"></span> Loading telemetry…</div>';
+  const data = await getCompare(lapIds, ref);
+  const lap0 = data.laps[0]?.meta ?? data.ref.meta;
+  const back = lap0?.session_id ? `#/report?session=${lap0.session_id}` : '#/';
+  const url = (s, t = tab) => `#/compare?laps=${s.laps.join(',')}&ref=${s.ref}${s.corner ? `&c=${encodeURIComponent(s.corner)}` : ''}${t === 'line' ? '&tab=line' : ''}`;
+  let st = { laps: lapIds, ref, corner: params.get('c') };
   view.innerHTML = `
     <div class="cmp-head">
-      <a href="#/"><button class="ghost">Back to laps</button></a>
+      <a href="${back}"><button class="ghost">← ${lap0?.session_id ? 'Session' : 'Sessions'}</button></a>
       <div><h1>${esc(prettyName(data.combo.track))} <span class="muted">${esc(prettyName(data.combo.layout))}</span></h1>
-        <div class="secondary">${esc(prettyName(data.combo.car))}. Best lap ${fmt(data.bestMs)}, ideal lap ${fmt(data.idealMs)}</div></div>
-      <span class="spacer"></span>
-      <label class="row">Reference <select id="refSel">
-        <option value="best">My best lap</option><option value="ideal">Ideal lap (best segments)</option>
-        ${data.ref.id !== 'ideal' && String(ref) !== 'best' ? `<option value="${data.ref.id}">Lap #${data.ref.id}</option>` : ''}
-      </select></label>
+        <div class="secondary">${esc(prettyName(data.combo.car))} · best lap ${fmt(data.bestMs)}, ideal lap ${fmt(data.idealMs)}</div></div>
     </div>
-    <div class="chips" style="margin-bottom:16px">
-      ${chip(`Reference: ${esc(data.ref.label)}${data.ref.meta?.driver ? ` (${esc(data.ref.meta.driver)})` : ''}`, data.ref.lapTimeMs, 0)}
-      ${laps.map((l, i) => chip(`Lap #${l.id}${l.meta.source === 'import' ? ` (${esc(l.meta.driver)})` : ''}${l.meta.valid ? '' : ' (invalid)'}`, l.meta.lap_time_ms, i + 1,
-        `<span class="num ${gapClass(l.meta.lap_time_ms - data.ref.lapTimeMs)}">${fmtGap(l.meta.lap_time_ms - data.ref.lapTimeMs)}</span>`)).join('')}
-    </div>
-    ${!laps.length ? '<div class="card muted">This lap is the reference itself. Choose another reference, such as the ideal lap, to see where time goes.</div>' : ''}
-    ${data.ref.sources ? `<div class="card plain"><h3>The ideal lap joins your best sectors</h3><div class="ideal-src">${data.ref.sources.map((s) =>
-      `<span><b>${s.corner}</b> ${(s.timeMs / 1000).toFixed(3)}s from <a href="#/compare?laps=${s.lapId}&ref=ideal">lap #${s.lapId}</a></span>`).join('')}</div></div>` : ''}
-    <div class="tabs"><a href="${hrefTab('charts')}" class="${tab === 'charts' ? 'on' : ''}">Charts &amp; analysis</a><a href="${hrefTab('line')}" class="${tab === 'line' ? 'on' : ''}">Racing line replay</a></div>
-    <div id="tabBody">
-    <div class="grid2">
-      <div class="card mapwrap"><h2>Track map</h2><canvas id="map"></canvas>
-        <div class="legend-scale">${laps.length ? `<span>Gaining</span><span class="bar"></span><span>Losing</span><span class="muted">lap #${laps[0]?.id} against the reference</span>` : ''}</div></div>
-      <div class="card"><div class="row" style="margin-bottom:8px"><h2 style="margin:0">Corners</h2><span class="spacer"></span>
-        ${laps.length > 1 ? `<label class="row">Lap <select id="focusSel">${laps.map((l, i) => `<option value="${i}">#${l.id}</option>`).join('')}</select></label>` : ''}
-        <span class="muted" style="font-size:12px">Click a corner to zoom the charts to it</span></div>
-        <div class="corner-table" id="corners"></div></div>
-    </div>
-    <div class="card plain charts" id="charts"></div>
-    <div class="card plain" id="ai"></div>
-    </div>`;
-
-  $('#refSel').value = String(ref);
-  $('#refSel').onchange = (e) => { location.hash = `#/compare?laps=${lapIds}&ref=${e.target.value}${tab === 'line' ? '&tab=line' : ''}`; };
+    <div class="tabs"><a href="#" data-tab="charts" class="${tab === 'charts' ? 'on' : ''}">Telemetry</a><a href="#" data-tab="line" class="${tab === 'line' ? 'on' : ''}">Racing line replay</a></div>
+    <div id="tabBody"></div>`;
+  view.querySelectorAll('[data-tab]').forEach((a) => a.onclick = (e) => { e.preventDefault(); location.hash = url(st, a.dataset.tab); });
   if (tab === 'line') {
     mountReplay($('#tabBody'), data, cleanup, { at: params.has('at') ? +params.get('at') : null,
       mode: params.get('mode'), inputs: params.has('inputs') ? params.get('inputs') === '1' : null });
     return;
   }
-
-  // ---------------- corner table
-  let selCorner = null;
-  const renderCorners = () => {
-    const lap = laps[focus];
-    if (!lap) { $('#corners').innerHTML = '<p class="muted">No lap to compare.</p>'; return; }
-    const losses = data.corners.map((c) => lap.delta[idxAt(lap.trace.d, c.end)] - lap.delta[idxAt(lap.trace.d, c.start)]);
-    const maxL = Math.max(0.05, ...losses.map(Math.abs));
-    const dv = (a, b, unit, invert = false) => {
-      if (a == null || b == null) return '<span class="muted">–</span>';
-      const d = a - b; const good = invert ? d < 0 : d > 0;
-      return `${a}${unit} <small class="${Math.abs(d) < 0.5 ? 'muted' : good ? 'neg' : 'pos'}">${d > 0 ? '+' : ''}${Math.round(d * 10) / 10}</small>`;
-    };
-    $('#corners').innerHTML = `<table><thead><tr><th>Corner</th><th>Time lost</th><th>Brake point (m)</th><th>Min speed</th><th>Throttle on (m)</th><th>Exit speed</th><th>Coast (m)</th><th title="Your line vs the reference line at turn-in / apex / exit. + = wider (towards the outside), − = tighter">Line in/apex/out (m)</th></tr></thead><tbody>
-      ${data.corners.map((c, i) => {
-        const m = lap.corners[i], r = data.ref.corners[i], loss = losses[i];
-        const w = Math.round((Math.abs(loss) / maxL) * 60);
-        return `<tr data-c="${i}" class="${selCorner === i ? 'sel' : ''}">
-          <td><b>${c.name}</b> <span class="muted">${c.apex} m</span>
-            <a class="replay-link" title="Replay this corner" href="${hrefTab('line')}&at=${Math.max(0, (r.brakePoint ?? r.liftPoint ?? c.start) - 60)}">▶</a></td>
-          <td><span class="lossbar" style="width:${w}px;background:${loss > 0 ? 'var(--slower)' : 'var(--faster)'}"></span><span class="${gapClass(loss * 1000)}">${fmtGap(loss * 1000)}</span></td>
-          <td>${m.brakePoint != null ? dv(m.brakePoint, r.brakePoint, '') : m.liftPoint != null ? `lift ${m.liftPoint}` : '<span class="muted">flat</span>'}</td>
-          <td>${dv(m.minSpeed, r.minSpeed, '')}</td>
-          <td>${dv(m.throttlePickup, r.throttlePickup, '', true)}</td>
-          <td>${dv(m.exitSpeed, r.exitSpeed, '')}</td>
-          <td>${m.coastM ? `<span class="${m.coastM > r.coastM + 5 ? 'pos' : ''}">${m.coastM}</span>` : '<span class="muted">0</span>'}</td>
-          <td class="num">${[m.entryWide, m.apexWide, m.exitWide].map((v) => `<span class="${v != null && Math.abs(v) >= 0.5 ? 'secondary' : 'muted'}">${wideTxt(v)}</span>`).join(' / ')}</td></tr>`;
-      }).join('')}</tbody></table>
-      <p class="foot-note" style="margin:8px 0 0;max-width:80ch">Small numbers are the difference to the reference. A positive brake point means you braked later; a negative throttle point means you were back on the throttle earlier. On the line, positive is wider than the reference (towards the outside of the corner) and negative is tighter.</p>`;
-    $('#corners').querySelectorAll('tr[data-c]').forEach((tr) => tr.onclick = () => {
-      const i = +tr.dataset.c;
-      selCorner = selCorner === i ? null : i;
-      const c = data.corners[i];
-      zoom(selCorner == null ? null : [Math.max(0, c.start - 50), c.end + 50]);
-      renderCorners(); drawMap();
-    });
-  };
-  if ($('#focusSel')) $('#focusSel').onchange = (e) => { focus = +e.target.value; renderCorners(); drawMap(); renderAI(); };
-  renderCorners();
-
-  // ---------------- track map
-  const canvas = $('#map');
-  let cursorIdx = null;
-  function drawMap() {
-    const dpr = window.devicePixelRatio || 1;
-    const W = canvas.clientWidth, H = canvas.clientHeight;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    const { x, z } = data.ref.trace;
-    const P = fitProjection(x, z, W, H, 24, mirror);
-
-    // colour by time gained/lost per chunk
-    const lap = laps[focus];
-    const k = Math.max(1, Math.round(10 / step));
-    const raw = [];
-    if (lap) for (let i = 0; i + k < x.length; i += k) raw.push(lap.delta[i + k] - lap.delta[i]);
-    // smooth over ~±40 m so the colours show trends, not sampling noise
-    const slopes = raw.map((_, j) => { let s = 0, c = 0; for (let q = Math.max(0, j - 4); q <= Math.min(raw.length - 1, j + 4); q++) { s += raw[q]; c++; } return s / c; });
-    const sorted = slopes.map(Math.abs).sort((a, b) => a - b);
-    const scale = Math.max(0.01, sorted[Math.floor(sorted.length * 0.95)] || 0.01);
-    const rgb = (h) => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
-    const cF = rgb(css('--faster')), cS = rgb(css('--slower')), cN = rgb(css('--neutral'));
-    const mix = (a, b, t) => `rgb(${a.map((v, j) => Math.round(v + (b[j] - v) * t)).join(',')})`;
-
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    // real track surface from the recorded track model (shared by all cars)
-    const band = data.band;
-    if (band?.source?.left === 'track') {
-      ctx.fillStyle = css('--grid');
-      ctx.beginPath();
-      band.left.x.forEach((bx, i) => { const [px, py] = P(bx, band.left.z[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
-      ctx.closePath();
-      for (let i = band.right.x.length - 1; i >= 0; i--) { const [px, py] = P(band.right.x[i], band.right.z[i]); i === band.right.x.length - 1 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
-      ctx.closePath(); ctx.fill('evenodd');
-    }
-    // base outline
-    ctx.strokeStyle = css('--axis'); ctx.lineWidth = 9;
-    ctx.beginPath(); for (let i = 0; i < x.length; i++) { const [px, py] = P(x[i], z[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
-    ctx.lineWidth = 5;
-    for (let j = 0, i = 0; i + k < x.length; i += k, j++) {
-      const v = lap ? Math.max(-1, Math.min(1, slopes[j] / scale)) : 0;
-      ctx.strokeStyle = v >= 0 ? mix(cN, cS, v) : mix(cN, cF, -v);
-      ctx.beginPath();
-      for (let q = i; q <= i + k; q++) { const [px, py] = P(x[q], z[q]); q === i ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
-      ctx.stroke();
-    }
-    // selected corner outline
-    if (selCorner != null) {
-      const c = data.corners[selCorner];
-      ctx.strokeStyle = css('--text-primary'); ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
-      ctx.beginPath();
-      for (let i = idxAt(data.ref.trace.d, c.start); i <= idxAt(data.ref.trace.d, c.end); i++) { const [px, py] = P(x[i], z[i]); ctx.lineTo(px, py); }
-      ctx.stroke(); ctx.setLineDash([]);
-    }
-    // start/finish
-    const [sx, sy] = P(x[0], z[0]);
-    ctx.fillStyle = css('--text-primary'); ctx.fillRect(sx - 4, sy - 4, 8, 8);
-    // corner labels
-    ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    for (const c of data.corners) {
-      const i = idxAt(data.ref.trace.d, c.apex);
-      const [px, py] = P(x[i], z[i]);
-      // offset label outward from the track centre
-      const cx = W / 2, cy = H / 2, dx = px - cx, dy = py - cy, len = Math.hypot(dx, dy) || 1;
-      const lx = px + (dx / len) * 16, ly = py + (dy / len) * 16;
-      ctx.fillStyle = css('--surface-2'); ctx.beginPath(); ctx.arc(lx, ly, 11, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = css('--text-secondary'); ctx.fillText(c.name, lx, ly);
-    }
-    // cursor
-    if (cursorIdx != null) {
-      const dots = [[data.ref.trace, 0], ...laps.map((l, i) => [l.trace, i + 1])];
-      for (const [t, ci] of dots) {
-        const [px, py] = P(t.x[cursorIdx], t.z[cursorIdx]);
-        ctx.fillStyle = color(ci); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      }
-    }
-  }
-  drawMap();
-
-  // ---------------- charts (uPlot, synced cursor + zoom)
-  const charts = [];
-  let syncing = false;
-  const d = data.ref.trace.d;
-  const all = [data.ref, ...laps];
-  const name = (i) => (i === 0 ? 'Ref' : `#${laps[i - 1].id}`);
-  const axisStyle = () => ({ stroke: css('--text-muted'), grid: { stroke: css('--grid'), width: 1 }, ticks: { stroke: css('--grid') }, font: '11px system-ui' });
-  const cornerPlugin = (labels) => ({
-    hooks: {
-      draw: (u) => {
-        const ctx = u.ctx; ctx.save();
-        const top = u.bbox.top, bot = u.bbox.top + u.bbox.height;
-        if (selCorner != null) {
-          const c = data.corners[selCorner];
-          const a = u.valToPos(c.start, 'x', true), b = u.valToPos(c.end, 'x', true);
-          ctx.fillStyle = 'rgba(127,127,127,0.08)'; ctx.fillRect(a, top, b - a, bot - top);
-        }
-        ctx.strokeStyle = css('--axis'); ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
-        ctx.fillStyle = css('--text-muted'); ctx.font = `${11 * devicePixelRatio}px system-ui`; ctx.textAlign = 'center';
-        for (const c of data.corners) {
-          const px = u.valToPos(c.apex, 'x', true);
-          if (px < u.bbox.left || px > u.bbox.left + u.bbox.width) continue;
-          ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, bot); ctx.stroke();
-          if (labels) ctx.fillText(c.name, px, top + 12 * devicePixelRatio);
-        }
-        ctx.restore();
-      },
-    },
-  });
-  function makeChart(title, series, values, { height = 120, range, stepped = false, labels = false, fmtV = (v) => v } = {}) {
-    const el = document.createElement('div');
-    const [t, note] = Array.isArray(title) ? title : [title];
-    el.innerHTML = `<div class="chart-title">${t}${note ? `<span>${note}</span>` : ''}</div>`;
-    $('#charts').appendChild(el);
-    const opts = {
-      width: $('#charts').clientWidth - 32, height,
-      plugins: [cornerPlugin(labels)],
-      cursor: { sync: { key: 'cmp' }, drag: { x: true, y: false }, points: { size: 6 } },
-      scales: { x: { time: false }, y: range ? { range } : {} },
-      legend: { live: true },
-      axes: [{ ...axisStyle(), values: (u, vals) => vals.map((v) => `${v} m`) }, { ...axisStyle(), size: 50, values: (u, vals) => vals.map(fmtV) }],
-      series: [{ label: 'Distance', value: (u, v) => (v == null ? '–' : `${Math.round(v)} m`) }, ...series.map((s) => ({
-        width: 1.5, value: (u, v) => (v == null ? '–' : fmtV(v)), ...(stepped ? { paths: uPlot.paths.stepped({ align: 1 }) } : {}), ...s,
-      }))],
-      hooks: {
-        setScale: [(u, key) => {
-          if (key !== 'x' || syncing) return;
-          syncing = true;
-          for (const c of charts) if (c !== u) c.setScale('x', { min: u.scales.x.min, max: u.scales.x.max });
-          syncing = false;
-        }],
-        setCursor: [(u) => { const i = u.cursor.idx; if (i !== cursorIdx) { cursorIdx = i; drawMap(); } }],
-      },
-    };
-    const chart = new uPlot(opts, [d, ...values], el);
-    charts.push(chart);
-    return chart;
-  }
-  const lapSeries = (fmtLabel) => all.map((_, i) => ({ label: fmtLabel ? fmtLabel(i) : name(i), stroke: color(i), width: i === 0 ? 1.5 : 1.5 }));
-  if (laps.length) {
-    makeChart(['Gap to reference, in seconds', 'rising means losing time'], [{ label: 'Ref', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 2 }))],
-      [d.map(() => 0), ...laps.map((l) => l.delta)], { height: 150, fmtV: (v) => `${v > 0 ? '+' : ''}${(+v).toFixed(2)}s` });
-    const sgn = mirror ? -1 : 1;
-    makeChart(['Racing line against the reference, in metres', 'above zero means left of the reference on the map'], [{ label: 'Ref line', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 1.5 }))],
-      [d.map(() => 0), ...laps.map((l) => l.offset.map((v) => v * sgn))], { height: 130, fmtV: (v) => sideTxt(v * sgn, mirror) });
-  }
-  makeChart(['Speed', 'km/h'], lapSeries(), all.map((l) => l.trace.spd), { height: 220, labels: true, fmtV: (v) => Math.round(v) });
-  makeChart(['Throttle', '%'], lapSeries(), all.map((l) => l.trace.thr.map((v) => v * 100)), { range: [0, 102], fmtV: (v) => `${Math.round(v)}%` });
-  makeChart(['Brake', '%'], lapSeries(), all.map((l) => l.trace.brk.map((v) => v * 100)), { range: [0, 102], fmtV: (v) => `${Math.round(v)}%` });
-  makeChart('Steering', lapSeries(), all.map((l) => l.trace.str), { fmtV: (v) => (+v).toFixed(2) });
-  makeChart('Gear', lapSeries(), all.map((l) => l.trace.gear), { height: 100, stepped: true, fmtV: gearTxt });
-
-  function zoom(range) {
-    syncing = true;
-    for (const c of charts) c.setScale('x', range ? { min: range[0], max: range[1] } : { min: d[0], max: d[d.length - 1] });
-    syncing = false;
-  }
-  const onResize = () => { for (const c of charts) c.setSize({ width: $('#charts').clientWidth - 32, height: c.height }); drawMap(); };
-  window.addEventListener('resize', onResize);
-  cleanup.push(() => { window.removeEventListener('resize', onResize); charts.forEach((c) => c.destroy()); });
-
-  // ---------------- AI coach
-  const refKey = String(ref);
-  function renderAI() {
-    const lap = laps[focus];
-    const box = $('#ai');
-    if (!lap) { box.innerHTML = ''; return; }
-    box.innerHTML = `<div class="row"><h2 style="margin:0">AI driving coach</h2><span class="muted">Lap #${lap.id} against ${esc(data.ref.label)}</span><span class="spacer"></span>
-        <a class="muted" style="font-size:12px" href="/api/ai/summary?lap=${lap.id}&ref=${refKey}" target="_blank">What is sent to the AI?</a>
-        <button class="primary" id="aiGo" ${status.hasKey ? '' : 'disabled'}>Analyze my driving</button></div>
-      ${status.hasKey ? '' : '<p class="muted">Add a free Google Gemini API key in <a href="#/settings">Settings</a> to enable the AI coach.</p>'}
-      <div class="ai-out" id="aiOut"></div>
-      <div class="ai-q" id="aiQ" hidden><input id="aiQIn" placeholder="Ask a follow-up, e.g. “How should I approach T3 differently?”"><button id="aiQGo">Ask</button></div>`;
-    const out = $('#aiOut');
-    const run = async (body, append) => {
-      const holder = document.createElement('div');
-      holder.innerHTML = '<p><span class="spinner"></span> Analyzing telemetry…</p>';
-      if (append) out.appendChild(holder); else { out.innerHTML = ''; out.appendChild(holder); }
-      try {
-        const r = await post('/api/ai/analyze', { lap: lap.id, ref: refKey, ...body });
-        holder.innerHTML = (body.question ? `<p class="secondary"><b>Q:</b> ${esc(body.question)}</p>` : '') + md(r.text) +
-          `<p class="muted" style="font-size:12px">${r.cached ? 'Saved analysis from' : 'Analysis by'} ${esc(r.model)}, ${new Date(r.createdAt).toLocaleString()}${r.cached ? ' <button class="small ghost" id="aiRe">Analyze again</button>' : ''}</p>`;
-        if (r.cached) holder.querySelector('#aiRe').onclick = () => run({ force: true });
-        $('#aiQ').hidden = false;
-      } catch (e) { holder.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
-    };
-    $('#aiGo').onclick = () => run({});
-    const ask = () => { const q = $('#aiQIn').value.trim(); if (q) { $('#aiQIn').value = ''; run({ question: q }, true); } };
-    $('#aiQGo').onclick = ask;
-    $('#aiQIn').onkeydown = (e) => { if (e.key === 'Enter') ask(); };
-  }
-  renderAI();
+  await mountTelemetry($('#tabBody'), { ...st, hasKey: status.hasKey, onState: (s) => { st = s; history.replaceState(null, '', url(s)); } }, cleanup);
 }
 
 // ================================================================== GAME

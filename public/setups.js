@@ -308,6 +308,22 @@ export async function viewSetups(view, params, cleanup) {
 // fuel from shared memory). Those readings are not confirmed against the game yet: this panel shows them next to
 // the closest saved setup, so the driver can confirm once that they line up.
 const PART_LABEL = (k) => k.replace('pressure_', 'Pressure ').replace('camber_', 'Camber ').replace('brake_bias', 'Brake bias').replace('fuel', 'Fuel');
+// the car data behind the Car & setup report, live, to compare with the game's own tyre / suspension screens
+function carCheck(cd, open) {
+  if (!cd?.tyres) return '';
+  const W = ['FL', 'FR', 'RL', 'RR'], n = (v, d = 0) => (Number.isFinite(v) ? v.toFixed(d) : '–');
+  const row = (label, f) => `<tr><td>${label}</td>${W.map((_, w) => `<td>${f(w)}</td>`).join('')}</tr>`;
+  return `<details class="car-chk" style="margin:6px 0" ${open ? 'open' : ''}><summary class="muted" style="font-size:12px;cursor:pointer">Tyres, brakes and suspension (Car &amp; setup report)</summary>
+    <table style="font-size:12px"><thead><tr><th></th>${W.map((w) => `<th>${w}</th>`).join('')}</tr></thead><tbody>
+    ${row('Tyre inner / mid / outer °C', (w) => `${n(cd.tyres[w].i)} / ${n(cd.tyres[w].m)} / ${n(cd.tyres[w].o)}`)}
+    ${row('Tyre core °C', (w) => n(cd.tyres[w].core))}
+    ${row('Pressure psi', (w) => n(cd.tyres[w].p, 1))}
+    ${row('Brake °C', (w) => n(cd.tyres[w].brake))}
+    ${row('Suspension travel mm', (w) => n(cd.susp[w], 1))}
+    ${cd.phys ? row('Physics block: tyre core °C', (w) => n(cd.phys.core[w])) : ''}
+    </tbody></table><p class="muted" style="font-size:12px;margin:4px 0 0">Compare with the game's tyre page (temperatures and pressures) while standing still.</p></details>`;
+}
+
 function mountSetupCheck(el, cleanup) {
   let busy = false;
   async function draw() {
@@ -316,6 +332,7 @@ function mountSetupCheck(el, cleanup) {
     let c; try { c = await api('/api/setupcheck'); } catch { busy = false; return; }
     busy = false;
     const res = c.live?.result, top = res?.scores?.[0];
+    const wasOpen = !!el.querySelector('details.car-chk')?.open; // redrawn every 3 s: keep it open
     const t = (x) => (x ? `${x.avg} °C` : '–');
     el.innerHTML = `<div class="card setup-check">
       <h3>Setup recognition</h3>
@@ -327,6 +344,7 @@ function mountSetupCheck(el, cleanup) {
           <td>${+p.you.toFixed(2)}</td><td class="${Math.abs(p.you - p.file) <= p.tol ? 'neg' : 'pos'}">${+p.file.toFixed(2)}</td></tr>`).join('')}</tbody></table>`
           : '<p class="muted" style="margin:0">No saved setup for this car and track to compare with.</p>'}
         <p class="muted" style="font-size:12px;margin:6px 0">Air ${t(c.conditions?.airC)} · Track ${t(c.conditions?.roadC)}</p>
+        ${carCheck(c.carData, wasOpen)}
         <div class="row"><button class="small" data-ok="1">Readings match the game</button><button class="small ghost" data-ok="0">They don't</button></div>`}
     </div>`;
     el.querySelectorAll('[data-ok]').forEach((b) => { b.onclick = async () => { await post('/api/setupcheck/confirm', { ok: b.dataset.ok === '1' }); draw(); }; });
