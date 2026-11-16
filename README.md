@@ -91,8 +91,8 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 
 ## Sessions tab
 
-- **Sessions:** *By track & car* (a card per track/layout/car with your best and ideal lap) or *By date* (newest first). Each session is a strip with its best lap, change against the last session or a new PB, average, consistency, setup and weakest corners; click it to show or hide its laps. Filter by track or car.
-- **Open session:** the session report (see below) with that session's laps.
+- **Sessions:** *By track & car* (a card per track/layout/car with your best and ideal lap) or *By date* (newest first). Each session is one row with its best lap, change against the last session or a new PB, average, consistency, laps, setup and weakest corners. Filter by track or car.
+- **Session page** (click a session): the session report (see below) and that session's laps. Sessions under 3 laps show the basics and their laps. Imported laps are listed under their track and car.
 - **Start hotlap:** starts that car and track in Hotlap mode with clear weather and optimum grip. Progress shows on the Race tab.
 - **Compare:** up to 3 laps against a reference:
   - *my best lap*,

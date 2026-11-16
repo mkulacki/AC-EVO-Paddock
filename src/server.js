@@ -400,11 +400,17 @@ async function route(req, res) {
   if (p === '/api/report' && m === 'GET') {
     const id = Number(url.searchParams.get('session'));
     let r = db.getReport(id);
-    if (!r) { try { report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); } }
+    const laps = db.lapsOfSession(id).map(({ setup_info: _, ...l }) => l);
+    if (!r) {
+      // too short for a report: the session page shows the basics and the laps
+      if (!laps.length) return send(res, 404, { error: 'This session has no laps.' });
+      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return send(res, 200, { data: null, session: db.getSession(id) ?? null, laps });
+      try { report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); }
+    }
     const c = r.data.combo;
     return send(res, 200, { ...r, setupChoices: setupmatch.candidates(c.car, c.track, c.layout).map((x) => ({ name: x.file.name, rel: x.file.rel })),
       probeConfirmed: !!settings.get().probeConfirmed, hasKey: !!settings.get().geminiApiKey,
-      laps: db.lapsOfSession(id).map(({ setup_info: _, ...l }) => l) });
+      laps });
   }
   if (p === '/api/report/regenerate' && m === 'POST') {
     const { session } = await readJson(req);

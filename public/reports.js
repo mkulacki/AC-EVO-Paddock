@@ -20,6 +20,8 @@ const MATCH = {
 export async function viewReport(view, params, cleanup) {
   const id = Number(params.get('session'));
   const res = await api(`/api/report?session=${id}`);
+  const reload = () => viewReport(view, params, cleanup);
+  if (!res.data) { viewBasic(view, res, reload); return; }
   const r = res.data, imp = r.improvement, cons = r.consistency;
   const cornerBy = new Map(r.corners.all.map((c) => [c.name, c]));
   const prevTxt = imp.prev ? `previous session (${when(imp.prev.startedAt)})` : null;
@@ -91,6 +93,8 @@ export async function viewReport(view, params, cleanup) {
       <div class="card stat"><span class="k">Laps</span><span class="v">${r.laps.valid}<small class="muted"> valid / ${r.laps.total}</small></span></div>
     </div>
 
+    <div class="card" id="rLaps"><h2 style="margin:0">Laps</h2>${lapsBlock(res.laps, { bestMs: r.best.ms, bestLapId: r.best.lapId })}</div>
+
     <div class="card"><h2>Next practice targets</h2><ol style="margin:0 0 0 20px;padding:0">${r.targets.map((t) => `<li style="margin:4px 0">${esc(t.text)}</li>`).join('')}</ol>
       ${r.prevTargets ? `<h3 style="margin:14px 0 6px">Last session's targets</h3><ul style="list-style:none;margin:0;padding:0">${r.prevTargets.items.map((t) => `<li style="margin:4px 0">
         <span class="${t.met ? 'neg' : t.met === false ? 'pos' : 'muted'}" style="font-weight:700">${t.met ? '✔' : t.met === false ? '✘' : '·'}</span> ${esc(t.text)} <span class="muted">: ${esc(t.actual)}</span></li>`).join('')}</ul>` : ''}
@@ -117,11 +121,10 @@ export async function viewReport(view, params, cleanup) {
     <div class="card"><div class="row"><h2 style="margin:0">AI debrief</h2><span class="spacer"></span>
       <button id="rAi" class="${res.ai ? 'ghost' : 'primary'}" ${res.hasKey ? '' : 'disabled title="Add a Gemini API key in Settings"'}>${res.ai ? 'Write again' : 'Write debrief'}</button></div>
       <div id="rAiOut" style="margin-top:8px">${res.ai ? `<div class="ai-out">${md(res.ai.text)}</div><p class="muted" style="font-size:12px">${esc(res.ai.model)}, ${esc(when(res.ai.at))}</p>`
-        : `<p class="muted" style="margin:0">${res.hasKey ? 'Gemini turns this report into a short debrief with a plan for your next session.' : 'Add a Gemini API key in <a href="#/settings">Settings</a> for an AI debrief.'}</p>`}</div></div>
-    ${lapsCard(res.laps, r)}`;
+        : `<p class="muted" style="margin:0">${res.hasKey ? 'Gemini turns this report into a short debrief with a plan for your next session.' : 'Add a Gemini API key in <a href="#/settings">Settings</a> for an AI debrief.'}</p>`}</div></div>`;
 
   // ---- actions
-  $('#rRegen').onclick = async () => { await post('/api/report/regenerate', { session: id }); viewReport(view, params, cleanup); };
+  $('#rRegen').onclick = async () => { await post('/api/report/regenerate', { session: id }); reload(); };
   view.querySelectorAll('select[data-seg]').forEach((sel) => {
     sel.onchange = async () => {
       const seg = r.setups[Number(sel.dataset.seg)];
@@ -140,7 +143,7 @@ export async function viewReport(view, params, cleanup) {
     b.disabled = false;
   };
 
-  bindLaps(view, res.laps, () => viewReport(view, params, cleanup));
+  bindLaps($('#rLaps'), res.laps, afterDelete(res.laps, reload));
 
   // ---- lap-time trend (uPlot): valid laps, invalid laps, clean average, theoretical best
   const el = $('#rTrend');
@@ -177,21 +180,21 @@ export async function viewReport(view, params, cleanup) {
   cleanup.push(() => { window.removeEventListener('resize', onResize); plot.destroy(); });
 }
 
-// ---- the session's laps: compare, export, delete
-function lapsCard(laps, r) {
+// ---- a list of laps: compare (up to 3), open, export, delete. Session page, and imported laps on the Sessions page
+export function lapsBlock(laps, { bestMs, bestLapId, bestLabel = 'Session best' }) {
   const invalid = laps.filter((l) => !l.valid).map((l) => l.id);
-  return `<div class="card"><div class="row" style="margin-bottom:8px"><h2 style="margin:0">Laps</h2><span class="spacer"></span>
+  return `<div class="row" style="margin:8px 0"><span class="spacer"></span>
       <button class="cmp-sel" disabled>Compare selected</button>
       <select class="ref-sel" title="Reference lap"><option value="best">with my best lap</option><option value="ideal">with the ideal lap</option><option value="first">with the first one selected</option></select>
       ${invalid.length ? `<button class="danger-ghost" data-rm-invalid="${invalid.join(',')}">Remove invalid laps (${invalid.length})</button>` : ''}</div>
     <table class="laps"><thead><tr><th></th><th>Lap</th><th>Time</th><th>Gap</th><th>Setup</th><th>Recorded</th><th></th></tr></thead><tbody>
     ${laps.map((l) => {
-      const isBest = l.id === r.best.lapId;
+      const isBest = l.id === bestLapId;
       return `<tr class="${l.valid ? '' : 'invalid'}" data-open="#/compare?laps=${l.id}&ref=best" title="Compare with your best lap">
         <td><input type="checkbox" data-lap="${l.id}" aria-label="Select lap for comparison"></td>
         <td class="muted">${l.lap_number ?? ''}</td>
-        <td class="time${isBest ? ' pb' : ''}"><b>${fmt(l.lap_time_ms)}</b> ${isBest ? '<span class="badge pb">Session best</span>' : ''} ${l.valid ? '' : '<span class="badge bad">Invalid</span>'}</td>
-        <td class="secondary">${isBest ? '' : fmtGap(l.lap_time_ms - r.best.ms)}</td>
+        <td class="time${isBest ? ' pb' : ''}"><b>${fmt(l.lap_time_ms)}</b> ${isBest ? `<span class="badge pb">${bestLabel}</span>` : ''} ${l.valid ? '' : '<span class="badge bad">Invalid</span>'}</td>
+        <td class="secondary">${isBest || bestMs == null ? '' : fmtGap(l.lap_time_ms - bestMs)}</td>
         <td class="secondary">${esc(l.setup_name ?? '–')}</td>
         <td class="muted" style="white-space:nowrap">${esc(stamp(l.recorded_at))}</td>
         <td class="actions">
@@ -199,31 +202,53 @@ function lapsCard(laps, r) {
           <a href="/api/laps/${l.id}/export" download><button class="small ghost" title="Export lap file" aria-label="Export lap file">⇩</button></a>
           <button class="small ghost" data-del="${l.id}" title="Delete lap" aria-label="Delete lap">✕</button>
         </td></tr>`;
-    }).join('')}</tbody></table></div>`;
+    }).join('')}</tbody></table>`;
 }
-function bindLaps(view, laps, reload) {
+// after(deletedIds): called once laps were deleted
+export function bindLaps(root, laps, after) {
   const sel = new Set();
-  const btn = view.querySelector('.cmp-sel');
+  const btn = root.querySelector('.cmp-sel');
   const upd = () => { btn.disabled = !sel.size; btn.textContent = `Compare selected (${sel.size})`; };
-  view.querySelectorAll('input[data-lap]').forEach((cb) => cb.onchange = () => {
+  root.querySelectorAll('input[data-lap]').forEach((cb) => cb.onchange = () => {
     const id = +cb.dataset.lap;
     if (cb.checked) { if (sel.size >= 3) { cb.checked = false; alert('Compare up to 3 laps against the reference.'); return; } sel.add(id); } else sel.delete(id);
     upd();
   });
   btn.onclick = () => {
-    const ids = [...sel]; const ref = view.querySelector('.ref-sel').value;
+    const ids = [...sel]; const ref = root.querySelector('.ref-sel').value;
     location.hash = `#/compare?laps=${ids.join(',')}&ref=${ref === 'first' ? ids[0] : ref}`;
   };
-  view.querySelectorAll('table.laps tr[data-open]').forEach((tr) => tr.onclick = (e) => { if (!e.target.closest('input, button, a, label')) location.hash = tr.dataset.open; });
-  // deleting laps changes the report: it is built again (or, with no lap left, back to Sessions)
+  root.querySelectorAll('table.laps tr[data-open]').forEach((tr) => tr.onclick = (e) => { if (!e.target.closest('input, button, a, label')) location.hash = tr.dataset.open; });
   const remove = async (ids, what) => {
-    if (!confirm(`Delete ${what} permanently?
-
-This cannot be undone.`)) return;
+    if (!confirm(`Delete ${what} permanently?\n\nThis cannot be undone.`)) return;
     await post('/api/laps/delete', { ids });
-    if (laps.every((l) => ids.includes(l.id)) || !laps.some((l) => l.valid && !ids.includes(l.id))) location.hash = '#/'; else reload();
+    after(ids);
   };
-  view.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => remove([+b.dataset.del], 'this lap'));
-  const rm = view.querySelector('[data-rm-invalid]');
+  root.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => remove([+b.dataset.del], 'this lap'));
+  const rm = root.querySelector('[data-rm-invalid]');
   if (rm) rm.onclick = () => { const ids = rm.dataset.rmInvalid.split(',').map(Number); remove(ids, `${ids.length} invalid lap${ids.length > 1 ? 's' : ''}`); };
+}
+// the session page after deleting laps: built again, or back to Sessions when nothing is left
+const afterDelete = (laps, reload) => (ids) => { if (laps.every((l) => ids.includes(l.id))) location.hash = '#/'; else reload(); };
+
+// a session too short for a report (fewer than 3 laps, or none valid): the basics and its laps
+function viewBasic(view, res, reload) {
+  const s = res.session, laps = res.laps, c = laps[0];
+  const valid = laps.filter((l) => l.valid);
+  const best = valid.reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
+  const setups = [...new Set(laps.map((l) => l.setup_name).filter(Boolean))];
+  view.innerHTML = `
+    <div class="cmp-head">
+      <a href="#/"><button class="ghost">← Sessions</button></a>
+      <div><h1>${comboTxt(c)}</h1>
+        <div class="secondary">${esc(prettyName(c.car))} · ${esc(SESSION_TYPES[s?.session_type] || 'Session')} on ${esc(when(s?.started_at ?? c.recorded_at))}</div></div>
+    </div>
+    <div class="tiles">
+      <div class="card stat"><span class="k">Best lap</span><span class="v best">${fmt(best?.lap_time_ms)}</span></div>
+      <div class="card stat"><span class="k">Laps</span><span class="v">${valid.length}<small class="muted"> valid / ${laps.length}</small></span></div>
+      <div class="card stat"><span class="k">Setup</span><span class="v" style="font-size:18px">${setups.length ? setups.map(esc).join(', ') : '–'}</span></div>
+    </div>
+    <p class="muted" style="margin:0 0 16px">A session report needs 3 laps or more, one of them valid.</p>
+    <div class="card" id="rLaps"><h2 style="margin:0">Laps</h2>${lapsBlock(laps, { bestMs: best?.lap_time_ms, bestLapId: best?.id })}</div>`;
+  bindLaps($('#rLaps'), laps, afterDelete(laps, reload));
 }
