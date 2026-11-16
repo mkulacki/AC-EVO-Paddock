@@ -6,6 +6,8 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+## 0.5.0-beta.1
+
 ### New: Car & setup report
 
 - Paddock now records tyre temperatures (inner, middle, outer and core), hot pressures, brake temperatures and lock-ups, suspension travel, ride height and slip angles with every lap, 10 times a second.
