@@ -17,6 +17,8 @@ const statusEl = $('#status');
 // ?noevents disables the live stream (used for headless screenshots)
 const events = location.search.includes('noevents') ? new EventTarget() : new EventSource('/api/events');
 initSpotter(events); // audio brake cues play from this page
+// brake points marked in the game: the track page listens for these
+events.addEventListener('brakemarks', (e) => window.dispatchEvent(new CustomEvent('paddock:brakemarks', { detail: JSON.parse(e.data) })));
 events.addEventListener('status', (e) => {
   const { state, live } = JSON.parse(e.data);
   const recording = state.status === 'live' && live;
@@ -734,10 +736,15 @@ async function viewSettings() {
       <div class="row"><a href="/hud.html" target="_blank"><button>Open HUD in browser</button></a></div></div>
     <div class="card"><div class="row"><h2 style="margin:0">Brake spotter</h2><span class="spacer"></span><span id="spSaved" class="muted"></span><button class="small" id="spTest">Test</button></div>
       <p class="muted">A voice or beeps count down to each braking point while you drive: “three, two, one, brake”, or “lift” where you only lifted.
-        The braking points come from the HUD's reference lap (your all-time best unless you switch it), so you can keep your eyes on the road.</p>
+        It counts down to your best lap's braking points (the HUD's reference lap), or to your own brake points, so you can keep your eyes on the road.</p>
       <div class="form">
         <label>Spotter</label><label class="row"><input type="checkbox" id="spOn" ${s.spotter.on ? 'checked' : ''}> On</label>
         <label>Sound</label><select id="spSound"><option value="orus">Voice: Orus (team radio)</option><option value="algenib">Voice: Algenib (team radio)</option><option value="beep">Beeps</option></select>
+        <label>Count down to</label><select id="spPoints"><option value="best">My best lap's braking points</option><option value="mine">My brake points (only those)</option></select>
+        <span></span><div class="hint" style="margin:0">Your own brake points are kept per track and car. Make and edit them on each track's page in <a href="#/tracks">Tracks</a>, or mark them while driving with the button below.</div>
+        <label>Mark button</label><div class="row"><span id="mbName" class="muted"></span><button class="small" id="mbBind">Set button</button><button class="small ghost" id="mbClear">Remove</button></div>
+        <label>Keyboard shortcut</label><div class="row"><input id="markKey" style="width:180px" placeholder="click, then press keys" value="${esc(s.markKey || '')}" autocomplete="off"><button class="small ghost" id="mkClear">Remove</button><span id="mkState" class="muted"></span></div>
+        <span></span><div class="hint" style="margin:0">The button or shortcut marks a brake point while “Mark with button” is on (on the track's page). A wheel or button-box button works in game and in VR; the keyboard shortcut works in the desktop app, and the game no longer gets that key.</div>
         <label>Countdown</label><select id="spCountdown"><option value="full">Three, two, one, brake</option><option value="brake">Only “brake”</option></select>
         <label>Corners</label><select id="spCorners"><option value="all">Every braking and lifting point</option><option value="big">Big stops only</option></select>
         <label>Volume</label><label class="hud-slider"><input type="range" id="spVolume" min="0" max="100" step="5" value="${s.spotter.volume}"><b id="spVolumeV">${s.spotter.volume}%</b></label>
@@ -760,7 +767,36 @@ async function viewSettings() {
       : st === 'blocked' ? '<span class="g-bad">The browser has blocked sound on this page.</span> Click anywhere on the page once to allow it.'
       : 'Sound plays on your default Windows audio device, also while Paddock is minimised to the tray.';
   };
-  $('#spSound').value = sp.sound; $('#spCountdown').value = sp.countdown; $('#spCorners').value = sp.corners;
+  $('#spSound').value = sp.sound; $('#spCountdown').value = sp.countdown; $('#spCorners').value = sp.corners; $('#spPoints').value = sp.points;
+  $('#spPoints').onchange = (e) => spSave({ points: e.target.value });
+  // mark button: "press it now" on the wheel (the server watches every controller for 10 s)
+  const mbShow = (b) => { $('#mbName').textContent = b ? `${b.name}, button ${b.button}` : 'none'; $('#mbClear').hidden = !b; };
+  mbShow(s.markButton);
+  $('#mbBind').onclick = async (e) => {
+    const btn = e.currentTarget; btn.disabled = true; $('#mbName').textContent = 'Press the button on your wheel or button box now…';
+    try {
+      const r = await post('/api/wheel/capture', {});
+      if (r.binding) mbShow(r.binding);
+      else $('#mbName').textContent = r.devices.length ? 'No button pressed. Try again.' : 'No wheel or controller found.';
+    } catch (err) { $('#mbName').textContent = err.message; }
+    btn.disabled = false;
+  };
+  $('#mbClear').onclick = async () => { await post('/api/settings', { markButton: null }); mbShow(null); };
+  // keyboard shortcut: press the keys in the box; saved straight away
+  const MK_TEXT = { ok: 'Active', taken: '<span class="g-bad">Another program already uses this shortcut, or it is not valid.</span>', 'desktop-only': 'Works only in the desktop app.', none: '' };
+  const mkShow = (st) => { $('#mkState').innerHTML = MK_TEXT[st] ?? ''; };
+  mkShow(s.markKeyState);
+  const mkSave = async (accel) => { $('#markKey').value = accel; try { mkShow((await post('/api/settings', { markKey: accel })).markKeyState); } catch (err) { $('#mkState').textContent = err.message; } };
+  $('#markKey').onkeydown = (e) => {
+    e.preventDefault();
+    if (e.key === 'Escape' || e.key === 'Backspace') return mkSave('');
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+    const key = /^F\d{1,2}$/.test(e.key) ? e.key : e.code.startsWith('Key') ? e.code.slice(3) : e.code.startsWith('Digit') ? e.code.slice(5)
+      : e.code.startsWith('Numpad') ? `num${e.code.slice(6).toLowerCase()}` : e.key === ' ' ? 'Space'
+      : e.key.startsWith('Arrow') ? e.key.slice(5) : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    mkSave([e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', key].filter(Boolean).join('+'));
+  };
+  $('#mkClear').onclick = () => mkSave('');
   $('#spOffsetV').textContent = spOffsetTxt(sp.offsetMs);
   spShowState();
   const spSave = (patch) => {

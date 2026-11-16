@@ -182,6 +182,11 @@ A voice or beeps count down to each braking point while you drive: "three, two, 
 - The countdown is in seconds from your current speed, not in metres. On short straights the earlier numbers are skipped. It is silent in the pits, on out laps and under ~55 km/h.
 - Settings: sound (two calm team-radio voices, Orus and Algenib, or beeps), full countdown or only "brake", every point or big stops only (at least 40 km/h slower), volume, and timing (up to 500 ms earlier or later). The *Test* button plays a sample.
 - Sound plays from Paddock on your default Windows audio device, so it also works in VR. In the desktop app it keeps playing while the window is in the tray. When running from source in a browser, keep one Paddock tab open and click on it once, because browsers block sound until you do.
+- **Your own brake points:** set *Count down to* to *My brake points* and the spotter (and the HUD's "brake in N m") counts down only to points you chose, kept per track and car. Make them on each track's page under *Tracks → Brake points*:
+  - **Mark with button:** set a wheel or button-box button (or a keyboard shortcut, desktop app only) in Settings, switch "Mark with button" on, and on a slow lap press it where you want to brake at full speed. Each press beeps; a press within 25 m of a point moves it.
+  - **Record from my braking:** drive one full lap; every point where you start braking (brake over 10 %) becomes a brake point, replacing that car's points. A beep marks the start and the save.
+  - **On the map:** drag points along the track, add one with *Add point*, set each to brake or lift, delete them, or *Fill from my best lap*.
+  - Points are stored as a share of the lap, in `telemetry.db`. Wheel buttons are read through Windows' joystick API (up to 32 buttons per device).
 - The voice clips are in `public/audio/spotter/<voice>/`. They were generated with Gemini text-to-speech and given a team-radio sound by `node src/tools/make-spotter-clips.js --voice Orus --radio` (and `--voice Algenib`). Only needed to remake them; it uses your Gemini key.
 
 ## Data

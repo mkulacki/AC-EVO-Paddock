@@ -167,6 +167,15 @@ app.whenReady().then(async () => {
   console.log(`AC EVO Paddock desktop ${app.getVersion()} (Electron ${process.versions.electron}), data: ${DATA}`);
   // "Developer: restart" in the page (src/server.js restartApp): start the whole app again
   globalThis.__trainerRelaunch = () => { quitting = true; saveState(); app.relaunch(); app.exit(0); };
+  // brake marks keyboard shortcut (Settings): a global shortcut, so it works while the game has the focus.
+  // Returns false if the key is invalid or another program already uses it.
+  let markKey = null;
+  globalThis.__paddockSetMarkKey = (accel, onPress) => {
+    if (markKey) { try { globalShortcut.unregister(markKey); } catch { /* already gone */ } markKey = null; }
+    if (!accel) return true;
+    try { if (globalShortcut.register(accel, onPress)) { markKey = accel; return true; } } catch { /* invalid accelerator */ }
+    return false;
+  };
   let port;
   try {
     const server = await import(pathToFileURL(path.join(ROOT, 'src', 'server.js')).href);

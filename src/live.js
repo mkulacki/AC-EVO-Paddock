@@ -5,6 +5,8 @@ import * as svc from './service.js';
 import { cornerMetrics } from './analysis.js';
 import { STATUS } from './shm.js';
 import * as cars from './cars.js';
+import * as settings from './settings.js';
+import * as marks from './brakemarks.js';
 
 const MODES = ['best', 'ideal', 'session'];
 const LABELS = { best: 'All-time best', ideal: 'Ideal lap', session: 'Session best' };
@@ -242,7 +244,9 @@ export class LiveHud {
   // Same rules as the HUD cues: live, on a timed lap, out of the pits.
   nextBrake() {
     const f = this.frame, lap = this.rec.lap;
-    if (this.rec.state.status !== 'live' || !f || !lap?.full || f.inPit || !this.delta || !this.rec.session) return null;
+    if (this.rec.state.status !== 'live' || !f || !lap?.full || f.inPit || !this.rec.session) return null;
+    if (settings.spotterConfig().points === 'mine') return this.nextMark();
+    if (!this.delta) return null;
     const refs = this.loadRefs(), ref = refs?.[this.mode];
     if (!ref || !refs.corners?.length) return null;
     const d = this.delta.d;
@@ -252,6 +256,25 @@ export class LiveHud {
     if (bp == null || bp <= d) return null;
     return { k, lap: lap.lapNumber, corner: refs.corners[k].name, kind: m.brakePoint != null ? 'brake' : 'lift',
       inM: bp - d, speedMs: (f.speed || 0) / 3.6, dropKmh: (m.entrySpeed ?? 0) - (m.minSpeed ?? 0) };
+  }
+
+  // the next of the driver's own brake marks ahead of the car (no reference lap needed)
+  nextMark() {
+    const f = this.frame, s = this.rec.session, b = this.rec.lap?.buf, n = b?.d?.length;
+    if (!n || !(f?.trackLength > 0)) return null;
+    const combo = marks.comboOf(s), list = marks.marksFor(combo);
+    const pos = (((b.d[n - 1] / f.trackLength) % 1) + 1) % 1;
+    const nm = marks.nextMark(list, pos);
+    if (!nm) return null;
+    // corner name: the first corner of the track model whose apex comes after the mark
+    let corner = '';
+    const model = svc.trackModel(s.track, s.layout);
+    if (model?.corners?.length) {
+      const c = model.corners.find((x) => x.apexD / model.L >= nm.mark.pos) || model.corners[0];
+      corner = c.name;
+    }
+    return { k: `m${nm.mark.id}`, lap: this.rec.lap.lapNumber + (nm.wrapped ? 1 : 0), corner, kind: nm.mark.kind,
+      inM: nm.ahead * f.trackLength, speedMs: (f.speed || 0) / 3.6, dropKmh: Infinity };
   }
 
   // ------------------------------------------------------------ payload for the HUD
@@ -314,6 +337,15 @@ export class LiveHud {
         ahead.brk.push(Math.round(interp(R.brk, x / R.step) * 100) / 100);
       }
       out.ahead = ahead;
+    }
+    // own brake marks: the HUD's "brake in N m" counts to the same points as the spotter
+    if (settings.spotterConfig().points === 'mine' && live && lap?.full && !f.inPit && s) {
+      const nb = this.nextMark();
+      const inM = nb ? Math.round(nb.inM) : null;
+      if (out.corner.next) Object.assign(out.corner.next, { brakeInM: nb && inM < out.corner.next.toApexM ? inM : null, brakeKind: nb?.kind ?? 'brake' });
+      const next = nb ? { corner: nb.corner, kind: nb.kind, inM } : null;
+      if (out.cue) out.cue.next = next;
+      else out.cue = { next, speedMs: Math.round((f.speed / 3.6) * 10) / 10, brake: null, throttle: null };
     }
     // pedals, driver aids and revs (in game the HUD reads these from the game itself, every frame)
     if (live) {

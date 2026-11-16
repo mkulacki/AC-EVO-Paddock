@@ -5,7 +5,9 @@
 // the page needs one click first (browsers block sound until then).
 
 const CLIPS = ['three', 'two', 'one', 'brake', 'lift'];
-const BEEPS = { three: [880, 0.09], two: [880, 0.09], one: [880, 0.09], brake: [1320, 0.35], lift: [660, 0.3] };
+const BEEPS = { three: [880, 0.09], two: [880, 0.09], one: [880, 0.09], brake: [1320, 0.35], lift: [660, 0.3],
+  // brake points: point marked, pedal lap started, pedal lap saved, nothing marked (not on track)
+  mark: [1760, 0.08], recstart: [990, 0.25], recsaved: [1320, 0.5], nomark: [220, 0.3] };
 
 let ctx = null, gain = null, player = false;
 const voices = {}; // voice -> { word: AudioBuffer }, loaded on first use

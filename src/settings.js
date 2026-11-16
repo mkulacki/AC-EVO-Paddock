@@ -7,7 +7,9 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   gamePath: '', // AC EVO folder; empty = found automatically through Steam
   aceDir: '', // AC EVO's user folder (Saved Games\ACE); empty = found automatically. Read at start, so a change needs a restart
   hud: null, // Paddock HUD look (see HUD_DEFAULTS); null = defaults
-  spotter: null }; // audio brake spotter (see SPOTTER_DEFAULTS); null = defaults
+  spotter: null, // audio brake spotter (see SPOTTER_DEFAULTS); null = defaults
+  markButton: null, // wheel button that marks a brake point: {vid, pid, nth, button, name}; null = none
+  markKey: '' }; // keyboard shortcut (Electron accelerator) that marks a brake point, desktop app only
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
 export const HUD_PARTS = ['lap', 'ref', 'delta', 'current', 'speed', 'predicted', 'best', 'session', 'last', 'cues', 'ideal', 'corners', 'footer',
@@ -24,13 +26,15 @@ function normHud(h) {
 // audio brake spotter: voice clips or beeps counting down to the reference lap's brake points
 // sound: a voice (clips in public/audio/spotter/<voice>/) or 'beep'
 export const SPOTTER_VOICES = ['orus', 'algenib'];
-export const SPOTTER_DEFAULTS = { on: false, sound: 'orus', volume: 80, countdown: 'full', corners: 'all', offsetMs: 0 };
+// points: 'best' = the HUD reference lap's brake points, 'mine' = the driver's own marks (only those)
+export const SPOTTER_DEFAULTS = { on: false, sound: 'orus', volume: 80, countdown: 'full', corners: 'all', offsetMs: 0, points: 'best' };
 const pick = (v, allowed, d) => (allowed.includes(v) ? v : d);
 function normSpotter(p) {
   const D = SPOTTER_DEFAULTS;
   return { on: typeof p?.on === 'boolean' ? p.on : D.on, sound: pick(p?.sound === 'voice' ? 'orus' : p?.sound, [...SPOTTER_VOICES, 'beep'], D.sound),
     volume: clampNum(p?.volume, 0, 100, D.volume), countdown: pick(p?.countdown, ['full', 'brake'], D.countdown),
-    corners: pick(p?.corners, ['all', 'big'], D.corners), offsetMs: clampNum(p?.offsetMs, -500, 500, D.offsetMs) };
+    corners: pick(p?.corners, ['all', 'big'], D.corners), offsetMs: clampNum(p?.offsetMs, -500, 500, D.offsetMs),
+    points: pick(p?.points, ['best', 'mine'], D.points) };
 }
 
 let current = { ...DEFAULTS };

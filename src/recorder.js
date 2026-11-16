@@ -64,10 +64,14 @@ export class Recorder extends EventEmitter {
     const b = lap.buf;
     const L = f.trackLength || Math.max(...b.d);
     const coverage = b.d.length ? (b.d[b.d.length - 1] - b.d[0]) / L : 0;
+    // lap.done tells code that holds the lap object (brake mark recording) how it ended: finalizing waits
+    // up to a second into the next lap, so the events alone don't say which lap they are about
     if (!lap.full || lap.pit || b.t.length < 50 || coverage < 0.9 || !(lapTimeMs > 0)) {
+      lap.done = 'discarded';
       this.emit('discarded', { reason: !lap.full ? 'out lap' : lap.pit ? 'pit' : 'incomplete' });
       return;
     }
+    lap.done = 'saved';
     if (!this.session.id) this.session.id = db.createSession(this.session);
     const meta = {
       sessionId: this.session.id, track: this.session.track, layout: this.session.layout, car: this.session.car,
@@ -122,6 +126,7 @@ export class Recorder extends EventEmitter {
         this.pending = { lap: this.lap, candidate: prev.lapTimeMs, prevLast: prev.lastLapMs, frames: 0 };
         this.lap = this.newLap(f, true);
       } else {
+        this.lap.done = 'discarded';
         this.emit('discarded', { reason: 'restart' });
         this.lap = this.newLap(f, f.lapTimeMs < 3000);
       }

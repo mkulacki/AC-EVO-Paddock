@@ -112,3 +112,24 @@ export function saveAnalysis(lapId, refKey, model, text) {
 }
 export const getAnalysis = (lapId, refKey) =>
   db.prepare('SELECT * FROM analyses WHERE lap_id = ? AND ref_key = ? ORDER BY created_at DESC LIMIT 1').get(lapId, refKey);
+
+// ---------------------------------------------------------------- brake marks
+// The driver's own brake / lift points, per track layout and car (track = catalogue id, layout = layout key).
+// pos is the fraction of the lap from the timing line (0..1), so it fits laps, live data and the track map alike.
+db.exec(`CREATE TABLE IF NOT EXISTS brake_marks (
+  id INTEGER PRIMARY KEY, track TEXT, layout TEXT, car TEXT, pos REAL, kind TEXT, created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS brake_marks_combo ON brake_marks(track, layout, car);`);
+export const brakeMarks = (track, layout, car) =>
+  db.prepare('SELECT id, pos, kind FROM brake_marks WHERE track = ? AND layout = ? AND car = ? ORDER BY pos').all(track, layout, car);
+export const brakeMarkCars = (track, layout) =>
+  db.prepare('SELECT car, COUNT(*) AS n FROM brake_marks WHERE track = ? AND layout = ? GROUP BY car ORDER BY car').all(track, layout);
+export function setBrakeMarks(track, layout, car, marks) {
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM brake_marks WHERE track = ? AND layout = ? AND car = ?').run(track, layout, car);
+    const ins = db.prepare('INSERT INTO brake_marks (track, layout, car, pos, kind, created_at) VALUES (?,?,?,?,?,?)');
+    for (const m of marks) ins.run(track, layout, car, m.pos, m.kind, Date.now());
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}

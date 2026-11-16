@@ -14,6 +14,13 @@ Changes merged to `main` that are not in a release yet. Move them under a versio
 - Sound plays from Paddock on the default audio device, also while the desktop app is in the tray.
 - The voice clips were generated with Gemini text-to-speech, with a team-radio effect, and ship with the app (`src/tools/make-spotter-clips.js` remakes them).
 
+### New: your own brake points
+
+- Set brake points yourself, per track and car, and have the spotter and the HUD's "brake in N m" count down only to those (Settings → Brake spotter → Count down to → My brake points).
+- **Mark them while driving** with a wheel or button-box button (works in game and in VR) or a keyboard shortcut (desktop app). Set it by pressing it in Settings. Each press beeps, and a press near a point moves it.
+- **Record them from your braking:** drive one lap and every braking point becomes a brake point.
+- **Edit them on the track map** (Tracks → a track → Brake points): drag, add, delete, brake or lift, or fill from your best lap. Changes made in the game show up on the page straight away.
+
 ### Fixes
 
 - **Game files folder found when Saved Games was moved or renamed** ([#3](https://github.com/mkulacki/AC-EVO-Paddock/issues/3)). Paddock used to assume `<user>\Saved Games\ACE`. It now asks Windows where Saved Games really is, so a moved folder like `I:\JMC\Parties enregistrées\ACE` is found. This affected installing the HUD, mods, setups and in-game features.
