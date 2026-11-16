@@ -86,7 +86,7 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Tyre compounds** are shown as *Compound 1, 2, 3* in the game's order; the files do not store their names.
 - **Names of a few settings are inferred** from the file layout, the game's own setting names and their ranges (Kunos does not document the format). Unusual settings show as *Setting x.y*. Values the game works out by itself (e.g. static ride heights) are left as they were in the file; Paddock does not recalculate them.
 - **The game's format may change** with a game update; Paddock checks every write by reading the file back, and refuses to edit setups of a car whose limits it cannot find.
-- **The AI engineer does not split laps by setup yet.** Each lap now remembers its setup (see Session reports), but the engineer still uses all your laps with that car on that track, and mainly relies on what you tell it about the car. It cannot see tyre temperatures, pressures or suspension travel yet.
+- **The AI engineer does not split laps by setup yet.** Each lap now remembers its setup (see Session reports), but the engineer still uses all your laps with that car on that track, and mainly relies on what you tell it about the car. It does see the tyre, brake and suspension data of the latest session on that track (see Car & setup).
 - **AI advice is a suggestion.** Check the proposed changes before saving, and try them on track; the engineer explains each change so you can judge it.
 
 ## Sessions tab
