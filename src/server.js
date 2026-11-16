@@ -403,7 +403,8 @@ async function route(req, res) {
     if (!r) { try { report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); } }
     const c = r.data.combo;
     return send(res, 200, { ...r, setupChoices: setupmatch.candidates(c.car, c.track, c.layout).map((x) => ({ name: x.file.name, rel: x.file.rel })),
-      probeConfirmed: !!settings.get().probeConfirmed, hasKey: !!settings.get().geminiApiKey });
+      probeConfirmed: !!settings.get().probeConfirmed, hasKey: !!settings.get().geminiApiKey,
+      laps: db.lapsOfSession(id).map(({ setup_info: _, ...l }) => l) });
   }
   if (p === '/api/report/regenerate' && m === 'POST') {
     const { session } = await readJson(req);
@@ -437,7 +438,11 @@ async function route(req, res) {
     return send(res, 200, { confirmed: !!ok });
   }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
-  if (p === '/api/overview') return send(res, 200, svc.overview());
+  // the Sessions page: laps, sessions, and from each saved report what the session strip shows
+  if (p === '/api/overview') {
+    const reports = Object.fromEntries(db.listReports().map((r) => [r.sessionId, { weakest: (r.data.corners?.weakest || []).map((w) => w.name) }]));
+    return send(res, 200, { ...svc.overview(), reports });
+  }
   if (p === '/api/consistency') {
     const q = url.searchParams;
     return send(res, 200, svc.consistency({ track: q.get('track'), layout: q.get('layout'), car: q.get('car') },

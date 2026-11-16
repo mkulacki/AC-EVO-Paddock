@@ -7,7 +7,7 @@ import { viewRace } from './race.js';
 import { viewProgress } from './progress.js';
 import { viewMods } from './mods.js';
 import { viewSetups } from './setups.js';
-import { viewReports, viewReport, sessionsHead } from './reports.js';
+import { viewReport } from './reports.js';
 import { initSpotter, spotterAudioState, loadVoice } from './spotter.js';
 
 const view = $('#view');
@@ -36,9 +36,9 @@ const STATUS_TEXT = {
   live: 'On track', unknown: 'AC EVO is running',
 };
 events.addEventListener('lap', () => { if (currentRoute === 'laps') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
-// a session report was just made: a dot on the Sessions tab until Reports is opened (the desktop app also notifies)
+// a session report was just made: a dot on the Sessions tab until it is opened (the desktop app also notifies)
 events.addEventListener('report', () => {
-  if (currentRoute === 'reports') { render(); return; }
+  if (currentRoute === 'laps') { render(); return; }
   const a = document.querySelector('nav a[data-nav=laps]');
   if (a && !a.querySelector('.nav-dot')) a.insertAdjacentHTML('beforeend', '<span class="nav-dot" title="New session report"></span>');
 });
@@ -85,10 +85,10 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/').split('?');
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/reports': 'reports', '/report': 'report' }[path] || 'laps';
+  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/report': 'report' }[path] || 'laps';
   if (currentRoute === 'laps' && prevRoute !== 'laps') lapView = { ...LAP_VIEW_DEFAULT };
   const navKey = currentRoute === 'track' ? 'tracks' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
-  if (currentRoute === 'reports' || currentRoute === 'report') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
+  if (navKey === 'laps') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
     if (currentRoute === 'game') await viewGame();
@@ -101,9 +101,8 @@ async function render() {
     else if (currentRoute === 'consistency') await viewConsistency(view, params, cleanup);
     else if (currentRoute === 'progress') await viewProgress(view, params, cleanup);
     else if (currentRoute === 'settings') await viewSettings();
-    else if (currentRoute === 'reports') await viewReports(view);
     else if (currentRoute === 'report') await viewReport(view, params, cleanup);
-    else await viewLaps();
+    else await viewLaps(params);
   } catch (e) {
     view.innerHTML = `<div class="card error">Error: ${esc(e.message)}</div>`;
   }
@@ -139,10 +138,126 @@ async function removeLaps(ids, what) {
   render();
 }
 
-async function viewLaps() {
+// ---- Sessions page: by track & car (one card per combo) or by date (one card per session). Every session is a strip
+// with its summary (the report's numbers once it has 3+ laps) and its laps under it: the newest open, older ones folded.
+const MIN_REPORT_LAPS = 3; // = MIN_LAPS in src/report.js
+const CLEAN_WITHIN = 1.07; // same "clean lap" rule as the report and the Progress page
+const sessOpen = new Map(); // sessionId -> open, as the driver left it (default: only the newest is open)
+let sessBy = 'combo';
+try { if (localStorage.getItem('sessions.by') === 'date') sessBy = 'date'; } catch { /* none */ }
+const sessWhen = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const comboOf = (l) => `${l.track}|${l.layout}|${l.car}`;
+
+// per session: best, clean average, spread, consistency score, setups; against the previous session and the PB before
+function sessionSummaries(o, sessions) {
+  const out = new Map();
+  for (const l of o.laps) if (l.source !== 'import') {
+    if (!out.has(l.session_id)) out.set(l.session_id, { sid: l.session_id, key: comboOf(l), laps: [] });
+    out.get(l.session_id).laps.push(l);
+  }
+  const byCombo = new Map();
+  for (const m of out.values()) {
+    m.laps.sort((a, b) => a.recorded_at - b.recorded_at);
+    m.s = sessions.get(m.sid);
+    m.start = m.s?.started_at ?? m.laps[0].recorded_at;
+    const valid = m.laps.filter((l) => l.valid);
+    m.valid = valid.length;
+    m.best = valid.reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
+    const clean = m.best ? valid.map((l) => l.lap_time_ms).filter((t) => t <= m.best.lap_time_ms * CLEAN_WITHIN) : [];
+    m.avg = clean.length ? clean.reduce((a, b) => a + b, 0) / clean.length : null;
+    m.sd = clean.length >= 3 ? Math.sqrt(clean.reduce((a, t) => a + (t - m.avg) ** 2, 0) / clean.length) : null;
+    m.score = m.sd != null ? Math.max(0, Math.min(100, Math.round(100 - (4000 * m.sd) / m.avg))) : null;
+    m.setups = [...new Set(m.laps.map((l) => l.setup_name).filter(Boolean))];
+    m.full = m.laps.length >= MIN_REPORT_LAPS && m.valid > 0; // gets a report
+    m.weakest = o.reports?.[m.sid]?.weakest ?? null;
+    if (!byCombo.has(m.key)) byCombo.set(m.key, []);
+    byCombo.get(m.key).push(m);
+  }
+  const comboLaps = new Map();
+  for (const l of o.laps) if (l.valid) { if (!comboLaps.has(comboOf(l))) comboLaps.set(comboOf(l), []); comboLaps.get(comboOf(l)).push(l); }
+  for (const [key, list] of byCombo) {
+    list.sort((a, b) => a.start - b.start);
+    let prev = null;
+    for (const m of list) {
+      if (!m.best) continue;
+      if (prev) m.lastDelta = m.best.lap_time_ms - prev.best.lap_time_ms;
+      prev = m;
+      const first = m.laps[0].recorded_at;
+      const before = (comboLaps.get(key) || []).filter((l) => l.recorded_at < first && l.session_id !== m.sid);
+      if (before.length) {
+        const pb = Math.min(...before.map((l) => l.lap_time_ms));
+        m.newPb = m.best.lap_time_ms < pb; m.pbDelta = m.best.lap_time_ms - pb;
+      }
+    }
+    list[list.length - 1].newest = true;
+  }
+  return out;
+}
+
+const isOpen = (m, newest) => (sessOpen.has(m.sid) ? sessOpen.get(m.sid) : newest);
+function sessionStrip(m, open) {
+  const n = m.laps.length;
+  const type = esc(SESSION_TYPES[m.s?.session_type] || 'Session');
+  const dCls = (d) => (d < 0 ? 'neg' : d > 0 ? 'pos' : '');
+  const parts = [];
+  if (m.best) {
+    parts.push(`Best <b>${fmt(m.best.lap_time_ms)}</b>${m.newPb ? ` <span class="badge best" title="Faster than every lap before this session">New PB ${fmtGap(m.pbDelta)}</span>`
+      : m.lastDelta != null ? ` <span class="${dCls(m.lastDelta)}" title="Best lap against the previous session's best">${fmtGap(m.lastDelta)} vs last</span>` : ''}`);
+  } else parts.push('<span class="muted">no valid lap</span>');
+  if (m.full && m.avg != null) parts.push(`Average <b>${fmt(Math.round(m.avg))}</b>`);
+  if (m.full && m.score != null) parts.push(`Consistency <b>${m.score}</b> <span class="muted">±${(m.sd / 1000).toFixed(2)} s</span>`);
+  if (m.setups.length) parts.push(`Setup <b>${m.setups.map(esc).join(', ')}</b>`);
+  if (m.full && m.weakest?.length) parts.push(`Weakest <b>${m.weakest.map(esc).join(', ')}</b>`);
+  return `<div class="sess-strip" data-tog="${m.sid}" role="button" tabindex="0" aria-expanded="${open}" title="Show or hide the laps">
+    <span class="sess-chev">${open ? '▾' : '▸'}</span>
+    <div class="sess-main"><div class="sess-line"><b>${type}</b> on ${esc(sessWhen(m.start))} · ${n} lap${n === 1 ? '' : 's'}${m.valid < n ? ` <span class="muted">(${m.valid} valid)</span>` : ''}</div>
+      <div class="sess-sum">${parts.map((p) => `<span>${p}</span>`).join('')}</div></div>
+    <span class="spacer"></span>
+    ${m.full ? `<a href="#/report?session=${m.sid}"><button class="small" title="The session report and its laps">Open session ›</button></a>` : ''}
+  </div>`;
+}
+
+// what a lap row needs to know about its car and track
+function comboCtx(c, laps) {
+  const sessionBest = new Map(); // timing-sheet colours: purple = best of this car and track, green = fastest valid lap of its session
+  for (const l of laps) if (l.valid && l.source !== 'import') {
+    const b = sessionBest.get(l.session_id);
+    if (!b || l.lap_time_ms < b.lap_time_ms) sessionBest.set(l.session_id, l);
+  }
+  // one driver for every lap: the Driver column says nothing
+  return { c, sessionBest, showDriver: new Set(laps.map((l) => l.driver || '')).size > 1 };
+}
+function lapRow(l, { c, sessionBest, showDriver }, inSess = false, hide = false) {
+  const gap = c.bestMs ? l.lap_time_ms - c.bestMs : null;
+  const isBest = l.id === c.bestLapId;
+  const isPb = !isBest && l.valid && sessionBest.get(l.session_id)?.id === l.id;
+  const open = isBest ? `#/compare?laps=${l.id}&ref=ideal` : `#/compare?laps=${l.id}&ref=best`;
+  return `<tr class="${l.valid ? '' : 'invalid'}" data-open="${open}" ${inSess ? `data-sess="${l.session_id}"` : ''} ${hide ? 'hidden' : ''} title="${isBest ? 'Compare with the ideal lap' : 'Compare with your best lap'}">
+    <td><input type="checkbox" data-lap="${l.id}" aria-label="Select lap for comparison"></td>
+    <td class="muted">${l.lap_number ?? ''}</td>
+    <td class="time${isBest ? ' best' : isPb ? ' pb' : ''}"><a href="${open}"><b>${fmt(l.lap_time_ms)}</b></a> ${isBest ? '<span class="badge best">Best</span>' : isPb ? '<span class="badge pb">Session best</span>' : ''} ${l.valid ? '' : '<span class="badge bad">Invalid</span>'}</td>
+    <td class="secondary">${isBest ? '' : fmtGap(gap)}</td>
+    ${showDriver ? `<td class="secondary">${esc(l.driver || '')}${l.source === 'import' ? ' <span class="badge">Imported</span>' : ''}</td>` : ''}
+    <td class="muted" style="white-space:nowrap">${esc(fmtStamp(l.recorded_at))}</td>
+    <td class="actions">
+      <a href="#/compare?laps=${l.id}&ref=ideal"><button class="small ghost" title="Compare with the ideal lap (your best sectors)">Ideal</button></a>
+      <a href="/api/laps/${l.id}/export" download><button class="small ghost" title="Export lap file" aria-label="Export lap file">⇩</button></a>
+      <button class="small ghost" data-del="${l.id}" title="Delete lap" aria-label="Delete lap">✕</button>
+    </td></tr>`;
+}
+const compareTools = (key) => `<button class="cmp-sel" data-for="${esc(key)}" disabled>Compare selected</button>
+  <select class="ref-sel" title="Reference lap">
+    <option value="best">with my best lap</option><option value="ideal">with the ideal lap</option><option value="first">with the first one selected</option>
+  </select>`;
+
+async function viewLaps(params) {
+  const by = params.get('by');
+  if (by === 'combo' || by === 'date') { sessBy = by; try { localStorage.setItem('sessions.by', by); } catch { /* ignore */ } }
+  const head = `<div class="race-head"><div><h1>Sessions</h1></div><span class="spacer"></span>
+    <div class="tabs"><a href="#/?by=combo" class="${sessBy === 'combo' ? 'on' : ''}">By track &amp; car</a><a href="#/?by=date" class="${sessBy === 'date' ? 'on' : ''}">By date</a></div></div>`;
   const o = await api('/api/overview');
   if (!o.combos.length) {
-    view.innerHTML = `${sessionsHead('laps')}<div class="card empty">
+    view.innerHTML = `${head}<div class="card empty">
       <h2>No laps yet</h2>
       <p>Start Assetto Corsa EVO and drive. Laps are saved automatically when you cross the line.</p>
       <p class="muted">Want to try it first? Run <code>npm run seed</code> for demo laps, or start with <code>npm run mock</code>.</p>
@@ -152,6 +267,7 @@ async function viewLaps() {
     return;
   }
   const sessions = new Map(o.sessions.map((s) => [s.id, s]));
+  const summaries = sessionSummaries(o, sessions);
   const uniq = (k, list = o.combos) => [...new Set(list.map((c) => c[k]))].sort((a, b) => prettyName(a).localeCompare(prettyName(b)));
   // drop a filter whose value no longer exists (e.g. last lap of that car deleted, or a car never driven on the newly picked track)
   if (!uniq('track').includes(lapView.track)) lapView.track = '';
@@ -169,48 +285,74 @@ async function viewLaps() {
   const combos = o.combos
     .filter((c) => (!lapView.track || c.track === lapView.track) && (!lapView.car || c.car === lapView.car))
     .sort(orders[lapView.order]?.[1] || orders.recent[1]);
-  const comboLaps = (c) => o.laps.filter((l) => `${l.track}|${l.layout}|${l.car}` === c.key);
+  const comboLaps = (c) => o.laps.filter((l) => comboOf(l) === c.key);
   const opts = (list, cur, all) => `<option value="">${all}</option>` + list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(prettyName(v))}</option>`).join('');
-  view.innerHTML = `
-    ${sessionsHead('laps')}
+
+  let body;
+  if (sessBy === 'date') {
+    const ctx = new Map(combos.map((c) => [c.key, comboCtx(c, comboLaps(c))]));
+    const list = [...summaries.values()].filter((m) => ctx.has(m.key)).sort((a, b) => b.start - a.start);
+    body = list.length ? list.map((m, i) => sessionCard(m, ctx.get(m.key), isOpen(m, i === 0))).join('')
+      : '<div class="card empty"><p>No sessions match this track and car. Choose “All tracks” or “All cars” to see the rest.</p></div>';
+  } else {
+    body = combos.length ? combos.map((c) => comboCard(c, comboLaps(c), summaries)).join('')
+      : '<div class="card empty"><p>No laps match this track and car. Choose “All tracks” or “All cars” to see the rest.</p></div>';
+  }
+  view.innerHTML = `${head}
     <div class="row" style="margin-bottom:16px">
-      <span class="spacer"></span>
       <select id="f-track" title="Filter by track">${opts(tracks, lapView.track, 'All tracks')}</select>
       <select id="f-car" title="Filter by car">${opts(cars, lapView.car, 'All cars')}</select>
-      <select id="f-order" title="Order by">${Object.entries(orders).map(([k, [label]]) => `<option value="${k}" ${k === lapView.order ? 'selected' : ''}>${label}</option>`).join('')}</select>
+      ${sessBy === 'combo' ? `<select id="f-order" title="Order by">${Object.entries(orders).map(([k, [label]]) => `<option value="${k}" ${k === lapView.order ? 'selected' : ''}>${label}</option>`).join('')}</select>` : ''}
+      <span class="spacer"></span>
       <button id="imp">Import lap files…</button>
     </div>
-    ${combos.length ? '' : '<div class="card empty"><p>No laps match this track and car. Choose “All tracks” or “All cars” to see the rest.</p></div>'}
-    ${combos.map((c) => comboCard(c, comboLaps(c), sessions)).join('')}`;
+    ${body}`;
   bindImport($('#imp'));
   view.querySelectorAll('th[data-sort]').forEach((th) => { th.onclick = () => { cycleLapSort(th.dataset.sort); render(); }; });
   [['#f-track', 'track'], ['#f-car', 'car'], ['#f-order', 'order']].forEach(([sel, k]) => {
-    $(sel).onchange = (e) => { lapView[k] = e.target.value; render(); };
+    if ($(sel)) $(sel).onchange = (e) => { lapView[k] = e.target.value; render(); };
   });
 
+  // fold / unfold a session without redrawing the page
+  view.querySelectorAll('.sess-strip[data-tog]').forEach((st) => {
+    const toggle = () => {
+      const sid = +st.dataset.tog;
+      const open = st.getAttribute('aria-expanded') !== 'true';
+      sessOpen.set(sid, open);
+      st.setAttribute('aria-expanded', String(open));
+      st.querySelector('.sess-chev').textContent = open ? '▾' : '▸';
+      view.querySelectorAll(`[data-sess="${sid}"]`).forEach((el) => { el.hidden = !open; });
+    };
+    st.onclick = (e) => { if (!e.target.closest('a, button')) toggle(); };
+    st.onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === st) { e.preventDefault(); toggle(); } };
+  });
+
+  // lap selection for Compare: one set per car and track, shared by every card of it
+  const updCompare = (key) => {
+    const n = selected.get(key)?.size || 0;
+    view.querySelectorAll('.cmp-sel').forEach((b) => { if (b.dataset.for === key) { b.disabled = !n; b.textContent = `Compare selected (${n})`; } });
+  };
   view.querySelectorAll('[data-combo]').forEach((card) => {
     const key = card.dataset.combo;
     if (!selected.has(key)) selected.set(key, new Set());
     const sel = selected.get(key);
-    const btn = card.querySelector('.cmp-sel');
-    const upd = () => { btn.disabled = !sel.size; btn.textContent = `Compare selected (${sel.size})`; };
     card.querySelectorAll('input[data-lap]').forEach((cb) => {
       cb.checked = sel.has(+cb.dataset.lap);
       cb.onchange = () => {
         const id = +cb.dataset.lap;
         if (cb.checked) { if (sel.size >= 3) { cb.checked = false; alert('Compare up to 3 laps against the reference.'); return; } sel.add(id); } else sel.delete(id);
-        upd();
+        view.querySelectorAll(`input[data-lap="${id}"]`).forEach((x) => { x.checked = cb.checked; });
+        updCompare(key);
       };
     });
-    upd();
-    btn.onclick = () => {
-      const ref = card.querySelector('.ref-sel').value;
-      let ids = [...sel];
-      let r = ref;
-      if (ref === 'first') { r = ids[0]; }
-      location.hash = `#/compare?laps=${ids.join(',')}&ref=${r}`;
-    };
-    card.querySelector('[data-hotlap]').onclick = () => {
+    updCompare(key);
+    card.querySelectorAll('.cmp-sel').forEach((btn) => btn.onclick = () => {
+      const ref = btn.parentElement.querySelector('.ref-sel').value;
+      const ids = [...sel];
+      location.hash = `#/compare?laps=${ids.join(',')}&ref=${ref === 'first' ? ids[0] : ref}`;
+    });
+    const hot = card.querySelector('[data-hotlap]');
+    if (hot) hot.onclick = () => {
       const c = o.combos.find((x) => x.key === key);
       if (c) startHotlap(c);
     };
@@ -232,6 +374,22 @@ async function viewLaps() {
   });
 }
 
+// By date: one session, its car and track on top
+function sessionCard(m, ctx, open) {
+  const { c, showDriver } = ctx;
+  const laps = [...m.laps].sort((a, b) => a.recorded_at - b.recorded_at);
+  return `<section class="card sess-card" data-combo="${esc(c.key)}">
+    <div class="sess-card-head"><div class="title">${esc(prettyName(c.track))} <span class="muted">${esc(prettyName(c.layout))}</span></div>
+      <div class="secondary">${esc(prettyName(c.car))}</div></div>
+    ${sessionStrip(m, open)}
+    <div data-sess="${m.sid}" ${open ? '' : 'hidden'}>
+      <div class="row" style="margin:10px 0"><span class="spacer"></span>${compareTools(c.key)}</div>
+      <table class="laps"><thead><tr><th></th><th>Lap</th><th>Time</th><th>Gap</th>${showDriver ? '<th>Driver</th>' : ''}<th>Recorded</th><th></th></tr></thead>
+        <tbody>${laps.map((l) => lapRow(l, ctx)).join('')}</tbody></table>
+    </div>
+  </section>`;
+}
+
 // one click: this combo in Hotlap mode, clear weather, optimum grip; progress shows on the Race tab
 async function startHotlap(c) {
   try {
@@ -246,56 +404,32 @@ async function startHotlap(c) {
   } catch (e) { alert(`Could not start the hotlap: ${e.message}`); }
 }
 
-function comboCard(c, laps, sessions) {
-  const groups = new Map();
-  for (const l of laps) {
-    const g = l.source === 'import' ? 'import' : l.session_id;
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(l);
-  }
-  // timing-sheet colours: purple = best lap of this car and track, green = fastest valid lap of its session
-  const sessionBest = new Map();
-  for (const l of laps) if (l.valid && l.source !== 'import') {
-    const b = sessionBest.get(l.session_id);
-    if (!b || l.lap_time_ms < b.lap_time_ms) sessionBest.set(l.session_id, l);
-  }
-  // one driver for every lap: the Driver column says nothing
-  const showDriver = new Set(laps.map((l) => l.driver || '')).size > 1;
-  const row = (l) => {
-      const gap = c.bestMs ? l.lap_time_ms - c.bestMs : null;
-      const isBest = l.id === c.bestLapId;
-      const isPb = !isBest && l.valid && sessionBest.get(l.session_id)?.id === l.id;
-      const open = isBest ? `#/compare?laps=${l.id}&ref=ideal` : `#/compare?laps=${l.id}&ref=best`;
-      return `<tr class="${l.valid ? '' : 'invalid'}" data-open="${open}" title="${isBest ? 'Compare with the ideal lap' : 'Compare with your best lap'}">
-        <td><input type="checkbox" data-lap="${l.id}" aria-label="Select lap for comparison"></td>
-        <td class="muted">${l.lap_number ?? ''}</td>
-        <td class="time${isBest ? ' best' : isPb ? ' pb' : ''}"><a href="${open}"><b>${fmt(l.lap_time_ms)}</b></a> ${isBest ? '<span class="badge best">Best</span>' : isPb ? '<span class="badge pb">Session best</span>' : ''} ${l.valid ? '' : '<span class="badge bad">Invalid</span>'}</td>
-        <td class="secondary">${isBest ? '' : fmtGap(gap)}</td>
-        ${showDriver ? `<td class="secondary">${esc(l.driver || '')}${l.source === 'import' ? ' <span class="badge">Imported</span>' : ''}</td>` : ''}
-        <td class="muted" style="white-space:nowrap">${esc(fmtStamp(l.recorded_at))}</td>
-        <td class="actions">
-          <a href="#/compare?laps=${l.id}&ref=ideal"><button class="small ghost" title="Compare with the ideal lap (your best sectors)">Ideal</button></a>
-          <a href="/api/laps/${l.id}/export" download><button class="small ghost" title="Export lap file" aria-label="Export lap file">⇩</button></a>
-          <button class="small ghost" data-del="${l.id}" title="Delete lap" aria-label="Delete lap">✕</button>
-        </td></tr>`;
-  };
-  const cols = showDriver ? 7 : 6;
+// By track & car: one card per car and track, its sessions (newest first) as strips with their laps
+function comboCard(c, laps, summaries) {
+  const ctx = comboCtx(c, laps);
+  const cols = ctx.showDriver ? 7 : 6;
   let rows;
   const sortCol = lapSort && LAP_COLS[lapSort.col];
   if (sortCol) {
     // one flat list sorted by the clicked column (ties: oldest first)
     const key = sortCol[1];
     const cmp = (a, b) => { const x = key(a), y = key(b); return x < y ? -1 : x > y ? 1 : 0; };
-    rows = [...laps].sort((a, b) => lapSort.dir * cmp(a, b) || a.recorded_at - b.recorded_at).map(row).join('');
+    rows = [...laps].sort((a, b) => lapSort.dir * cmp(a, b) || a.recorded_at - b.recorded_at).map((l) => lapRow(l, ctx)).join('');
   } else {
+    const groups = new Map(); // newest session first (laps come newest first)
+    for (const l of laps) {
+      const g = l.source === 'import' ? 'import' : l.session_id;
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(l);
+    }
     rows = [...groups.entries()].map(([g, ls]) => {
-      const s = sessions.get(g);
-      const when = s ? new Date(s.started_at).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-      const head = g === 'import' ? '<b>Imported laps</b>'
-        : `<b>${esc(SESSION_TYPES[s?.session_type] || 'Session')}</b> on ${esc(when)}, ${ls.length} lap${ls.length === 1 ? '' : 's'}`
-          + (s && ls.some((l) => l.valid) ? ` <a href="#/report?session=${s.id}" class="session-report" title="Session report: best, average, corners, consistency, targets">Report</a>` : '');
-      const sorted = g === 'import' ? ls.sort((a, b) => a.lap_time_ms - b.lap_time_ms) : ls.sort((a, b) => a.recorded_at - b.recorded_at);
-      return `<tr class="session"><td colspan="${cols}">${head}</td></tr>` + sorted.map(row).join('');
+      if (g === 'import') {
+        return `<tr class="session"><td colspan="${cols}"><b>Imported laps</b></td></tr>` + ls.sort((a, b) => a.lap_time_ms - b.lap_time_ms).map((l) => lapRow(l, ctx)).join('');
+      }
+      const m = summaries.get(g);
+      const open = isOpen(m, !!m.newest);
+      return `<tr class="session"><td colspan="${cols}">${sessionStrip(m, open)}</td></tr>`
+        + ls.sort((a, b) => a.recorded_at - b.recorded_at).map((l) => lapRow(l, ctx, true, !open)).join('');
     }).join('');
   }
   const th = (col) => {
@@ -319,13 +453,10 @@ function comboCard(c, laps, sessions) {
       ${c.validLaps >= 2 ? `<a href="#/consistency?combo=${encodeURIComponent(c.key)}"><button>Consistency</button></a>` : ''}
       ${c.bestLapId && c.idealMs ? `<a href="#/compare?laps=${c.bestLapId}&ref=ideal"><button>Best lap against ideal</button></a>` : ''}
       <span class="spacer"></span>
-      <button class="cmp-sel" disabled>Compare selected</button>
-      <select class="ref-sel" title="Reference lap">
-        <option value="best">with my best lap</option><option value="ideal">with the ideal lap</option><option value="first">with the first one selected</option>
-      </select>
+      ${compareTools(c.key)}
       ${invalidIds.length ? `<button class="danger-ghost" data-rm-invalid="${invalidIds.join(',')}" title="Delete the invalid laps of this car and track">Remove invalid laps (${invalidIds.length})</button>` : ''}
     </div>
-    <table class="laps"><thead><tr><th></th>${th('lap')}${th('time')}${th('gap')}${showDriver ? th('driver') : ''}${th('recorded')}<th></th></tr></thead><tbody>${rows}</tbody></table>
+    <table class="laps"><thead><tr><th></th>${th('lap')}${th('time')}${th('gap')}${ctx.showDriver ? th('driver') : ''}${th('recorded')}<th></th></tr></thead><tbody>${rows}</tbody></table>
   </section>`;
 }
 

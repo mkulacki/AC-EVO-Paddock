@@ -1,8 +1,9 @@
-// Session reports: made automatically when a session ends (3+ laps, one valid), or on request for older sessions.
+// Session page (Sessions → Open session): the session report and the session's laps. Reports are made automatically when a session ends (3+ laps, one valid), or on request for older sessions.
 // Best lap and average, change against earlier sessions, best / weakest corners, consistency, setups and
 // conditions, lap-time trend, theoretical best, track limits, next practice targets and the AI debrief.
 import { $, css, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES, md } from './util.js';
 
+const stamp = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const s3 = (ms) => (ms == null ? '–' : `${(ms / 1000).toFixed(3)} s`);
 const pm = (ms) => (ms == null ? '–' : `±${(ms / 1000).toFixed(3)} s`);
@@ -15,32 +16,7 @@ const MATCH = {
   manual: ['Set by you', 'You picked this setup in the report'],
 };
 
-// the Sessions tab's header: its two pages, Laps and Reports
-export const sessionsHead = (on, sub = '') => `<div class="race-head"><div><h1>Sessions</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div><span class="spacer"></span>
-  <div class="tabs"><a href="#/" class="${on === 'laps' ? 'on' : ''}">Laps</a><a href="#/reports" class="${on === 'reports' ? 'on' : ''}">Reports</a></div></div>`;
-
-// ================================================================== list
-export async function viewReports(view) {
-  const { reports, sessions } = await api('/api/reports');
-  view.innerHTML = `
-    ${sessionsHead('reports', 'A report is made when you leave a session with at least 3 laps, one of them valid. Older or shorter sessions get one on request.')}
-    ${reports.length ? `<div class="card"><div class="tablewrap"><table>
-      <thead><tr><th>Session</th><th>Track</th><th>Car</th><th>Best lap</th><th>Average</th><th>Laps</th><th></th></tr></thead>
-      <tbody>${reports.map((r) => `<tr data-open="#/report?session=${r.sessionId}" style="cursor:pointer">
-        <td style="white-space:nowrap">${esc(when(r.startedAt))}</td><td>${comboTxt(r.combo)}</td><td class="secondary">${esc(prettyName(r.combo.car))}</td>
-        <td class="time"><b>${fmt(r.bestMs)}</b> ${r.newPb ? '<span class="badge best">New PB</span>' : ''}</td><td>${fmt(r.avgMs)}</td>
-        <td>${r.laps.valid}<span class="muted"> valid / ${r.laps.total}</span></td>
-        <td class="actions"><a href="#/report?session=${r.sessionId}"><button class="small">Open</button></a></td></tr>`).join('')}</tbody></table></div></div>`
-      : '<div class="card empty"><h2>No reports yet</h2><p>Drive a session of 3 laps or more; the report appears here when you leave it.</p></div>'}
-    ${sessions.length ? `<div class="card"><h2>Sessions without a report</h2><div class="tablewrap"><table>
-      <thead><tr><th>Session</th><th>Track</th><th>Car</th><th>Laps</th><th></th></tr></thead>
-      <tbody>${sessions.map((s) => `<tr><td style="white-space:nowrap">${esc(when(s.startedAt))}</td><td>${comboTxt(s.combo)}</td>
-        <td class="secondary">${esc(prettyName(s.combo.car))}</td><td>${s.valid}<span class="muted"> valid / ${s.laps}</span></td>
-        <td class="actions"><a href="#/report?session=${s.sessionId}"><button class="small ghost">Make report</button></a></td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
-  view.querySelectorAll('tr[data-open]').forEach((tr) => { tr.onclick = (e) => { if (!e.target.closest('a')) location.hash = tr.dataset.open; }; });
-}
-
-// ================================================================== one report
+// ================================================================== one session: its report and its laps
 export async function viewReport(view, params, cleanup) {
   const id = Number(params.get('session'));
   const res = await api(`/api/report?session=${id}`);
@@ -97,7 +73,7 @@ export async function viewReport(view, params, cleanup) {
 
   view.innerHTML = `
     <div class="cmp-head">
-      <a href="#/reports"><button class="ghost">← Reports</button></a>
+      <a href="#/"><button class="ghost">← Sessions</button></a>
       <div><h1>${comboTxt(r.combo)}</h1>
         <div class="secondary">${esc(prettyName(r.combo.car))} · ${esc(SESSION_TYPES[r.sessionType] || 'Session')} on ${esc(when(r.startedAt))}</div></div>
       <span class="spacer"></span>
@@ -141,7 +117,8 @@ export async function viewReport(view, params, cleanup) {
     <div class="card"><div class="row"><h2 style="margin:0">AI debrief</h2><span class="spacer"></span>
       <button id="rAi" class="${res.ai ? 'ghost' : 'primary'}" ${res.hasKey ? '' : 'disabled title="Add a Gemini API key in Settings"'}>${res.ai ? 'Write again' : 'Write debrief'}</button></div>
       <div id="rAiOut" style="margin-top:8px">${res.ai ? `<div class="ai-out">${md(res.ai.text)}</div><p class="muted" style="font-size:12px">${esc(res.ai.model)}, ${esc(when(res.ai.at))}</p>`
-        : `<p class="muted" style="margin:0">${res.hasKey ? 'Gemini turns this report into a short debrief with a plan for your next session.' : 'Add a Gemini API key in <a href="#/settings">Settings</a> for an AI debrief.'}</p>`}</div></div>`;
+        : `<p class="muted" style="margin:0">${res.hasKey ? 'Gemini turns this report into a short debrief with a plan for your next session.' : 'Add a Gemini API key in <a href="#/settings">Settings</a> for an AI debrief.'}</p>`}</div></div>
+    ${lapsCard(res.laps, r)}`;
 
   // ---- actions
   $('#rRegen').onclick = async () => { await post('/api/report/regenerate', { session: id }); viewReport(view, params, cleanup); };
@@ -162,6 +139,8 @@ export async function viewReport(view, params, cleanup) {
     } catch (e) { $('#rAiOut').innerHTML = `<p class="pos">${esc(e.message)}</p>`; b.textContent = 'Write debrief'; }
     b.disabled = false;
   };
+
+  bindLaps(view, res.laps, () => viewReport(view, params, cleanup));
 
   // ---- lap-time trend (uPlot): valid laps, invalid laps, clean average, theoretical best
   const el = $('#rTrend');
@@ -196,4 +175,55 @@ export async function viewReport(view, params, cleanup) {
   const onResize = () => plot.setSize({ width: el.clientWidth, height: 240 });
   window.addEventListener('resize', onResize);
   cleanup.push(() => { window.removeEventListener('resize', onResize); plot.destroy(); });
+}
+
+// ---- the session's laps: compare, export, delete
+function lapsCard(laps, r) {
+  const invalid = laps.filter((l) => !l.valid).map((l) => l.id);
+  return `<div class="card"><div class="row" style="margin-bottom:8px"><h2 style="margin:0">Laps</h2><span class="spacer"></span>
+      <button class="cmp-sel" disabled>Compare selected</button>
+      <select class="ref-sel" title="Reference lap"><option value="best">with my best lap</option><option value="ideal">with the ideal lap</option><option value="first">with the first one selected</option></select>
+      ${invalid.length ? `<button class="danger-ghost" data-rm-invalid="${invalid.join(',')}">Remove invalid laps (${invalid.length})</button>` : ''}</div>
+    <table class="laps"><thead><tr><th></th><th>Lap</th><th>Time</th><th>Gap</th><th>Setup</th><th>Recorded</th><th></th></tr></thead><tbody>
+    ${laps.map((l) => {
+      const isBest = l.id === r.best.lapId;
+      return `<tr class="${l.valid ? '' : 'invalid'}" data-open="#/compare?laps=${l.id}&ref=best" title="Compare with your best lap">
+        <td><input type="checkbox" data-lap="${l.id}" aria-label="Select lap for comparison"></td>
+        <td class="muted">${l.lap_number ?? ''}</td>
+        <td class="time${isBest ? ' pb' : ''}"><b>${fmt(l.lap_time_ms)}</b> ${isBest ? '<span class="badge pb">Session best</span>' : ''} ${l.valid ? '' : '<span class="badge bad">Invalid</span>'}</td>
+        <td class="secondary">${isBest ? '' : fmtGap(l.lap_time_ms - r.best.ms)}</td>
+        <td class="secondary">${esc(l.setup_name ?? '–')}</td>
+        <td class="muted" style="white-space:nowrap">${esc(stamp(l.recorded_at))}</td>
+        <td class="actions">
+          <a href="#/compare?laps=${l.id}&ref=ideal"><button class="small ghost" title="Compare with the ideal lap (your best sectors)">Ideal</button></a>
+          <a href="/api/laps/${l.id}/export" download><button class="small ghost" title="Export lap file" aria-label="Export lap file">⇩</button></a>
+          <button class="small ghost" data-del="${l.id}" title="Delete lap" aria-label="Delete lap">✕</button>
+        </td></tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+function bindLaps(view, laps, reload) {
+  const sel = new Set();
+  const btn = view.querySelector('.cmp-sel');
+  const upd = () => { btn.disabled = !sel.size; btn.textContent = `Compare selected (${sel.size})`; };
+  view.querySelectorAll('input[data-lap]').forEach((cb) => cb.onchange = () => {
+    const id = +cb.dataset.lap;
+    if (cb.checked) { if (sel.size >= 3) { cb.checked = false; alert('Compare up to 3 laps against the reference.'); return; } sel.add(id); } else sel.delete(id);
+    upd();
+  });
+  btn.onclick = () => {
+    const ids = [...sel]; const ref = view.querySelector('.ref-sel').value;
+    location.hash = `#/compare?laps=${ids.join(',')}&ref=${ref === 'first' ? ids[0] : ref}`;
+  };
+  view.querySelectorAll('table.laps tr[data-open]').forEach((tr) => tr.onclick = (e) => { if (!e.target.closest('input, button, a, label')) location.hash = tr.dataset.open; });
+  // deleting laps changes the report: it is built again (or, with no lap left, back to Sessions)
+  const remove = async (ids, what) => {
+    if (!confirm(`Delete ${what} permanently?
+
+This cannot be undone.`)) return;
+    await post('/api/laps/delete', { ids });
+    if (laps.every((l) => ids.includes(l.id)) || !laps.some((l) => l.valid && !ids.includes(l.id))) location.hash = '#/'; else reload();
+  };
+  view.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => remove([+b.dataset.del], 'this lap'));
+  const rm = view.querySelector('[data-rm-invalid]');
+  if (rm) rm.onclick = () => { const ids = rm.dataset.rmInvalid.split(',').map(Number); remove(ids, `${ids.length} invalid lap${ids.length > 1 ? 's' : ''}`); };
 }

@@ -193,6 +193,16 @@ tbody tr:hover td { background: rgba(127, 127, 127, .06); }
 tr:last-child td { border-bottom: 0; }
 tr.session td { background: var(--surface-2); color: var(--text-secondary); font-size: var(--fs-sm); padding-top: 7px; padding-bottom: 7px; }
 tr.session td b { color: var(--text-primary); font-weight: 600; }
+/* a session (Sessions page): one-line summary, click to fold / unfold its laps */
+.sess-strip { display: flex; align-items: center; gap: 10px; cursor: pointer; flex-wrap: wrap; }
+.sess-strip:focus-visible { outline: 2px solid var(--sel-bg); outline-offset: 2px; }
+.sess-chev { width: 18px; font-size: 18px; line-height: 1; text-align: center; color: var(--text-secondary); flex: none; }
+.sess-main { min-width: 0; }
+.sess-line { font-size: var(--fs-sm); color: var(--text-secondary); }
+.sess-sum { display: flex; flex-wrap: wrap; gap: 2px 18px; margin-top: 3px; font-size: var(--fs-sm); color: var(--text-secondary); }
+.sess-sum b { color: var(--text-primary); font-weight: 600; }
+.sess-card .sess-card-head .title { font: italic 800 var(--fs-lg)/1.1 var(--font-display); text-transform: uppercase; letter-spacing: .02em; }
+.sess-card .sess-strip { margin-top: 10px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius-ctl); }
 tr.invalid td.time { color: var(--text-muted); }
 tr.invalid td.time b { text-decoration: line-through; font-weight: 500; }
 td.time.best b { color: var(--t-best); }

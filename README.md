@@ -91,7 +91,8 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 
 ## Sessions tab
 
-- **Lap list:** per track/layout/car, with your best lap, ideal lap and every session. Filter by track or car and sort.
+- **Sessions:** *By track & car* (a card per track/layout/car with your best and ideal lap) or *By date* (newest first). Each session is a strip with its best lap, change against the last session or a new PB, average, consistency, setup and weakest corners; click it to show or hide its laps. Filter by track or car.
+- **Open session:** the session report (see below) with that session's laps.
 - **Start hotlap:** starts that car and track in Hotlap mode with clear weather and optimum grip. Progress shows on the Race tab.
 - **Compare:** up to 3 laps against a reference:
   - *my best lap*,
@@ -117,7 +118,7 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 
 ## Session reports
 
-When you leave a session with at least 3 laps (one of them valid), Paddock writes a report and the desktop app shows a notification. Open it under **Sessions → Reports**, or with the *Report* link on a session in **Sessions → Laps** (older sessions get one on request).
+When you leave a session with at least 3 laps (one of them valid), Paddock writes a report and the desktop app shows a notification. Every session in the **Sessions** tab shows its summary; *Open session* shows the full report and that session's laps. Sessions can be listed by track and car or by date.
 
 - **Best lap and session average** (clean laps: valid and within 7 % of the session's best), and the change against your previous session and your all-time best.
 - **Three best and three weakest corners:** your typical time through each corner against your fastest pass ever, with what differs on the weak ones (braking earlier, less apex speed, later throttle, running wide…).
