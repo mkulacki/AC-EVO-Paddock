@@ -8,9 +8,11 @@ const CH = ['t', 'd', 'spd', 'thr', 'brk', 'str', 'gear', 'rpm', 'x', 'z', 'glat
   'out', 'ok', 'kerb', 'w0x', 'w0z', 'w1x', 'w1z', 'w2x', 'w2z', 'w3x', 'w3z'];
 
 export class Recorder extends EventEmitter {
-  constructor(getDriverName) {
+  // getSetup(): the setup the car is on right now (src/setupmatch.js), stored with each lap; null = not known
+  constructor(getDriverName, getSetup = () => null) {
     super();
     this.getDriverName = getDriverName;
+    this.getSetup = getSetup;
     this.session = null;   // {key, id|null, track, layout, car, ...}
     this.lap = null;       // current lap buffer
     this.prev = null;
@@ -46,6 +48,7 @@ export class Recorder extends EventEmitter {
 
   push(f, lap) {
     const b = lap.buf;
+    if (!b.t.length) lap.setup = this.getSetup(); // the setup when the lap started (a pit stop can change it later)
     b.t.push(f.lapTimeMs); b.d.push(Math.round(this.distance(f, lap) * 100) / 100);
     b.spd.push(+f.speed.toFixed(2)); b.thr.push(+f.gas.toFixed(3)); b.brk.push(+f.brake.toFixed(3));
     b.str.push(+f.steer.toFixed(4)); b.gear.push(f.gear); b.rpm.push(f.rpm);
@@ -76,7 +79,7 @@ export class Recorder extends EventEmitter {
     const meta = {
       sessionId: this.session.id, track: this.session.track, layout: this.session.layout, car: this.session.car,
       lapNumber: lap.lapNumber, lapTimeMs, valid: !lap.invalid, driver: this.session.driver,
-      recordedAt: Date.now(), trackLength: L, data: b,
+      recordedAt: Date.now(), trackLength: L, data: b, setup: lap.setup ?? this.getSetup(),
     };
     const id = db.insertLap(meta);
     this.state.savedLaps++;

@@ -7,7 +7,9 @@ export const OFFSETS = {
   physics: {
     name: 'Local\\acevo_pmf_physics', size: 800,
     packetId: 0, gas: 4, brake: 8, fuel: 12, gear: 16, rpms: 20, steerAngle: 24, speedKmh: 28,
-    accG: 44, numberOfTyresOut: 244, clutch: 364, tyreContactPoint: 420, tcInAction: 672, absInAction: 676, kerbVibration: 784,
+    accG: 44, wheelsPressure: 88, camberRAD: 168, numberOfTyresOut: 244,
+    // ACC layout (the offsets around these match): setup fingerprint + conditions, not yet checked in game
+    rideHeight: 268, airTemp: 288, roadTemp: 292, brakeBias: 564, clutch: 364, tyreContactPoint: 420, tcInAction: 672, absInAction: 676, kerbVibration: 784,
   },
   graphics: {
     name: 'Local\\acevo_pmf_graphics', size: 4900,
@@ -121,6 +123,13 @@ export class ShmSource {
     // tyre contact points (world x/z) in order FL, FR, RL, RR
     const wheels = [0, 1, 2, 3].map((w) => [p.readFloatLE(P.tyreContactPoint + w * 12), p.readFloatLE(P.tyreContactPoint + w * 12 + 8)]);
 
+    const f4 = (o) => [0, 1, 2, 3].map((w) => p.readFloatLE(o + w * 4));
+    // what the setup fingerprint (src/setupmatch.js) and the session report's conditions use
+    const probe = {
+      pressures: f4(P.wheelsPressure), camber: f4(P.camberRAD).map((r) => (r * 180) / Math.PI),
+      rideHeight: [p.readFloatLE(P.rideHeight) * 1000, p.readFloatLE(P.rideHeight + 4) * 1000],
+      brakeBias: p.readFloatLE(P.brakeBias), airTemp: p.readFloatLE(P.airTemp), roadTemp: p.readFloatLE(P.roadTemp),
+    };
     const frame = {
       packetId: p.readInt32LE(P.packetId),
       status: g.readInt32LE(G.status),
@@ -129,7 +138,7 @@ export class ShmSource {
       rpm: p.readInt32LE(P.rpms), steer: p.readFloatLE(P.steerAngle), speed: p.readFloatLE(P.speedKmh),
       glat: p.readFloatLE(P.accG), glon: p.readFloatLE(P.accG + 8),
       tc: p.readInt32LE(P.tcInAction), abs: p.readInt32LE(P.absInAction),
-      tyresOut: p.readInt32LE(P.numberOfTyresOut), kerb: p.readFloatLE(P.kerbVibration), wheels,
+      tyresOut: p.readInt32LE(P.numberOfTyresOut), kerb: p.readFloatLE(P.kerbVibration), wheels, probe,
       lapTimeMs: g.readInt32LE(G.currentLapMs), lastLapMs: g.readInt32LE(G.lastLapMs),
       bestLapMs: g.readInt32LE(G.bestLapMs), lapCount: g.readInt32LE(G.totalLapCount),
       npos: g.readFloatLE(G.npos), inPit: g[G.inPitBox] !== 0 || g[G.inPitLane] !== 0,

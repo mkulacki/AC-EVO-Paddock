@@ -24,6 +24,9 @@ import * as hudInstall from './hudinstall.js';
 import * as loaderInstall from './loaderinstall.js';
 import * as setups from './setups.js';
 import * as carsetup from './carsetup.js';
+import { createSetupTracker } from './setupmatch.js';
+import * as setupmatch from './setupmatch.js';
+import * as report from './report.js';
 import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -41,7 +44,9 @@ if (mockIdx >= 0) {
   source = new ShmSource();
 }
 
-const recorder = new Recorder(() => settings.get().driverName);
+// every lap is stored with the setup the car was on (fingerprint taken in the pits, src/setupmatch.js)
+const recorder = new Recorder(() => settings.get().driverName, () => setupTracker.current());
+const setupTracker = createSetupTracker({ recorder, launchConditions: game.launchConditions });
 const hud = new LiveHud(recorder);
 const hudSnapshot = () => ({ ...hud.snapshot(), cfg: settings.hudConfig() }); // live data + the HUD's look (parts, size, opacity)
 // in-game HUD: data via the live slot files, commands via the game log (the game's UI cannot do HTTP)
@@ -113,6 +118,22 @@ bindMarkKey();
 recorder.on('lap', (l) => { svc.invalidate(); broadcast('lap', l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
 recorder.on('session', (s) => console.log(`[session] ${s.track} ${s.layout} / ${s.car}`));
 recorder.on('discarded', (e) => console.log(`[lap discarded] ${e.reason}`));
+// end of a session: keep its conditions, then the session report (needs a few laps and a valid one)
+recorder.on('sessionEnd', (s) => {
+  if (!s.id) return;
+  try { const c = setupTracker.conditions(); if (c) db.setSessionConditions(s.id, c); } catch (e) { console.log(`[report] conditions not saved: ${e.message}`); }
+  setTimeout(() => {
+    try {
+      const laps = db.lapsOfSession(s.id);
+      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return;
+      const r = report.make(s.id);
+      const text = report.headline(r);
+      console.log(`[report] session ${s.id}: ${text}`);
+      broadcast('report', { sessionId: s.id, headline: text });
+      globalThis.__paddockNotify?.({ title: `Session report ready: ${s.track} · ${s.car}`, body: text, hash: `#/report?session=${s.id}` });
+    } catch (e) { console.log(`[report] session ${s.id}: ${e.message}`); }
+  }, 300);
+});
 
 let lastPacket = null, lastPacketChange = Date.now(), stale = false;
 setInterval(() => {
@@ -128,6 +149,7 @@ setInterval(() => {
       return;
     }
     recorder.onFrame(f);
+    setupTracker.onFrame(f);
     hud.onFrame(f);
     marker.onFrame(f);
     spotter.tick(hud.nextBrake());
@@ -359,6 +381,60 @@ async function route(req, res) {
     send(res, 200, { ok: true });
     setTimeout(restartApp, 150);
     return;
+  }
+  // ---- session reports
+  if (p === '/api/reports') {
+    const stored = db.listReports();
+    const have = new Set(stored.map((r) => r.sessionId));
+    const counts = new Map();
+    for (const l of db.listLaps()) if (l.session_id != null && l.source === 'local') {
+      const c = counts.get(l.session_id) || { laps: 0, valid: 0 }; c.laps++; if (l.valid) c.valid++; counts.set(l.session_id, c);
+    }
+    const reports = stored.map((r) => ({ sessionId: r.sessionId, createdAt: r.createdAt, startedAt: r.data.startedAt, combo: r.data.combo,
+      bestMs: r.data.best.ms, avgMs: r.data.average.cleanMs, laps: r.data.laps, newPb: r.data.improvement.newPb, headline: report.headline(r.data) }));
+    // sessions without a report yet (older sessions, or too short for an automatic one)
+    const sessions = db.listSessions().filter((s) => !have.has(s.id) && counts.get(s.id)?.valid)
+      .map((s) => ({ sessionId: s.id, startedAt: s.started_at, combo: { track: s.track, layout: s.layout, car: s.car }, ...counts.get(s.id) }));
+    return send(res, 200, { reports, sessions });
+  }
+  if (p === '/api/report' && m === 'GET') {
+    const id = Number(url.searchParams.get('session'));
+    let r = db.getReport(id);
+    if (!r) { try { report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); } }
+    const c = r.data.combo;
+    return send(res, 200, { ...r, setupChoices: setupmatch.candidates(c.car, c.track, c.layout).map((x) => ({ name: x.file.name, rel: x.file.rel })),
+      probeConfirmed: !!settings.get().probeConfirmed, hasKey: !!settings.get().geminiApiKey });
+  }
+  if (p === '/api/report/regenerate' && m === 'POST') {
+    const { session } = await readJson(req);
+    try { report.make(Number(session)); return send(res, 200, { ok: true }); } catch (e) { return send(res, 400, { error: e.message }); }
+  }
+  // the driver corrects the setup of some laps: {session, lapIds, rel} (rel null = Standard)
+  if (p === '/api/report/setup' && m === 'POST') {
+    const { session, lapIds = [], rel = null } = await readJson(req);
+    const own = new Set(db.lapsOfSession(Number(session)).map((l) => l.id));
+    const ids = lapIds.map(Number).filter((id) => own.has(id));
+    if (!ids.length) return send(res, 400, { error: 'No laps of this session given' });
+    try { db.setLapSetups(ids, setupmatch.manual(rel)); report.make(Number(session)); return send(res, 200, { ok: true }); }
+    catch (e) { return send(res, 400, { error: e.message }); }
+  }
+  if (p === '/api/report/ai' && m === 'POST') {
+    const { session } = await readJson(req);
+    const r = db.getReport(Number(session));
+    if (!r) return send(res, 404, { error: 'Report not found' });
+    const out = await ai.debrief(r.data);
+    db.saveReportAi(Number(session), out.text, out.model);
+    return send(res, 200, { ...out, at: Date.now() });
+  }
+  // ---- setup fingerprint check (Setups tab): what Paddock reads in the pits against the saved setups
+  if (p === '/api/setupcheck' && m === 'GET') {
+    return send(res, 200, { live: setupTracker.live(), current: setupTracker.current(), conditions: setupTracker.conditions(),
+      probe: source.lastRaw?.frame?.probe ?? null, inSession: inSession(), confirmed: !!settings.get().probeConfirmed });
+  }
+  if (p === '/api/setupcheck/confirm' && m === 'POST') {
+    const { ok } = await readJson(req);
+    settings.update({ probeConfirmed: !!ok });
+    return send(res, 200, { confirmed: !!ok });
   }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
   if (p === '/api/overview') return send(res, 200, svc.overview());

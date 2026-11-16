@@ -3,7 +3,7 @@
 //   dev:       npm run app
 //   package:   npm run dist   ->  builds dist\win-unpacked, then desktop/deploy.mjs installs it to
 //              ..\AC EVO Paddock\  (portable; data\ sits next to the .exe and survives updates)
-const { app, BrowserWindow, Tray, Menu, dialog, shell, ipcMain, globalShortcut, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, dialog, shell, ipcMain, globalShortcut, screen, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -175,6 +175,16 @@ app.whenReady().then(async () => {
     if (!accel) return true;
     try { if (globalShortcut.register(accel, onPress)) { markKey = accel; return true; } } catch { /* invalid accelerator */ }
     return false;
+  };
+  // "Session report ready" (src/server.js, end of a session): a Windows notification; a click opens the report
+  const notes = new Set(); // keep a reference, or the click handler is garbage-collected with the notification
+  globalThis.__paddockNotify = ({ title, body, hash }) => {
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title, body, icon: ICON, silent: false });
+    notes.add(n);
+    n.on('click', () => { showMain(); if (hash) win?.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {}); notes.delete(n); });
+    n.on('close', () => notes.delete(n));
+    n.show();
   };
   let port;
   try {

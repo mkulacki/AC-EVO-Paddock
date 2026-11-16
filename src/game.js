@@ -49,6 +49,14 @@ export function onLaunchEvent(e) {
   console.log(`[launch] ${e.step}${e.msg ? ': ' + e.msg : ''}`);
   // finished: the order must not be carried out again (e.g. when the player is back on the menu)
   if (e.step === 'started' || e.step === 'scandone' || e.step === 'probed') launch.done = launch.order?.issued ?? null;
+  if (e.step === 'started' && launch.order?.conditions) launch.started = { at: Date.now(), conditions: launch.order.conditions };
+}
+/** The weather / grip / time of day of a session Paddock just started (Race tab), once, for the session report. */
+export function launchConditions() {
+  const s = launch.started;
+  if (!s || Date.now() - s.at > 30 * 60 * 1000) return null;
+  launch.started = null;
+  return s.conditions;
 }
 
 const live = () => (launch.order && Date.now() - launch.order.issued < ORDER_TTL_MS && launch.done !== launch.order.issued ? launch.order : null);

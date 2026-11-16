@@ -115,6 +115,21 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Consistency** (button on each track/car): a lap-time trend and the lap-to-lap spread, per corner, of time, brake point, min speed, throttle-on, exit speed and line (one dot per lap). It also lists your "focus corners", where you lose the most time against your own fastest pass through that corner. Filter by session and include invalid laps if you want.
 - **Export/import:** share `.lap.gz` files with friends and compare against their laps.
 
+## Session reports
+
+When you leave a session with at least 3 laps (one of them valid), Paddock writes a report and the desktop app shows a notification. Open it under **Reports**, or with the *Report* link on a session in the Laps tab (older sessions get one on request).
+
+- **Best lap and session average** (clean laps: valid and within 7 % of the session's best), and the change against your previous session and your all-time best.
+- **Three best and three weakest corners:** your typical time through each corner against your fastest pass ever, with what differs on the weak ones (braking earlier, less apex speed, later throttle, running wide…).
+- **Consistency:** spread of your clean laps, a 0–100 score and the least consistent corner.
+- **Setup used:** every lap is stored with the setup it was driven on (see below). Several setups in one session are listed with their best laps; a wrong one can be corrected in the report.
+- **Conditions:** weather, grip and time of day for sessions started from the Race tab; air and track temperature from shared memory.
+- **Lap-time trend, theoretical best** (your best corners of the session put together) and **where laps went invalid**.
+- **Next practice targets**, each with a number, and the next report ticks off whether you met them.
+- **AI debrief** (button, Gemini): a short debrief with a plan for the next session.
+
+**How the setup is recognised:** AC EVO does not say which setup is loaded, so Paddock takes a fingerprint while the car stands in the pit box (tyre pressures, camber, brake bias, fuel) and matches it with your saved setups for that car and track. No match = **Standard**. These shared-memory values are not confirmed in game yet: check them once in **Setups → Setup recognition** with a saved setup loaded, standing in the pit box.
+
 ## Tracks tab and track data
 
 Paddock reads AC EVO's own track data straight from the game's `content.kspkg`. It reads the archive in place, read-only, and never extracts or modifies it. The game folder is found through Steam, or you can set it in *Settings*. For every track and layout this gives:
@@ -214,6 +229,7 @@ Open **Settings → Telemetry debug → Show live raw values** while driving, an
 - `lapTimeMs` counting up
 - `npos` going from 0 to 1 over a lap
 - `x`/`z` coordinates changing
+- `probe`: tyre pressures (PSI), camber (°), brake bias and air / track temperature (°C), used for setup recognition and the report's conditions (ACC's physics layout; **Setups → Setup recognition** compares them with a saved setup)
 
 If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src/shm.js`.
 `npm run check-limits [laps]` prints the track-limit channels (tyres out, wheel positions, kerbs) of the most recent laps, to check those offsets.
@@ -232,7 +248,8 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/game.js`, `src/race.js` | game status, launch orders, Race tab |
 | `src/mods.js`, `src/zip.js` | Mods tab |
 | `src/setups.js`, `src/carsetup.js` | Setups tab: the game's setup files, reading / writing `.carsetup` with the car's limits |
-| `src/ai.js` | Gemini coach and setup engineer |
+| `src/report.js`, `src/setupmatch.js`, `public/reports.js` | session reports; recognising the setup of every lap |
+| `src/ai.js` | Gemini coach, setup engineer and session debrief |
 | `public/` | browser app (no build step) |
 | `mod/trainerhud/` | the in-game HUD and launcher (ACE UI App Loader app) |
 | `mod/ACEUIAppLoader/` | the bundled ACE UI App Loader release (unmodified zips, MIT licence, `loader.json` = loader + game version) |

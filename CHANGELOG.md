@@ -6,6 +6,13 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### New: session reports
+
+- After every session of 3 laps or more, a report: best lap and session average, change against the previous session and your all-time best, three best and three weakest corners (with what differs from your best pass), consistency, setup used, conditions, and next practice targets.
+- Also: lap-time trend chart, theoretical best of the session, where laps went invalid, a check of the previous report's targets, and an AI debrief on request (Gemini).
+- A Windows notification when it is ready (desktop app); a new **Reports** tab and a *Report* link on each session in the Laps tab. Older sessions get a report on request.
+- **Every lap now remembers its setup.** Paddock recognises the setup from a fingerprint taken in the pit box (pressures, camber, brake bias, fuel) and matches it with your saved setups; no match is called *Standard*. It can be corrected in the report. The readings still need a one-time check in game: **Setups → Setup recognition**.
+
 ### New: brake spotter (audio)
 
 - A voice or beeps count down to each braking point while you drive: "three, two, one, brake", or "lift" where the reference lap only lifted. Suggested in [#3](https://github.com/mkulacki/AC-EVO-Paddock/issues/3), so you can keep your eyes on the road. It also works in VR.

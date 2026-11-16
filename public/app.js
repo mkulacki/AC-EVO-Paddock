@@ -7,6 +7,7 @@ import { viewRace } from './race.js';
 import { viewProgress } from './progress.js';
 import { viewMods } from './mods.js';
 import { viewSetups } from './setups.js';
+import { viewReports, viewReport } from './reports.js';
 import { initSpotter, spotterAudioState, loadVoice } from './spotter.js';
 
 const view = $('#view');
@@ -35,6 +36,12 @@ const STATUS_TEXT = {
   live: 'On track', unknown: 'AC EVO is running',
 };
 events.addEventListener('lap', () => { if (currentRoute === 'laps') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
+// a session report was just made: a dot on the Reports tab until it is opened (the desktop app also notifies)
+events.addEventListener('report', () => {
+  if (currentRoute === 'reports') { render(); return; }
+  const a = document.querySelector('nav a[data-nav=reports]');
+  if (a && !a.querySelector('.nav-dot')) a.insertAdjacentHTML('beforeend', '<span class="nav-dot" title="New session report"></span>');
+});
 let reloadT;
 
 // ------------------------------------------------------------------ restart the app (Settings), e.g. to load code changes
@@ -78,9 +85,10 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/').split('?');
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track' }[path] || 'laps';
+  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/reports': 'reports', '/report': 'report' }[path] || 'laps';
   if (currentRoute === 'laps' && prevRoute !== 'laps') lapView = { ...LAP_VIEW_DEFAULT };
-  const navKey = currentRoute === 'track' ? 'tracks' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
+  const navKey = currentRoute === 'track' ? 'tracks' : currentRoute === 'report' ? 'reports' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks', 'reports'].includes(currentRoute) ? currentRoute : 'laps';
+  if (navKey === 'reports') document.querySelector('nav a[data-nav=reports] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
     if (currentRoute === 'game') await viewGame();
@@ -93,6 +101,8 @@ async function render() {
     else if (currentRoute === 'consistency') await viewConsistency(view, params, cleanup);
     else if (currentRoute === 'progress') await viewProgress(view, params, cleanup);
     else if (currentRoute === 'settings') await viewSettings();
+    else if (currentRoute === 'reports') await viewReports(view);
+    else if (currentRoute === 'report') await viewReport(view, params, cleanup);
     else await viewLaps();
   } catch (e) {
     view.innerHTML = `<div class="card error">Error: ${esc(e.message)}</div>`;
@@ -281,7 +291,8 @@ function comboCard(c, laps, sessions) {
       const s = sessions.get(g);
       const when = s ? new Date(s.started_at).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
       const head = g === 'import' ? '<b>Imported laps</b>'
-        : `<b>${esc(SESSION_TYPES[s?.session_type] || 'Session')}</b> on ${esc(when)}, ${ls.length} lap${ls.length === 1 ? '' : 's'}`;
+        : `<b>${esc(SESSION_TYPES[s?.session_type] || 'Session')}</b> on ${esc(when)}, ${ls.length} lap${ls.length === 1 ? '' : 's'}`
+          + (s && ls.some((l) => l.valid) ? ` <a href="#/report?session=${s.id}" class="session-report" title="Session report: best, average, corners, consistency, targets">Report</a>` : '');
       const sorted = g === 'import' ? ls.sort((a, b) => a.lap_time_ms - b.lap_time_ms) : ls.sort((a, b) => a.recorded_at - b.recorded_at);
       return `<tr class="session"><td colspan="${cols}">${head}</td></tr>` + sorted.map(row).join('');
     }).join('');

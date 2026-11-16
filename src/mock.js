@@ -92,7 +92,10 @@ export class MockSource {
     const fx = Math.cos(p.h), fz = Math.sin(p.h), nx = -Math.sin(p.h), nz = Math.cos(p.h);
     const wheel = (side, fwd) => [cx + nx * 0.8 * side + fx * fwd, cz + nz * 0.8 * side + fz * fwd];
     const wheels = [wheel(1, 1.35), wheel(-1, 1.35), wheel(1, -1.35), wheel(-1, -1.35)];
-    return { wheels, tyresOut: 0, kerb: 0,
+    const warm = Math.min(1, (this.lapCount + lo / n) / 2); // tyres warm up over two laps
+    const probe = { pressures: [26 + 1.8 * warm, 26 + 1.8 * warm, 26 + 1.5 * warm, 26 + 1.5 * warm], camber: [-0.85, -0.85, -1.05, -1.05],
+      rideHeight: [62, 70], brakeBias: 0.58, airTemp: 21, roadTemp: 29 + warm };
+    return { wheels, tyresOut: 0, kerb: 0, probe,
       packetId: this.packet, status: 2, gas: thr[lo], brake: brk[lo], clutch: 0, gear, rpm: Math.round(4000 + ((kmh % 45) / 45) * 4000),
       fuel: Math.max(0, 60 - (this.lapCount + lo / n) * 2.3), // litres: 2.3 a lap from a 60 L tank
       steer: Math.max(-1, Math.min(1, p.curv * 30)), speed: kmh, glat: (v[lo] ** 2) * p.curv / G, glon: 0, tc: 0, abs: 0,

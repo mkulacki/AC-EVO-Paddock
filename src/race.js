@@ -266,6 +266,9 @@ export function buildOrder(spec) {
   steps.push({ op: 'start', say: `starting ${mode.label}` });
   order.steps = steps;
   order.summary = [mode.label, tlabel, order.car.label].filter(Boolean).join(' · ');
+  // for the session report (src/game.js launchConditions); the HUD ignores it
+  const st = Math.max(0, Math.min(1435, start));
+  order.conditions = { weather: w.label, dynamic: !!spec.dynamic, grip: grip.label, time: `${String(Math.floor(st / 60)).padStart(2, '0')}:${String(st % 60).padStart(2, '0')}`, mode: mode.label };
   if (Buffer.byteLength(JSON.stringify(order)) > MAX_ORDER_BYTES) throw new Error('This setup is too large to send to the game (fewer grid cars?)');
   if (!spec.noRemember) { store.last = spec; saveStore(); } // one-click starts keep the Race tab's own setup
   return order;
