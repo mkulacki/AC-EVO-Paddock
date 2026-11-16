@@ -151,3 +151,33 @@ export async function setupEngineer({ setup, problem, telemetry }) {
     name: String(out.name || '').slice(0, 40), changes, skipped, usedLaps: telemetry ? telemetry.laps : 0,
   };
 }
+
+// ---------------------------------------------------------------- session debrief
+// A short race-engineer debrief from a session report (src/report.js); only on request (button), so it does not
+// use up the free tier by itself.
+const DEBRIEF_SYSTEM = `You are a sim-racing driver coach writing a short debrief after a practice session in Assetto Corsa EVO.
+You get the session report as JSON: best lap and averages (ms), change against the previous session and the all-time best,
+per-corner numbers (medianMs = typical time through the corner this session, bestEverMs = the driver's fastest pass ever,
+gapMs = typical minus fastest ever, changeMs = typical against the previous session), the weakest corners with reasons,
+consistency (sdMs = spread of clean laps), setups used (with key values), conditions, where laps went invalid,
+next practice targets, and whether the previous session's targets were met.
+Rules:
+- Base every statement on the numbers; quote them (seconds, metres, km/h).
+- Structure (Markdown): one-paragraph summary; "What went well"; "Where the time is"; "Plan for next session" (refine the given targets, 3 bullets max).
+- If several setups were used, compare their best laps briefly but do not over-interpret small samples.
+- Be concise: under 250 words. No generic tips unrelated to the data.`;
+
+export async function debrief(report) {
+  const s = settings.get();
+  const { trend, ...rest } = report;
+  const input = { ...rest, lap_times: trend.map((l) => `${l.n}: ${fmt(l.ms)}${l.valid ? '' : ' (invalid)'}${l.setup ? ` [${l.setup}]` : ''}`) };
+  const json = await call(`models/${encodeURIComponent(s.geminiModel)}:generateContent`, {
+    systemInstruction: { parts: [{ text: DEBRIEF_SYSTEM }] },
+    contents: [{ role: 'user', parts: [{ text: `Respond in ${s.language || 'English'}.\n\nSession report (JSON):\n${JSON.stringify(input)}` }] }],
+    generationConfig: { temperature: 0.4 },
+  });
+  const cand = json.candidates?.[0];
+  const text = cand?.content?.parts?.map((p) => p.text || '').join('') || '';
+  if (!text) throw new Error(`Empty answer from Gemini (${cand?.finishReason || json.promptFeedback?.blockReason || 'unknown'})`);
+  return { text, model: s.geminiModel };
+}

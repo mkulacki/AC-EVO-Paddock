@@ -3,7 +3,7 @@
 //   dev:       npm run app
 //   package:   npm run dist   ->  builds dist\win-unpacked, then desktop/deploy.mjs installs it to
 //              ..\AC EVO Paddock\  (portable; data\ sits next to the .exe and survives updates)
-const { app, BrowserWindow, Tray, Menu, dialog, shell, ipcMain, globalShortcut, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, dialog, shell, ipcMain, globalShortcut, screen, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -53,7 +53,9 @@ function createMain() {
   win = new BrowserWindow({
     ...b, minWidth: 900, minHeight: 600, show: false, icon: ICON, title: 'AC EVO Paddock',
     backgroundColor: '#08090b', autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false },
+    // the brake spotter plays from this window, also while it is hidden in the tray: no timer
+    // throttling in the background, and sound without a click first
+    webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
   });
   if (state.maximized) win.maximize();
   win.once('ready-to-show', () => win.show());
@@ -165,6 +167,25 @@ app.whenReady().then(async () => {
   console.log(`AC EVO Paddock desktop ${app.getVersion()} (Electron ${process.versions.electron}), data: ${DATA}`);
   // "Developer: restart" in the page (src/server.js restartApp): start the whole app again
   globalThis.__trainerRelaunch = () => { quitting = true; saveState(); app.relaunch(); app.exit(0); };
+  // brake marks keyboard shortcut (Settings): a global shortcut, so it works while the game has the focus.
+  // Returns false if the key is invalid or another program already uses it.
+  let markKey = null;
+  globalThis.__paddockSetMarkKey = (accel, onPress) => {
+    if (markKey) { try { globalShortcut.unregister(markKey); } catch { /* already gone */ } markKey = null; }
+    if (!accel) return true;
+    try { if (globalShortcut.register(accel, onPress)) { markKey = accel; return true; } } catch { /* invalid accelerator */ }
+    return false;
+  };
+  // "Session report ready" (src/server.js, end of a session): a Windows notification; a click opens the report
+  const notes = new Set(); // keep a reference, or the click handler is garbage-collected with the notification
+  globalThis.__paddockNotify = ({ title, body, hash }) => {
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title, body, icon: ICON, silent: false });
+    notes.add(n);
+    n.on('click', () => { showMain(); if (hash) win?.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {}); notes.delete(n); });
+    n.on('close', () => notes.delete(n));
+    n.show();
+  };
   let port;
   try {
     const server = await import(pathToFileURL(path.join(ROOT, 'src', 'server.js')).href);

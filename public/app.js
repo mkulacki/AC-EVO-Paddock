@@ -7,6 +7,8 @@ import { viewRace } from './race.js';
 import { viewProgress } from './progress.js';
 import { viewMods } from './mods.js';
 import { viewSetups } from './setups.js';
+import { viewReports, viewReport } from './reports.js';
+import { initSpotter, spotterAudioState, loadVoice } from './spotter.js';
 
 const view = $('#view');
 
@@ -15,6 +17,9 @@ let status = { hasKey: false };
 const statusEl = $('#status');
 // ?noevents disables the live stream (used for headless screenshots)
 const events = location.search.includes('noevents') ? new EventTarget() : new EventSource('/api/events');
+initSpotter(events); // audio brake cues play from this page
+// brake points marked in the game: the track page listens for these
+events.addEventListener('brakemarks', (e) => window.dispatchEvent(new CustomEvent('paddock:brakemarks', { detail: JSON.parse(e.data) })));
 events.addEventListener('status', (e) => {
   const { state, live } = JSON.parse(e.data);
   const recording = state.status === 'live' && live;
@@ -31,6 +36,12 @@ const STATUS_TEXT = {
   live: 'On track', unknown: 'AC EVO is running',
 };
 events.addEventListener('lap', () => { if (currentRoute === 'laps') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
+// a session report was just made: a dot on the Reports tab until it is opened (the desktop app also notifies)
+events.addEventListener('report', () => {
+  if (currentRoute === 'reports') { render(); return; }
+  const a = document.querySelector('nav a[data-nav=reports]');
+  if (a && !a.querySelector('.nav-dot')) a.insertAdjacentHTML('beforeend', '<span class="nav-dot" title="New session report"></span>');
+});
 let reloadT;
 
 // ------------------------------------------------------------------ restart the app (Settings), e.g. to load code changes
@@ -74,9 +85,10 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/').split('?');
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track' }[path] || 'laps';
+  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/reports': 'reports', '/report': 'report' }[path] || 'laps';
   if (currentRoute === 'laps' && prevRoute !== 'laps') lapView = { ...LAP_VIEW_DEFAULT };
-  const navKey = currentRoute === 'track' ? 'tracks' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
+  const navKey = currentRoute === 'track' ? 'tracks' : currentRoute === 'report' ? 'reports' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks', 'reports'].includes(currentRoute) ? currentRoute : 'laps';
+  if (navKey === 'reports') document.querySelector('nav a[data-nav=reports] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
     if (currentRoute === 'game') await viewGame();
@@ -89,6 +101,8 @@ async function render() {
     else if (currentRoute === 'consistency') await viewConsistency(view, params, cleanup);
     else if (currentRoute === 'progress') await viewProgress(view, params, cleanup);
     else if (currentRoute === 'settings') await viewSettings();
+    else if (currentRoute === 'reports') await viewReports(view);
+    else if (currentRoute === 'report') await viewReport(view, params, cleanup);
     else await viewLaps();
   } catch (e) {
     view.innerHTML = `<div class="card error">Error: ${esc(e.message)}</div>`;
@@ -277,7 +291,8 @@ function comboCard(c, laps, sessions) {
       const s = sessions.get(g);
       const when = s ? new Date(s.started_at).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
       const head = g === 'import' ? '<b>Imported laps</b>'
-        : `<b>${esc(SESSION_TYPES[s?.session_type] || 'Session')}</b> on ${esc(when)}, ${ls.length} lap${ls.length === 1 ? '' : 's'}`;
+        : `<b>${esc(SESSION_TYPES[s?.session_type] || 'Session')}</b> on ${esc(when)}, ${ls.length} lap${ls.length === 1 ? '' : 's'}`
+          + (s && ls.some((l) => l.valid) ? ` <a href="#/report?session=${s.id}" class="session-report" title="Session report: best, average, corners, consistency, targets">Report</a>` : '');
       const sorted = g === 'import' ? ls.sort((a, b) => a.lap_time_ms - b.lap_time_ms) : ls.sort((a, b) => a.recorded_at - b.recorded_at);
       return `<tr class="session"><td colspan="${cols}">${head}</td></tr>` + sorted.map(row).join('');
     }).join('');
@@ -730,12 +745,90 @@ async function viewSettings() {
         <li>If the in-game panel says “Paddock offline”, use the desktop overlay instead: <code>npm run overlay</code> (borderless/windowed mode).</li>
       </ol>
       <div class="row"><a href="/hud.html" target="_blank"><button>Open HUD in browser</button></a></div></div>
+    <div class="card"><div class="row"><h2 style="margin:0">Brake spotter</h2><span class="spacer"></span><span id="spSaved" class="muted"></span><button class="small" id="spTest">Test</button></div>
+      <p class="muted">A voice or beeps count down to each braking point while you drive: “three, two, one, brake”, or “lift” where you only lifted.
+        It counts down to your best lap's braking points (the HUD's reference lap), or to your own brake points, so you can keep your eyes on the road.</p>
+      <div class="form">
+        <label>Spotter</label><label class="row"><input type="checkbox" id="spOn" ${s.spotter.on ? 'checked' : ''}> On</label>
+        <label>Sound</label><select id="spSound"><option value="orus">Voice: Orus (team radio)</option><option value="algenib">Voice: Algenib (team radio)</option><option value="beep">Beeps</option></select>
+        <label>Count down to</label><select id="spPoints"><option value="best">My best lap's braking points</option><option value="mine">My brake points (only those)</option></select>
+        <span></span><div class="hint" style="margin:0">Your own brake points are kept per track and car. Make and edit them on each track's page in <a href="#/tracks">Tracks</a>, or mark them while driving with the button below.</div>
+        <label>Mark button</label><div class="row"><span id="mbName" class="muted"></span><button class="small" id="mbBind">Set button</button><button class="small ghost" id="mbClear">Remove</button></div>
+        <label>Keyboard shortcut</label><div class="row"><input id="markKey" style="width:180px" placeholder="click, then press keys" value="${esc(s.markKey || '')}" autocomplete="off"><button class="small ghost" id="mkClear">Remove</button><span id="mkState" class="muted"></span></div>
+        <span></span><div class="hint" style="margin:0">The button or shortcut marks a brake point while “Mark with button” is on (on the track's page). A wheel or button-box button works in game and in VR; the keyboard shortcut works in the desktop app, and the game no longer gets that key.</div>
+        <label>Countdown</label><select id="spCountdown"><option value="full">Three, two, one, brake</option><option value="brake">Only “brake”</option></select>
+        <label>Corners</label><select id="spCorners"><option value="all">Every braking and lifting point</option><option value="big">Big stops only</option></select>
+        <label>Volume</label><label class="hud-slider"><input type="range" id="spVolume" min="0" max="100" step="5" value="${s.spotter.volume}"><b id="spVolumeV">${s.spotter.volume}%</b></label>
+        <label>Timing</label><label class="hud-slider"><input type="range" id="spOffset" min="-500" max="500" step="25" value="${s.spotter.offsetMs}"><b id="spOffsetV"></b></label>
+        <span></span><div class="hint" style="margin:0">If “brake” comes too late for you, move Timing to the right so it comes earlier.</div>
+      </div>
+      <div class="hint" id="spState" style="margin:8px 0 0"></div></div>
     <div class="card"><div class="row"><h2 style="margin:0">Restart Paddock</h2><span class="spacer"></span><button id="restart">Restart Paddock</button></div>
       <p class="muted" style="margin-bottom:0">Closes and reopens Paddock, for example after changing its files. The page reloads by itself when Paddock is back.</p></div>
     <div class="card"><div class="row"><h2 style="margin:0">Telemetry debug</h2><span class="spacer"></span><button id="rawGo">Show live raw values</button></div>
       <p class="muted">Use this while driving to check that speed, pedals, lap time, track position (npos) and coordinates look right.</p>
       <pre class="raw" id="raw" hidden></pre></div>`;
   $('#restart').onclick = (e) => restartPaddock(e.currentTarget);
+  // brake spotter: saved on every change, like the HUD
+  let sp = s.spotter, spT;
+  const spOffsetTxt = (v) => (+v === 0 ? 'on the point' : `${Math.abs(v)} ms ${v > 0 ? 'earlier' : 'later'}`);
+  const spShowState = () => {
+    const st = spotterAudioState();
+    $('#spState').innerHTML = st === 'elsewhere' ? 'Sound plays from another open Paddock window or tab.'
+      : st === 'blocked' ? '<span class="g-bad">The browser has blocked sound on this page.</span> Click anywhere on the page once to allow it.'
+      : 'Sound plays on your default Windows audio device, also while Paddock is minimised to the tray.';
+  };
+  $('#spSound').value = sp.sound; $('#spCountdown').value = sp.countdown; $('#spCorners').value = sp.corners; $('#spPoints').value = sp.points;
+  $('#spPoints').onchange = (e) => spSave({ points: e.target.value });
+  // mark button: "press it now" on the wheel (the server watches every controller for 10 s)
+  const mbShow = (b) => { $('#mbName').textContent = b ? `${b.name}, button ${b.button}` : 'none'; $('#mbClear').hidden = !b; };
+  mbShow(s.markButton);
+  $('#mbBind').onclick = async (e) => {
+    const btn = e.currentTarget; btn.disabled = true; $('#mbName').textContent = 'Press the button on your wheel or button box now…';
+    try {
+      const r = await post('/api/wheel/capture', {});
+      if (r.binding) mbShow(r.binding);
+      else $('#mbName').textContent = r.devices.length ? 'No button pressed. Try again.' : 'No wheel or controller found.';
+    } catch (err) { $('#mbName').textContent = err.message; }
+    btn.disabled = false;
+  };
+  $('#mbClear').onclick = async () => { await post('/api/settings', { markButton: null }); mbShow(null); };
+  // keyboard shortcut: press the keys in the box; saved straight away
+  const MK_TEXT = { ok: 'Active', taken: '<span class="g-bad">Another program already uses this shortcut, or it is not valid.</span>', 'desktop-only': 'Works only in the desktop app.', none: '' };
+  const mkShow = (st) => { $('#mkState').innerHTML = MK_TEXT[st] ?? ''; };
+  mkShow(s.markKeyState);
+  const mkSave = async (accel) => { $('#markKey').value = accel; try { mkShow((await post('/api/settings', { markKey: accel })).markKeyState); } catch (err) { $('#mkState').textContent = err.message; } };
+  $('#markKey').onkeydown = (e) => {
+    e.preventDefault();
+    if (e.key === 'Escape' || e.key === 'Backspace') return mkSave('');
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+    const key = /^F\d{1,2}$/.test(e.key) ? e.key : e.code.startsWith('Key') ? e.code.slice(3) : e.code.startsWith('Digit') ? e.code.slice(5)
+      : e.code.startsWith('Numpad') ? `num${e.code.slice(6).toLowerCase()}` : e.key === ' ' ? 'Space'
+      : e.key.startsWith('Arrow') ? e.key.slice(5) : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    mkSave([e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', key].filter(Boolean).join('+'));
+  };
+  $('#mkClear').onclick = () => mkSave('');
+  $('#spOffsetV').textContent = spOffsetTxt(sp.offsetMs);
+  spShowState();
+  const spSave = (patch) => {
+    sp = { ...sp, ...patch };
+    clearTimeout(spT);
+    spT = setTimeout(async () => {
+      try { sp = (await post('/api/settings', { spotter: sp })).spotter; $('#spSaved').textContent = 'Saved ✓'; }
+      catch (e) { $('#spSaved').textContent = e.message; }
+    }, 250);
+  };
+  $('#spOn').onchange = (e) => spSave({ on: e.target.checked });
+  $('#spSound').onchange = (e) => { loadVoice(e.target.value); spSave({ sound: e.target.value }); };
+  $('#spCountdown').onchange = (e) => spSave({ countdown: e.target.value });
+  $('#spCorners').onchange = (e) => spSave({ corners: e.target.value });
+  $('#spVolume').oninput = (e) => { $('#spVolumeV').textContent = `${e.target.value}%`; spSave({ volume: +e.target.value }); };
+  $('#spOffset').oninput = (e) => { $('#spOffsetV').textContent = spOffsetTxt(e.target.value); spSave({ offsetMs: +e.target.value }); };
+  $('#spTest').onclick = async () => {
+    clearTimeout(spT);
+    try { sp = (await post('/api/settings', { spotter: sp })).spotter; await post('/api/spotter/test', {}); } catch (e) { $('#spSaved').textContent = e.message; }
+    setTimeout(spShowState, 300);
+  };
   $('#save').onclick = async () => {
     const body = Object.fromEntries(['driverName', 'geminiApiKey', 'geminiModel', 'language', 'gamePath', 'aceDir'].map((k) => [k, $('#' + k).value.trim()]));
     try {

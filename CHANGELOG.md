@@ -6,6 +6,28 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### New: session reports
+
+- After every session of 3 laps or more, a report: best lap and session average, change against the previous session and your all-time best, three best and three weakest corners (with what differs from your best pass), consistency, setup used, conditions, and next practice targets.
+- Also: lap-time trend chart, theoretical best of the session, where laps went invalid, a check of the previous report's targets, and an AI debrief on request (Gemini).
+- A Windows notification when it is ready (desktop app); a new **Reports** tab and a *Report* link on each session in the Laps tab. Older sessions get a report on request.
+- **Every lap now remembers its setup.** Paddock recognises the setup from a fingerprint taken in the pit box (pressures, camber, brake bias, fuel) and matches it with your saved setups; no match is called *Standard*. It can be corrected in the report. The readings still need a one-time check in game: **Setups → Setup recognition**.
+
+### New: brake spotter (audio)
+
+- A voice or beeps count down to each braking point while you drive: "three, two, one, brake", or "lift" where the reference lap only lifted. Suggested in [#3](https://github.com/mkulacki/AC-EVO-Paddock/issues/3), so you can keep your eyes on the road. It also works in VR.
+- It uses the braking points of the HUD's reference lap (all-time best by default). The countdown is in seconds from your current speed.
+- Settings → Brake spotter: on/off (off by default), sound (two calm team-radio voices, Orus and Algenib, or beeps), full countdown or only "brake", every point or big stops only, volume, timing (±500 ms), and a Test button.
+- Sound plays from Paddock on the default audio device, also while the desktop app is in the tray.
+- The voice clips were generated with Gemini text-to-speech, with a team-radio effect, and ship with the app (`src/tools/make-spotter-clips.js` remakes them).
+
+### New: your own brake points
+
+- Set brake points yourself, per track and car, and have the spotter and the HUD's "brake in N m" count down only to those (Settings → Brake spotter → Count down to → My brake points).
+- **Mark them while driving** with a wheel or button-box button (works in game and in VR) or a keyboard shortcut (desktop app). Set it by pressing it in Settings. Each press beeps, and a press near a point moves it.
+- **Record them from your braking:** drive one lap and every braking point becomes a brake point.
+- **Edit them on the track map** (Tracks → a track → Brake points): drag, add, delete, brake or lift, or fill from your best lap. Changes made in the game show up on the page straight away.
+
 ### Fixes
 
 - **Game files folder found when Saved Games was moved or renamed** ([#3](https://github.com/mkulacki/AC-EVO-Paddock/issues/3)). Paddock used to assume `<user>\Saved Games\ACE`. It now asks Windows where Saved Games really is, so a moved folder like `I:\JMC\Parties enregistrées\ACE` is found. This affected installing the HUD, mods, setups and in-game features.

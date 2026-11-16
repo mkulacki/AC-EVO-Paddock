@@ -1,6 +1,6 @@
 // Tracks tab: every track and layout in AC EVO (from the game's own track data), with the game's map,
 // and a detail page with the real edges, ideal line, pit lane, start/finish, sectors and corners.
-import { $, css, esc, api, fmt, prettyName, getMirror, fitProjection } from './util.js';
+import { $, css, esc, api, post, fmt, prettyName, getMirror, fitProjection } from './util.js';
 
 const km = (m) => (m ? `${(m / 1000).toFixed(3)} km` : '—');
 const mapUrl = (id, key) => `/api/tracks/map?track=${encodeURIComponent(id)}&layout=${encodeURIComponent(key)}`;
@@ -71,6 +71,19 @@ export async function viewTrack(view, params, cleanup) {
             : '<p class="muted">You haven\'t driven this layout yet.</p>'}</div>
       </div>
     </div>
+    <div class="card" id="bm"><div class="row"><h2 style="margin:0">Brake points</h2>
+        <select id="bmCar" title="Brake points are kept for each car"></select><span class="muted" id="bmCount"></span>
+        <span class="spacer"></span><span class="muted" id="bmSaved"></span>
+        <button class="small" id="bmAdd" title="Then click the track on the map where you want to brake">Add point</button>
+        <button class="small" id="bmBest">Fill from my best lap</button>
+        <button class="small danger-ghost" id="bmClear">Clear all</button></div>
+      <p class="muted" style="margin:6px 0 10px">Your own braking points for this car. With <a href="#/settings">Settings → Brake spotter → Count down to: My brake points</a>,
+        the spotter and the HUD count down to these, and only these. Drag a point along the track on the map to move it.</p>
+      <div class="row" style="margin-bottom:10px">
+        <button id="bmRecBtn" title="Press your mark button (or keyboard shortcut) where you want to brake. A press near an existing point moves it.">Mark with button</button>
+        <button id="bmRecPedal" title="Drive one full lap: every point where you start braking becomes a brake point, replacing this car's points">Record from my braking (next lap)</button>
+        <span id="bmRecState" class="muted"></span></div>
+      <div id="bmList"></div></div>
     <div class="card"><h2 style="margin-top:0">Corners</h2>
       <table><thead><tr><th>Corner</th><th>Apex at</th><th>Direction</th><th>Angle</th><th>Tightest radius</th><th>Segment</th></tr></thead><tbody>
       ${m.corners.map((c) => `<tr data-c="${c.n - 1}" class="clickable"><td><b>${c.name}</b></td><td>${Math.round(c.apexD)} m</td><td>${c.dir}</td><td>${c.turnDeg}°</td>
@@ -80,11 +93,130 @@ export async function viewTrack(view, params, cleanup) {
   if ($('#tlayout')) $('#tlayout').onchange = (e) => { location.hash = trackUrl(t.id, e.target.value); };
   let sel = null;
   const canvas = $('#tcanvas');
+  let proj = null; // the last drawing's projection, for clicks and drags on the map
+
+  // ---- brake points (own brake marks) of one car on this layout
+  const bm = { car: null, marks: [], sel: null, adding: false, drag: null, rec: null, live: null };
+  const posToI = (pos) => Math.min(m.n - 1, Math.max(0, Math.round((pos * m.L) / m.step)));
+  const cornerAt = (pos) => (m.corners.find((c) => c.apexD / m.L >= pos) || m.corners[0])?.name || '';
+  const bmQuery = () => `track=${encodeURIComponent(t.id)}&layout=${encodeURIComponent(l.key)}&car=${encodeURIComponent(bm.car)}`;
+  let bmT;
+  const bmSave = () => {
+    clearTimeout(bmT);
+    bmT = setTimeout(async () => {
+      try {
+        const r = await post('/api/brakemarks', { track: t.id, layout: l.key, car: bm.car, marks: bm.marks.map(({ pos, kind }) => ({ pos, kind })) });
+        $('#bmSaved').textContent = 'Saved ✓'; bm.marks = r.marks; bmList(); draw();
+      } catch (e) { $('#bmSaved').textContent = e.message; }
+    }, 300);
+  };
+  function bmList() {
+    $('#bmCount').textContent = bm.car ? `${bm.marks.length} point${bm.marks.length === 1 ? '' : 's'}` : '';
+    $('#bmAdd').classList.toggle('on', bm.adding);
+    $('#bmAdd').textContent = bm.adding ? 'Click the track…' : 'Add point';
+    $('#bmList').innerHTML = !bm.car ? '<p class="muted">Drive this layout once, or start marking while you drive, to add brake points.</p>'
+      : !bm.marks.length ? '<p class="muted">No brake points for this car yet. Mark them while driving, record them from your braking, fill them from your best lap, or add them on the map.</p>'
+      : `<table><thead><tr><th>#</th><th>Corner</th><th>From the line</th><th>Type</th><th></th></tr></thead><tbody>${bm.marks.map((k, i) =>
+        `<tr data-i="${i}" class="${i === bm.sel ? 'sel' : ''}"><td>${i + 1}</td><td><b>${esc(cornerAt(k.pos))}</b></td><td>${Math.round(k.pos * m.L)} m</td>
+          <td><select data-kind="${i}"><option value="brake" ${k.kind === 'brake' ? 'selected' : ''}>Brake</option><option value="lift" ${k.kind === 'lift' ? 'selected' : ''}>Lift</option></select></td>
+          <td><button class="small ghost" data-del="${i}" title="Delete this point" aria-label="Delete this point">✕</button></td></tr>`).join('')}</tbody></table>`;
+    $('#bmList').querySelectorAll('[data-kind]').forEach((s) => { s.onchange = () => { bm.marks[+s.dataset.kind].kind = s.value; bmSave(); draw(); }; });
+    $('#bmList').querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => { bm.marks.splice(+b.dataset.del, 1); bm.sel = null; bmSave(); bmList(); draw(); }; });
+    $('#bmList').querySelectorAll('tr[data-i]').forEach((tr) => { tr.onmouseenter = () => { bm.sel = +tr.dataset.i; draw(); }; });
+  }
+  function bmRecState() {
+    const r = bm.rec;
+    $('#bmRecBtn').classList.toggle('on', r?.mode === 'button');
+    $('#bmRecPedal').classList.toggle('on', r?.mode === 'pedal');
+    $('#bmRecBtn').textContent = r?.mode === 'button' ? 'Stop marking' : 'Mark with button';
+    $('#bmRecPedal').textContent = r?.mode === 'pedal' ? 'Stop recording' : 'Record from my braking (next lap)';
+    const where = bm.live ? ` for the car you're driving${bm.live.track === t.id && bm.live.layout === l.key ? '' : ', on the track you are on'}` : ' as soon as you are on track';
+    $('#bmRecState').innerHTML = !r ? ''
+      : r.mode === 'button' ? `Marking${where}: press your mark button where you want to brake. You hear a beep for each point.`
+      : r.phase === 'waiting' ? `Waiting for your next lap to start at the line${where}…`
+      : `Recording this lap: ${r.found} brake point${r.found === 1 ? '' : 's'} so far. They are saved when you cross the line.`;
+  }
+  async function bmLoad() {
+    if (!bm.car) { bm.marks = []; bmList(); draw(); return; }
+    const r = await api(`/api/brakemarks?${bmQuery()}`);
+    bm.marks = r.marks; bm.rec = r.recording; bm.live = r.live; bm.sel = null;
+    bmList(); bmRecState(); draw();
+  }
+  {
+    const r = await api(`/api/brakemarks?track=${encodeURIComponent(t.id)}&layout=${encodeURIComponent(l.key)}&car=-`);
+    bm.rec = r.recording; bm.live = r.live;
+    const liveHere = r.live && r.live.track === t.id && r.live.layout === l.key ? r.live.car : null;
+    const cars = [...new Set([liveHere, ...combos.map((c) => c.car), ...r.cars.map((c) => c.car)].filter(Boolean))];
+    bm.car = liveHere || r.cars[0]?.car || cars[0] || null;
+    $('#bmCar').innerHTML = cars.map((c) => `<option value="${esc(c)}" ${c === bm.car ? 'selected' : ''}>${esc(prettyName(c))}${c === liveHere ? ' (driving now)' : ''}</option>`).join('');
+    $('#bmCar').hidden = !cars.length;
+    $('#bmCar').onchange = (e) => { bm.car = e.target.value; bmLoad(); };
+    $('#bmAdd').onclick = () => { if (bm.car) { bm.adding = !bm.adding; bmList(); } };
+    $('#bmClear').onclick = () => { if (bm.marks.length && confirm(`Delete all ${bm.marks.length} brake points of ${prettyName(bm.car)} here?`)) { bm.marks = []; bmSave(); bmList(); draw(); } };
+    $('#bmBest').onclick = async () => {
+      const c = combos.find((x) => x.car === bm.car);
+      if (!c) { $('#bmSaved').textContent = 'No laps with this car here yet.'; return; }
+      if (bm.marks.length && !confirm(`Replace the ${bm.marks.length} brake points of ${prettyName(bm.car)} with those of your best lap?`)) return;
+      try {
+        const r2 = await api(`/api/brakemarks/best?track=${encodeURIComponent(c.gameTrack)}&layout=${encodeURIComponent(c.gameLayout)}&car=${encodeURIComponent(c.car)}`);
+        bm.marks = r2.marks; bmSave(); bmList(); draw();
+      } catch (e) { $('#bmSaved').textContent = e.message; }
+    };
+    const rec = async (mode) => { try { bm.rec = (await post('/api/brakemarks/record', { mode: bm.rec?.mode === mode ? null : mode })).recording; bmRecState(); } catch (e) { $('#bmRecState').textContent = e.message; } };
+    $('#bmRecBtn').onclick = () => rec('button');
+    $('#bmRecPedal').onclick = () => rec('pedal');
+    // marks made in the game (button, pedal lap) show up here straight away
+    const onMarks = (e) => {
+      bm.rec = e.detail.recording; bmRecState();
+      const c = e.detail.combo;
+      if (c && c.track === t.id && c.layout === l.key && c.car === bm.car) bmLoad();
+    };
+    window.addEventListener('paddock:brakemarks', onMarks);
+    cleanup.push(() => window.removeEventListener('paddock:brakemarks', onMarks));
+    bmRecState();
+    bmLoad();
+  }
+
+  // map: nearest point of the centre line to the mouse, as a lap fraction
+  const toPos = (ev) => {
+    if (!proj) return null;
+    const r = canvas.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+    let best = Infinity, bi = 0;
+    for (let i = 0; i < m.n; i++) { const [px, py] = proj(m.centre.x[i], m.centre.z[i]); const dd = (px - x) ** 2 + (py - y) ** 2; if (dd < best) { best = dd; bi = i; } }
+    return { pos: ((bi * m.step) / m.L) % 1, dist: Math.sqrt(best) };
+  };
+  const markAtMouse = (ev) => {
+    if (!proj) return -1;
+    const r = canvas.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+    return bm.marks.findIndex((k) => { const i = posToI(k.pos); const [px, py] = proj(m.centre.x[i], m.centre.z[i]); return Math.hypot(px - x, py - y) < 10; });
+  };
+  canvas.addEventListener('pointerdown', (ev) => {
+    if (!bm.car) return;
+    const k = markAtMouse(ev);
+    if (k >= 0) { bm.drag = k; bm.sel = k; canvas.setPointerCapture(ev.pointerId); draw(); return; }
+    if (bm.adding) {
+      const p = toPos(ev);
+      if (p && p.dist < 30) { bm.marks.push({ pos: p.pos, kind: 'brake' }); bm.marks.sort((a, b) => a.pos - b.pos); bm.adding = false; bmSave(); bmList(); draw(); }
+    }
+  });
+  canvas.addEventListener('pointermove', (ev) => {
+    if (bm.drag == null) { canvas.style.cursor = bm.adding ? 'crosshair' : markAtMouse(ev) >= 0 ? 'grab' : ''; return; }
+    const p = toPos(ev);
+    if (p) { bm.marks[bm.drag].pos = p.pos; draw(); }
+  });
+  canvas.addEventListener('pointerup', () => {
+    if (bm.drag == null) return;
+    const moved = bm.marks[bm.drag];
+    bm.marks.sort((a, b) => a.pos - b.pos);
+    bm.sel = bm.marks.indexOf(moved); bm.drag = null;
+    bmSave(); bmList(); draw();
+  });
+
   function draw() {
     const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
     canvas.width = W * dpr; canvas.height = H * dpr;
     const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
-    const P = fitProjection([...m.left.x, ...m.right.x], [...m.left.z, ...m.right.z], W, H, 28, getMirror());
+    const P = proj = fitProjection([...m.left.x, ...m.right.x], [...m.left.z, ...m.right.z], W, H, 28, getMirror());
     const path = (line, close) => { ctx.beginPath(); line.x.forEach((x, i) => { const [a, b] = P(x, line.z[i]); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); }); if (close) ctx.closePath(); };
     // track surface between the edges
     ctx.fillStyle = css('--grid');
@@ -119,6 +251,13 @@ export async function viewTrack(view, params, cleanup) {
       const lx = px + (dx / len) * 20, ly = py + (dy / len) * 20;
       ctx.fillStyle = k === sel ? css('--text-primary') : css('--surface-2'); ctx.beginPath(); ctx.arc(lx, ly, 11, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = k === sel ? css('--surface-1') : css('--text-secondary'); ctx.fillText(String(c.n), lx, ly);
+    });
+    // brake points: red = brake, yellow = lift; the hovered / dragged one is bigger
+    bm.marks.forEach((k, j) => {
+      const i = posToI(k.pos), [px, py] = P(m.centre.x[i], m.centre.z[i]), big = j === bm.sel || j === bm.drag;
+      ctx.fillStyle = k.kind === 'lift' ? css('--warning') : css('--slower');
+      ctx.strokeStyle = css('--page'); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px, py, big ? 7 : 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     });
   }
   $('#tline').onchange = draw; $('#tpit').onchange = draw;

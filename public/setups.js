@@ -42,7 +42,7 @@ export async function viewSetups(view, params, cleanup) {
       <button id="sImport">Import…</button><input type="file" id="sFile" accept=".carsetup" multiple hidden></div>
     <p class="muted" style="margin:0 0 16px;max-width:80ch">Setups you saved in AC EVO. Change them here or with the AI engineer; new ones appear in the game&#39;s <b>Load</b> list.</p>
     <div id="sMsg"></div>
-    <div class="setups-layout"><div id="sSide"></div><div id="sMain"></div></div>`;
+    <div class="setups-layout"><div><div id="sSide"></div><div id="sCheck"></div></div><div id="sMain"></div></div>`;
   const msg = (text, bad = false) => { $('#sMsg').innerHTML = text ? `<div class="card ${bad ? 'error' : ''}" style="padding:10px 16px">${esc(text)}</div>` : ''; };
 
   // ---------------------------------------------------------------- side: car and track
@@ -300,4 +300,38 @@ export async function viewSetups(view, params, cleanup) {
   };
 
   await load();
+  mountSetupCheck($('#sCheck'), cleanup);
+}
+
+// ---------------------------------------------------------------- setup recognition check
+// Paddock recognises the setup of every lap from what the car reads in the pits (pressures, camber, brake bias,
+// fuel from shared memory). Those readings are not confirmed against the game yet: this panel shows them next to
+// the closest saved setup, so the driver can confirm once that they line up.
+const PART_LABEL = (k) => k.replace('pressure_', 'Pressure ').replace('camber_', 'Camber ').replace('brake_bias', 'Brake bias').replace('fuel', 'Fuel');
+function mountSetupCheck(el, cleanup) {
+  let busy = false;
+  async function draw() {
+    if (busy || !el.isConnected) return;
+    busy = true;
+    let c; try { c = await api('/api/setupcheck'); } catch { busy = false; return; }
+    busy = false;
+    const res = c.live?.result, top = res?.scores?.[0];
+    const t = (x) => (x ? `${x.avg} °C` : '–');
+    el.innerHTML = `<div class="card setup-check">
+      <h3>Setup recognition</h3>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">Every lap is stored with the setup it was driven on. Paddock recognises it while the car stands in the pit box.
+        ${c.confirmed ? '<b class="neg">Confirmed in game.</b>' : 'To check it once: load a saved setup in the game, stay in the pit box and compare below.'}</p>
+      ${!c.live ? `<p style="margin:0">${c.inSession ? 'Stand still in the pit box…' : 'Waiting for a session in AC EVO.'}</p>` : `
+        <p style="margin:0 0 6px">Recognised: <b>${esc(res.name)}</b> <span class="muted">(${esc(res.match)}${res.alsoMatches?.length ? `, same as ${esc(res.alsoMatches.join(', '))}` : ''}; ${c.live.candidates} saved setup${c.live.candidates === 1 ? '' : 's'} for this car and track)</span></p>
+        ${top ? `<table><thead><tr><th></th><th>Car</th><th>${esc(top.name)}</th></tr></thead><tbody>${top.parts.map((p) => `<tr><td>${esc(PART_LABEL(p.k))}</td>
+          <td>${+p.you.toFixed(2)}</td><td class="${Math.abs(p.you - p.file) <= p.tol ? 'neg' : 'pos'}">${+p.file.toFixed(2)}</td></tr>`).join('')}</tbody></table>`
+          : '<p class="muted" style="margin:0">No saved setup for this car and track to compare with.</p>'}
+        <p class="muted" style="font-size:12px;margin:6px 0">Air ${t(c.conditions?.airC)} · Track ${t(c.conditions?.roadC)}</p>
+        <div class="row"><button class="small" data-ok="1">Readings match the game</button><button class="small ghost" data-ok="0">They don't</button></div>`}
+    </div>`;
+    el.querySelectorAll('[data-ok]').forEach((b) => { b.onclick = async () => { await post('/api/setupcheck/confirm', { ok: b.dataset.ok === '1' }); draw(); }; });
+  }
+  draw();
+  const timer = setInterval(draw, 3000);
+  cleanup.push(() => clearInterval(timer));
 }

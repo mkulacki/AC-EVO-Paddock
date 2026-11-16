@@ -115,6 +115,21 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Consistency** (button on each track/car): a lap-time trend and the lap-to-lap spread, per corner, of time, brake point, min speed, throttle-on, exit speed and line (one dot per lap). It also lists your "focus corners", where you lose the most time against your own fastest pass through that corner. Filter by session and include invalid laps if you want.
 - **Export/import:** share `.lap.gz` files with friends and compare against their laps.
 
+## Session reports
+
+When you leave a session with at least 3 laps (one of them valid), Paddock writes a report and the desktop app shows a notification. Open it under **Reports**, or with the *Report* link on a session in the Laps tab (older sessions get one on request).
+
+- **Best lap and session average** (clean laps: valid and within 7 % of the session's best), and the change against your previous session and your all-time best.
+- **Three best and three weakest corners:** your typical time through each corner against your fastest pass ever, with what differs on the weak ones (braking earlier, less apex speed, later throttle, running wide…).
+- **Consistency:** spread of your clean laps, a 0–100 score and the least consistent corner.
+- **Setup used:** every lap is stored with the setup it was driven on (see below). Several setups in one session are listed with their best laps; a wrong one can be corrected in the report.
+- **Conditions:** weather, grip and time of day for sessions started from the Race tab; air and track temperature from shared memory.
+- **Lap-time trend, theoretical best** (your best corners of the session put together) and **where laps went invalid**.
+- **Next practice targets**, each with a number, and the next report ticks off whether you met them.
+- **AI debrief** (button, Gemini): a short debrief with a plan for the next session.
+
+**How the setup is recognised:** AC EVO does not say which setup is loaded, so Paddock takes a fingerprint while the car stands in the pit box (tyre pressures, camber, brake bias, fuel) and matches it with your saved setups for that car and track. No match = **Standard**. These shared-memory values are not confirmed in game yet: check them once in **Setups → Setup recognition** with a saved setup loaded, standing in the pit box.
+
 ## Tracks tab and track data
 
 Paddock reads AC EVO's own track data straight from the game's `content.kspkg`. It reads the archive in place, read-only, and never extracts or modifies it. The game folder is found through Steam, or you can set it in *Settings*. For every track and layout this gives:
@@ -174,6 +189,21 @@ In the other direction, the HUD writes tagged lines to the game log (`Saved Game
 
 If the panel says **"Paddock offline"**, start Paddock; meanwhile the panel shows the game's own delta. As an alternative to the in-game panel, use the **desktop overlay**: it's built into the desktop app (tray menu), or run `npm run overlay` next to `npm start`. It is a transparent, always-on-top window, and it only works when the game runs in borderless or windowed mode. Ctrl+Shift+H hides and shows it. You can also open `http://localhost:8080/hud.html` on a second screen.
 
+## Brake spotter (audio)
+
+A voice or beeps count down to each braking point while you drive: "three, two, one, brake", or "lift" where you only lifted. This way you don't have to look at the HUD. Switch it on in **Settings → Brake spotter**. It's off by default.
+
+- The braking points are the ones the HUD shows: those of its reference lap, which is your all-time best unless you switch the HUD to the ideal lap or session best. So you need at least one lap on that track and car.
+- The countdown is in seconds from your current speed, not in metres. On short straights the earlier numbers are skipped. It is silent in the pits, on out laps and under ~55 km/h.
+- Settings: sound (two calm team-radio voices, Orus and Algenib, or beeps), full countdown or only "brake", every point or big stops only (at least 40 km/h slower), volume, and timing (up to 500 ms earlier or later). The *Test* button plays a sample.
+- Sound plays from Paddock on your default Windows audio device, so it also works in VR. In the desktop app it keeps playing while the window is in the tray. When running from source in a browser, keep one Paddock tab open and click on it once, because browsers block sound until you do.
+- **Your own brake points:** set *Count down to* to *My brake points* and the spotter (and the HUD's "brake in N m") counts down only to points you chose, kept per track and car. Make them on each track's page under *Tracks → Brake points*:
+  - **Mark with button:** set a wheel or button-box button (or a keyboard shortcut, desktop app only) in Settings, switch "Mark with button" on, and on a slow lap press it where you want to brake at full speed. Each press beeps; a press within 25 m of a point moves it.
+  - **Record from my braking:** drive one full lap; every point where you start braking (brake over 10 %) becomes a brake point, replacing that car's points. A beep marks the start and the save.
+  - **On the map:** drag points along the track, add one with *Add point*, set each to brake or lift, delete them, or *Fill from my best lap*.
+  - Points are stored as a share of the lap, in `telemetry.db`. Wheel buttons are read through Windows' joystick API (up to 32 buttons per device).
+- The voice clips are in `public/audio/spotter/<voice>/`. They were generated with Gemini text-to-speech and given a team-radio sound by `node src/tools/make-spotter-clips.js --voice Orus --radio` (and `--voice Algenib`). Only needed to remake them; it uses your Gemini key.
+
 ## Data
 
 Everything lives in `data\` (for the desktop app: next to the `.exe`; `ACEVO_DATA` overrides the location):
@@ -181,7 +211,7 @@ Everything lives in `data\` (for the desktop app: next to the `.exe`; `ACEVO_DAT
 | File / folder | Contents |
 | --- | --- |
 | `telemetry.db` | laps, sessions and saved AI answers (SQLite) |
-| `settings.json` | driver name, Gemini key and model, coach language, game folder, port |
+| `settings.json` | driver name, Gemini key and model, coach language, game folders, port, HUD look, brake spotter |
 | `race.json` | Race tab presets, saved servers and the last setup |
 | `setup-meta.json` | Setups tab notes and where each setup came from (the setups themselves are the game's files in `Saved Games\ACE\Car Setups`) |
 | `game-catalogue.json`, `game-applied.json` | what the HUD read in game: track lists per session type, AI cars, the last applied settings |
@@ -199,6 +229,7 @@ Open **Settings → Telemetry debug → Show live raw values** while driving, an
 - `lapTimeMs` counting up
 - `npos` going from 0 to 1 over a lap
 - `x`/`z` coordinates changing
+- `probe`: tyre pressures (PSI), camber (°), brake bias and air / track temperature (°C), used for setup recognition and the report's conditions (ACC's physics layout; **Setups → Setup recognition** compares them with a saved setup)
 
 If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src/shm.js`.
 `npm run check-limits [laps]` prints the track-limit channels (tyres out, wheel positions, kerbs) of the most recent laps, to check those offsets.
@@ -213,10 +244,12 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/analysis.js`, `src/service.js`, `src/track.js` | resampling, corners, ideal lap, compare / consistency / progress |
 | `src/trackdata.js`, `src/cars.js`, `src/kspkg.js`, `src/pb.js`, `src/bc7.js` | reading tracks, cars and thumbnails from the game's archives |
 | `src/live.js`, `src/gamebridge.js` | HUD data and the file/log bridge to the game |
+| `src/spotter.js`, `public/spotter.js` | audio brake spotter: when to speak (server), playing it (page) |
 | `src/game.js`, `src/race.js` | game status, launch orders, Race tab |
 | `src/mods.js`, `src/zip.js` | Mods tab |
 | `src/setups.js`, `src/carsetup.js` | Setups tab: the game's setup files, reading / writing `.carsetup` with the car's limits |
-| `src/ai.js` | Gemini coach and setup engineer |
+| `src/report.js`, `src/setupmatch.js`, `public/reports.js` | session reports; recognising the setup of every lap |
+| `src/ai.js` | Gemini coach, setup engineer and session debrief |
 | `public/` | browser app (no build step) |
 | `mod/trainerhud/` | the in-game HUD and launcher (ACE UI App Loader app) |
 | `mod/ACEUIAppLoader/` | the bundled ACE UI App Loader release (unmodified zips, MIT licence, `loader.json` = loader + game version) |

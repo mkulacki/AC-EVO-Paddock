@@ -11,6 +11,11 @@ import { Recorder } from './recorder.js';
 import * as trackdata from './trackdata.js';
 import { LiveHud } from './live.js';
 import { GameBridge, ACE, ACE_AUTO } from './gamebridge.js';
+import { createSpotter } from './spotter.js';
+import * as marks from './brakemarks.js';
+import { createMarker } from './brakemarks.js';
+import * as wheel from './wheel.js';
+import { cornerMetrics } from './analysis.js';
 import * as game from './game.js';
 import * as race from './race.js';
 import * as cars from './cars.js';
@@ -19,6 +24,9 @@ import * as hudInstall from './hudinstall.js';
 import * as loaderInstall from './loaderinstall.js';
 import * as setups from './setups.js';
 import * as carsetup from './carsetup.js';
+import { createSetupTracker } from './setupmatch.js';
+import * as setupmatch from './setupmatch.js';
+import * as report from './report.js';
 import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,7 +44,9 @@ if (mockIdx >= 0) {
   source = new ShmSource();
 }
 
-const recorder = new Recorder(() => settings.get().driverName);
+// every lap is stored with the setup the car was on (fingerprint taken in the pits, src/setupmatch.js)
+const recorder = new Recorder(() => settings.get().driverName, () => setupTracker.current());
+const setupTracker = createSetupTracker({ recorder, launchConditions: game.launchConditions });
 const hud = new LiveHud(recorder);
 const hudSnapshot = () => ({ ...hud.snapshot(), cfg: settings.hudConfig() }); // live data + the HUD's look (parts, size, opacity)
 // in-game HUD: data via the live slot files, commands via the game log (the game's UI cannot do HTTP)
@@ -86,10 +96,44 @@ function setupTelemetry(setup, trackId, layout) {
 const inSession = () => ['live', 'pause', 'replay'].includes(recorder.state.status) && Date.now() - recorder.state.lastFrameAt < 5000;
 const clients = new Set();
 const broadcast = (type, data) => { const msg = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`; for (const c of clients) c.write(msg); };
+// audio brake spotter: the open Paddock page plays what it says (sound and volume travel with each cue)
+const spotter = createSpotter({ config: settings.spotterConfig,
+  emit: (cue) => { const c = settings.spotterConfig(); broadcast('spotter', { ...cue, sound: c.sound, volume: c.volume }); } });
+// own brake marks: marking them with a wheel button / keyboard shortcut, or from the brake pedal on one lap.
+// The confirmation sounds go through the spotter's channel (always beeps, also when the spotter is off).
+const marker = createMarker({ recorder,
+  notify: (say) => broadcast('spotter', { say, sound: 'beep', volume: settings.spotterConfig().volume }),
+  changed: (recording, combo) => broadcast('brakemarks', { recording, combo }) });
+wheel.watchButton(() => settings.get().markButton, () => marker.press());
+// keyboard shortcut: registered by the desktop app (desktop/main.cjs), which loads this server in its process
+let markKeyState = 'none';
+function bindMarkKey() {
+  const accel = settings.get().markKey;
+  if (!accel) { globalThis.__paddockSetMarkKey?.(null); markKeyState = 'none'; return; }
+  if (!globalThis.__paddockSetMarkKey) { markKeyState = 'desktop-only'; return; }
+  markKeyState = globalThis.__paddockSetMarkKey(accel, () => marker.press()) ? 'ok' : 'taken';
+}
+bindMarkKey();
 
 recorder.on('lap', (l) => { svc.invalidate(); broadcast('lap', l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
 recorder.on('session', (s) => console.log(`[session] ${s.track} ${s.layout} / ${s.car}`));
 recorder.on('discarded', (e) => console.log(`[lap discarded] ${e.reason}`));
+// end of a session: keep its conditions, then the session report (needs a few laps and a valid one)
+recorder.on('sessionEnd', (s) => {
+  if (!s.id) return;
+  try { const c = setupTracker.conditions(); if (c) db.setSessionConditions(s.id, c); } catch (e) { console.log(`[report] conditions not saved: ${e.message}`); }
+  setTimeout(() => {
+    try {
+      const laps = db.lapsOfSession(s.id);
+      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return;
+      const r = report.make(s.id);
+      const text = report.headline(r);
+      console.log(`[report] session ${s.id}: ${text}`);
+      broadcast('report', { sessionId: s.id, headline: text });
+      globalThis.__paddockNotify?.({ title: `Session report ready: ${s.track} · ${s.car}`, body: text, hash: `#/report?session=${s.id}` });
+    } catch (e) { console.log(`[report] session ${s.id}: ${e.message}`); }
+  }, 300);
+});
 
 let lastPacket = null, lastPacketChange = Date.now(), stale = false;
 setInterval(() => {
@@ -105,7 +149,10 @@ setInterval(() => {
       return;
     }
     recorder.onFrame(f);
+    setupTracker.onFrame(f);
     hud.onFrame(f);
+    marker.onFrame(f);
+    spotter.tick(hud.nextBrake());
   } catch (e) { console.error('telemetry error', e); }
 }, 1000 / 60);
 
@@ -127,7 +174,7 @@ const readBody = (req) => new Promise((resolve, reject) => {
 });
 const readJson = async (req) => { const b = await readBody(req); return b.length ? JSON.parse(b.toString()) : {}; };
 
-const MIME = { '.woff2': 'font/woff2', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const MIME = { '.wav': 'audio/wav', '.woff2': 'font/woff2', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
 function serveStatic(res, file) {
   fs.readFile(file, (err, buf) => {
     if (err) return send(res, 404, { error: 'not found' });
@@ -190,7 +237,7 @@ async function route(req, res) {
     const model = l && trackdata.modelById(id, key);
     if (!model) return send(res, 404, { error: 'track not found' });
     const combos = svc.overview().combos.filter((c) => { const h = trackdata.find(c.track, c.layout); return h?.track.id === id && h.layout.key === key; })
-      .map(({ key: k, car, laps, bestMs, idealMs, lastAt, bestLapId }) => ({ key: k, car, laps, bestMs, idealMs, lastAt, bestLapId }));
+      .map(({ key: k, track: gt, layout: gl, car, laps, bestMs, idealMs, lastAt, bestLapId }) => ({ key: k, gameTrack: gt, gameLayout: gl, car, laps, bestMs, idealMs, lastAt, bestLapId }));
     const { layouts, ...track } = t;
     track.layouts = layouts.map((x) => ({ key: x.key, name: x.name, lengthM: x.lengthM }));
     return send(res, 200, { track, layout: { key: l.key, name: l.name, lengthM: l.lengthM, hasMap: !!l.svg }, model, combos });
@@ -335,6 +382,60 @@ async function route(req, res) {
     setTimeout(restartApp, 150);
     return;
   }
+  // ---- session reports
+  if (p === '/api/reports') {
+    const stored = db.listReports();
+    const have = new Set(stored.map((r) => r.sessionId));
+    const counts = new Map();
+    for (const l of db.listLaps()) if (l.session_id != null && l.source === 'local') {
+      const c = counts.get(l.session_id) || { laps: 0, valid: 0 }; c.laps++; if (l.valid) c.valid++; counts.set(l.session_id, c);
+    }
+    const reports = stored.map((r) => ({ sessionId: r.sessionId, createdAt: r.createdAt, startedAt: r.data.startedAt, combo: r.data.combo,
+      bestMs: r.data.best.ms, avgMs: r.data.average.cleanMs, laps: r.data.laps, newPb: r.data.improvement.newPb, headline: report.headline(r.data) }));
+    // sessions without a report yet (older sessions, or too short for an automatic one)
+    const sessions = db.listSessions().filter((s) => !have.has(s.id) && counts.get(s.id)?.valid)
+      .map((s) => ({ sessionId: s.id, startedAt: s.started_at, combo: { track: s.track, layout: s.layout, car: s.car }, ...counts.get(s.id) }));
+    return send(res, 200, { reports, sessions });
+  }
+  if (p === '/api/report' && m === 'GET') {
+    const id = Number(url.searchParams.get('session'));
+    let r = db.getReport(id);
+    if (!r) { try { report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); } }
+    const c = r.data.combo;
+    return send(res, 200, { ...r, setupChoices: setupmatch.candidates(c.car, c.track, c.layout).map((x) => ({ name: x.file.name, rel: x.file.rel })),
+      probeConfirmed: !!settings.get().probeConfirmed, hasKey: !!settings.get().geminiApiKey });
+  }
+  if (p === '/api/report/regenerate' && m === 'POST') {
+    const { session } = await readJson(req);
+    try { report.make(Number(session)); return send(res, 200, { ok: true }); } catch (e) { return send(res, 400, { error: e.message }); }
+  }
+  // the driver corrects the setup of some laps: {session, lapIds, rel} (rel null = Standard)
+  if (p === '/api/report/setup' && m === 'POST') {
+    const { session, lapIds = [], rel = null } = await readJson(req);
+    const own = new Set(db.lapsOfSession(Number(session)).map((l) => l.id));
+    const ids = lapIds.map(Number).filter((id) => own.has(id));
+    if (!ids.length) return send(res, 400, { error: 'No laps of this session given' });
+    try { db.setLapSetups(ids, setupmatch.manual(rel)); report.make(Number(session)); return send(res, 200, { ok: true }); }
+    catch (e) { return send(res, 400, { error: e.message }); }
+  }
+  if (p === '/api/report/ai' && m === 'POST') {
+    const { session } = await readJson(req);
+    const r = db.getReport(Number(session));
+    if (!r) return send(res, 404, { error: 'Report not found' });
+    const out = await ai.debrief(r.data);
+    db.saveReportAi(Number(session), out.text, out.model);
+    return send(res, 200, { ...out, at: Date.now() });
+  }
+  // ---- setup fingerprint check (Setups tab): what Paddock reads in the pits against the saved setups
+  if (p === '/api/setupcheck' && m === 'GET') {
+    return send(res, 200, { live: setupTracker.live(), current: setupTracker.current(), conditions: setupTracker.conditions(),
+      probe: source.lastRaw?.frame?.probe ?? null, inSession: inSession(), confirmed: !!settings.get().probeConfirmed });
+  }
+  if (p === '/api/setupcheck/confirm' && m === 'POST') {
+    const { ok } = await readJson(req);
+    settings.update({ probeConfirmed: !!ok });
+    return send(res, 200, { confirmed: !!ok });
+  }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
   if (p === '/api/overview') return send(res, 200, svc.overview());
   if (p === '/api/consistency') {
@@ -387,16 +488,51 @@ async function route(req, res) {
     svc.invalidate();
     return send(res, 200, { ok: true, id });
   }
+  if (p === '/api/spotter/test' && m === 'POST') { spotter.test(); return send(res, 200, { ok: true }); }
+  // ---- own brake marks (track page) and marking them (button, pedal)
+  if (p === '/api/brakemarks') {
+    const q = m === 'POST' ? await readJson(req) : Object.fromEntries(url.searchParams);
+    if (!q.track || !q.layout || !q.car) return send(res, 400, { error: 'track, layout and car are needed' });
+    const c = { track: q.track, layout: q.layout, car: q.car };
+    if (m === 'POST') {
+      if (!Array.isArray(q.marks)) return send(res, 400, { error: 'marks missing' });
+      marks.save(c, q.marks);
+      broadcast('brakemarks', { recording: marker.status(), combo: c });
+    }
+    return send(res, 200, { marks: marks.marksFor(c), cars: db.brakeMarkCars(c.track, c.layout), recording: marker.status(),
+      live: recorder.session ? marks.comboOf(recorder.session) : null });
+  }
+  if (p === '/api/brakemarks/best') {
+    // the brake / lift points of a car's best lap, as marks (the game's track and layout names, as in the laps)
+    const q = Object.fromEntries(url.searchParams);
+    const info = q.track && q.layout && q.car ? svc.comboInfo({ track: q.track, layout: q.layout, car: q.car }) : null;
+    const e = info?.best && svc.getResampled(info.best.id);
+    if (!e) return send(res, 404, { error: 'No valid lap with this car on this track yet.' });
+    const out = info.corners.map((c) => cornerMetrics(e.R, c)).map((x) => ({ bp: x.brakePoint ?? x.liftPoint, kind: x.brakePoint != null ? 'brake' : 'lift' }))
+      .filter((x) => x.bp != null).map((x) => ({ pos: x.bp / e.R.L, kind: x.kind }));
+    return send(res, 200, { marks: out, bestMs: info.best.lap_time_ms });
+  }
+  if (p === '/api/brakemarks/record' && m === 'POST') {
+    const { mode } = await readJson(req);
+    return send(res, 200, { recording: marker.start(mode) });
+  }
+  if (p === '/api/wheel/capture' && m === 'POST') {
+    const b = await wheel.capture(10000);
+    if (b) settings.update({ markButton: b });
+    return send(res, 200, { binding: b, devices: wheel.devices().map((d) => d.name) });
+  }
   if (p === '/api/settings') {
     if (m === 'POST') {
       const body = await readJson(req);
       if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.startsWith('••••')) delete body.geminiApiKey;
-      const oldPath = settings.get().gamePath;
+      if (body.markButton !== undefined && body.markButton !== null) delete body.markButton; // set only by /api/wheel/capture
+      const oldPath = settings.get().gamePath, oldKey = settings.get().markKey;
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
+      if (settings.get().markKey !== oldKey) bindMarkKey();
     }
     // the game files folder in use (read at start) and the one Windows reports, for the Settings page
-    return send(res, 200, { ...settings.publicView(), aceInUse: ACE, aceAuto: ACE_AUTO, aceExists: fs.existsSync(ACE) });
+    return send(res, 200, { ...settings.publicView(), aceInUse: ACE, aceAuto: ACE_AUTO, aceExists: fs.existsSync(ACE), markKeyState });
   }
   if (p === '/api/ai/models') return send(res, 200, await ai.listModels());
   if (p === '/api/ai/analyze' && m === 'POST') {

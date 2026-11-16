@@ -64,7 +64,19 @@ function normaliseDistance(data, L) {
   }
 }
 
-const LAP_COLS = 'id, session_id, track, layout, car, lap_number, lap_time_ms, valid, driver, source, recorded_at, track_length, samples';
+// ---------------------------------------------------------------- setups per lap, conditions per session, reports
+// laps.setup_name = what the lap was driven on ("Standard" = no saved setup matched); laps.setup_info = JSON
+// {rel, id, match, snap}: snap points into setup_snapshots, a copy of the setup's values when the lap was driven
+// (so editing the file later does not change history). sessions.conditions = JSON (temperatures, Race tab weather).
+{
+  const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  if (!cols('laps').includes('setup_name')) db.exec('ALTER TABLE laps ADD COLUMN setup_name TEXT; ALTER TABLE laps ADD COLUMN setup_info TEXT;');
+  if (!cols('sessions').includes('conditions')) db.exec('ALTER TABLE sessions ADD COLUMN conditions TEXT;');
+  db.exec(`CREATE TABLE IF NOT EXISTS setup_snapshots (hash TEXT PRIMARY KEY, data TEXT);
+    CREATE TABLE IF NOT EXISTS reports (session_id INTEGER PRIMARY KEY, created_at INTEGER, data TEXT, ai_text TEXT, ai_model TEXT, ai_at INTEGER);`);
+}
+
+const LAP_COLS = 'id, session_id, track, layout, car, lap_number, lap_time_ms, valid, driver, source, recorded_at, track_length, samples, setup_name, setup_info';
 
 export const encodeData = (cols) => zlib.gzipSync(JSON.stringify(cols));
 export const decodeData = (blob) => JSON.parse(zlib.gunzipSync(blob).toString());
@@ -76,10 +88,12 @@ export function createSession(s) {
 }
 
 export function insertLap(l) {
-  const r = db.prepare(`INSERT INTO laps (session_id, track, layout, car, lap_number, lap_time_ms, valid, driver, source, recorded_at, track_length, samples, data)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+  const su = l.setup || null;
+  const r = db.prepare(`INSERT INTO laps (session_id, track, layout, car, lap_number, lap_time_ms, valid, driver, source, recorded_at, track_length, samples, data, setup_name, setup_info)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(l.sessionId ?? null, l.track, l.layout, l.car, l.lapNumber, l.lapTimeMs, l.valid ? 1 : 0, l.driver,
-      l.source || 'local', l.recordedAt, l.trackLength, l.data.t.length, encodeData(l.data));
+      l.source || 'local', l.recordedAt, l.trackLength, l.data.t.length, encodeData(l.data),
+      su?.name ?? null, su ? JSON.stringify(setupInfo(su)) : null);
   return Number(r.lastInsertRowid);
 }
 
@@ -102,6 +116,8 @@ export const bestLapOfSession = (sessionId) =>
   db.prepare(`SELECT ${LAP_COLS} FROM laps WHERE session_id = ? AND valid = 1 ORDER BY lap_time_ms LIMIT 1`).get(sessionId);
 
 export function deleteLap(id) {
+  // its session's report is out of date: dropped (made again on request)
+  db.prepare('DELETE FROM reports WHERE session_id = (SELECT session_id FROM laps WHERE id = ?)').run(id);
   db.prepare('DELETE FROM laps WHERE id = ?').run(id);
   db.prepare('DELETE FROM analyses WHERE lap_id = ?').run(id);
 }
@@ -112,3 +128,47 @@ export function saveAnalysis(lapId, refKey, model, text) {
 }
 export const getAnalysis = (lapId, refKey) =>
   db.prepare('SELECT * FROM analyses WHERE lap_id = ? AND ref_key = ? ORDER BY created_at DESC LIMIT 1').get(lapId, refKey);
+
+// ---------------------------------------------------------------- brake marks
+// The driver's own brake / lift points, per track layout and car (track = catalogue id, layout = layout key).
+// pos is the fraction of the lap from the timing line (0..1), so it fits laps, live data and the track map alike.
+db.exec(`CREATE TABLE IF NOT EXISTS brake_marks (
+  id INTEGER PRIMARY KEY, track TEXT, layout TEXT, car TEXT, pos REAL, kind TEXT, created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS brake_marks_combo ON brake_marks(track, layout, car);`);
+export const brakeMarks = (track, layout, car) =>
+  db.prepare('SELECT id, pos, kind FROM brake_marks WHERE track = ? AND layout = ? AND car = ? ORDER BY pos').all(track, layout, car);
+export const brakeMarkCars = (track, layout) =>
+  db.prepare('SELECT car, COUNT(*) AS n FROM brake_marks WHERE track = ? AND layout = ? GROUP BY car ORDER BY car').all(track, layout);
+export function setBrakeMarks(track, layout, car, marks) {
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM brake_marks WHERE track = ? AND layout = ? AND car = ?').run(track, layout, car);
+    const ins = db.prepare('INSERT INTO brake_marks (track, layout, car, pos, kind, created_at) VALUES (?,?,?,?,?,?)');
+    for (const m of marks) ins.run(track, layout, car, m.pos, m.kind, Date.now());
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
+// ---------------------------------------------------------------- setups per lap, conditions, reports
+export function saveSnapshot(hash, values) { db.prepare('INSERT OR IGNORE INTO setup_snapshots (hash, data) VALUES (?, ?)').run(hash, JSON.stringify(values)); }
+export const getSnapshot = (hash) => { const r = db.prepare('SELECT data FROM setup_snapshots WHERE hash = ?').get(hash); return r ? JSON.parse(r.data) : null; };
+const setupInfo = (su) => ({ rel: su.rel ?? null, id: su.id ?? null, match: su.match, snap: su.snap ?? null, probe: su.probe ?? null });
+export function setLapSetups(ids, su) {
+  const st = db.prepare('UPDATE laps SET setup_name = ?, setup_info = ? WHERE id = ?');
+  for (const id of ids) st.run(su.name, JSON.stringify(setupInfo(su)), id);
+}
+export const getSession = (id) => db.prepare('SELECT * FROM sessions WHERE id = ?').get(id);
+export const lapsOfSession = (id) => db.prepare(`SELECT ${LAP_COLS} FROM laps WHERE session_id = ? ORDER BY recorded_at`).all(id);
+export function setSessionConditions(id, cond) { db.prepare('UPDATE sessions SET conditions = ? WHERE id = ?').run(JSON.stringify(cond), id); }
+export function saveReport(sessionId, data) {
+  db.prepare(`INSERT INTO reports (session_id, created_at, data) VALUES (?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET created_at = excluded.created_at, data = excluded.data`).run(sessionId, Date.now(), JSON.stringify(data));
+}
+export function getReport(sessionId) {
+  const r = db.prepare('SELECT * FROM reports WHERE session_id = ?').get(sessionId);
+  return r ? { createdAt: r.created_at, data: JSON.parse(r.data), ai: r.ai_text ? { text: r.ai_text, model: r.ai_model, at: r.ai_at } : null } : null;
+}
+export const listReports = () => db.prepare('SELECT session_id, created_at, data FROM reports ORDER BY created_at DESC').all()
+  .map((r) => ({ sessionId: r.session_id, createdAt: r.created_at, data: JSON.parse(r.data) }));
+export function saveReportAi(sessionId, text, model) { db.prepare('UPDATE reports SET ai_text = ?, ai_model = ?, ai_at = ? WHERE session_id = ?').run(text, model, Date.now(), sessionId); }
