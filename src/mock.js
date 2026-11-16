@@ -95,7 +95,21 @@ export class MockSource {
     const warm = Math.min(1, (this.lapCount + lo / n) / 2); // tyres warm up over two laps
     const probe = { pressures: [26 + 1.8 * warm, 26 + 1.8 * warm, 26 + 1.5 * warm, 26 + 1.5 * warm], camber: [-0.85, -0.85, -1.05, -1.05],
       rideHeight: [62, 70], brakeBias: 0.58, airTemp: 21, roadTemp: 29 + warm };
-    return { wheels, tyresOut: 0, kerb: 0, probe,
+    // car & setup report: fronts run a little over-inflated with too little camber, rears cool; front bump stop
+    // reached under heavy braking, understeer mid-corner, wheelspin on slow exits, the odd front lock-up
+    const gLat = (v[lo] ** 2) * p.curv / G, b = brk[lo], g = thr[lo];
+    const tyres = [0, 1, 2, 3].map((w) => {
+      const front = w < 2, base = 45 + (front ? 40 : 28) * warm + Math.abs(gLat) * 6;
+      const i = base + (front ? 2 : 9), m = base + (front ? 7 : 1), o = base + (front ? 4 : 0);
+      const brake = 180 + 520 * warm * (front ? 1 : 0.6) + 300 * b;
+      return { lock: front && b > 0.97 && (this.packet % 7 === 0), p: probe.pressures[w], core: base + 3, brake, i, m, o,
+        nP: front ? 0.82 : 0.55, nI: 0, nM: 0, nO: 0, nB: Math.min(1, brake / 900), nC: Math.min(1.2, (base + 3) / 85) };
+    });
+    const susp = [0, 1, 2, 3].map((w) => Math.min(w < 2 ? 62 : 75, 30 + (w < 2 ? 34 : 6) * b + 9 * Math.abs(gLat) + (w >= 2 ? 10 * g : 0)));
+    const sa = Math.abs(p.curv) * v[lo] * 0.9;
+    const carData = { tyres, susp, load: [3000, 3000, 3200, 3200], slipAngle: [sa * 1.35, sa * 1.35, sa, sa],
+      slipRatio: [0, 0, ...[0, 0].map(() => (g > 0.85 && kmh < 110 && Math.abs(p.curv) > 0.004 ? 0.14 : 0.03))], phys: null };
+    return { wheels, tyresOut: 0, kerb: 0, probe, carData,
       packetId: this.packet, status: 2, gas: thr[lo], brake: brk[lo], clutch: 0, gear, rpm: Math.round(4000 + ((kmh % 45) / 45) * 4000),
       fuel: Math.max(0, 60 - (this.lapCount + lo / n) * 2.3), // litres: 2.3 a lap from a 60 L tank
       steer: Math.max(-1, Math.min(1, p.curv * 30)), speed: kmh, glat: (v[lo] ** 2) * p.curv / G, glon: 0, tc: 0, abs: 0,

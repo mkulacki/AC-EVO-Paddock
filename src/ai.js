@@ -96,6 +96,11 @@ and, when available, telemetry from the driver's laps with this car on this trac
 comparison of the best lap with the ideal lap spliced from the driver's best corners). The laps are not linked to a
 setup: they may have been driven on other setups, so use them to judge the track (slow/fast corners, where time is
 lost) and the driving, not as proof of what this setup does.
+telemetry.car_behaviour_latest_session, when present, is what the car did in the driver's latest session on this track:
+tyre temperatures across the tread (inner/middle/outer) and core, hot pressures, brake temperatures and lock-ups,
+suspension travel and how often it reached the end of its travel, front-vs-rear slip balance per corner phase
+(+ = understeer, - = oversteer), wheelspin on exits, and rule-of-thumb hints. setup_driven says which setup that was.
+Use it as strong evidence when it was this setup; tyre temperature spreads and pressures matter most for camber and pressures.
 Rules:
 - Propose a small number of focused changes (usually 2-6) that address the driver's problem; do not change everything at once.
 - Only use names from the setup list, values inside min..max and on the step grid. Do not change fuel, tyre compound or telemetry laps.

@@ -7,6 +7,14 @@ const CH = ['t', 'd', 'spd', 'thr', 'brk', 'str', 'gear', 'rpm', 'x', 'z', 'glat
   // track-limit data from EVO: tyres beyond limits, lap still valid, kerb vibration, tyre contact points (FL, FR, RL, RR)
   'out', 'ok', 'kerb', 'w0x', 'w0z', 'w1x', 'w1z', 'w2x', 'w2z', 'w3x', 'w3z'];
 
+// Car & setup report (src/carreport.js): tyres, brakes, suspension and slip, 10 times a second in data.car.
+// k = index of the matching sample in the main channels (distance, speed, pedals). Over each 100 ms: suspension travel
+// and its peak, lowest ride height, any lock-up, average slip angle and slip ratio.
+const CAR_MS = 100;
+const WCH = ['i', 'm', 'o', 'c', 'p', 'b', 'nP', 'nC', 'nB', 's', 'a', 'r', 'l'];
+const newCar = () => ({ k: [], rh0: [], rh1: [], w: [0, 1, 2, 3].map(() => Object.fromEntries(WCH.map((c) => [c, []]))) });
+const r = (v, p) => (Number.isFinite(v) ? Math.round(v * p) / p : 0);
+
 export class Recorder extends EventEmitter {
   // getSetup(): the setup the car is on right now (src/setupmatch.js), stored with each lap; null = not known
   constructor(getDriverName, getSetup = () => null) {
@@ -24,6 +32,8 @@ export class Recorder extends EventEmitter {
     const lap = { full, invalid: !f.valid, pit: f.inPit, startedAt: Date.now(), lapNumber: f.lapCount + 1, buf: {},
       prevP: null, wrap: 0, u0: null, d0: 0 };
     for (const c of CH) lap.buf[c] = [];
+    lap.buf.car = newCar();
+    lap.acc = null; // car data collected since the last 10 Hz sample
     return lap;
   }
 
@@ -59,8 +69,30 @@ export class Recorder extends EventEmitter {
       const [wx, wz] = f.wheels?.[w] ?? [f.x, f.z];
       b[`w${w}x`].push(+wx.toFixed(2)); b[`w${w}z`].push(+wz.toFixed(2));
     }
+    if (f.carData) this.pushCar(f, lap, b.t.length - 1);
     if (!f.valid) lap.invalid = true;
     if (f.inPit) lap.pit = true;
+  }
+
+  pushCar(f, lap, k) {
+    const c = f.carData, a = lap.acc || (lap.acc = { t0: f.lapTimeMs, n: 0, s: [-1e9, -1e9, -1e9, -1e9], l: [0, 0, 0, 0], a: [0, 0, 0, 0], r: [0, 0, 0, 0], rh: [1e9, 1e9] });
+    a.n++;
+    for (let w = 0; w < 4; w++) {
+      a.s[w] = Math.max(a.s[w], c.susp[w]); if (c.tyres[w].lock) a.l[w] = 1;
+      a.a[w] += c.slipAngle[w]; a.r[w] += c.slipRatio[w];
+    }
+    const rh = f.probe?.rideHeight;
+    if (rh) { a.rh[0] = Math.min(a.rh[0], rh[0]); a.rh[1] = Math.min(a.rh[1], rh[1]); }
+    if (f.lapTimeMs - a.t0 < CAR_MS && lap.buf.car.k.length) return;
+    const out = lap.buf.car;
+    out.k.push(k); out.rh0.push(r(a.rh[0], 10)); out.rh1.push(r(a.rh[1], 10));
+    for (let w = 0; w < 4; w++) {
+      const t = c.tyres[w], o = out.w[w];
+      o.i.push(r(t.i, 10)); o.m.push(r(t.m, 10)); o.o.push(r(t.o, 10)); o.c.push(r(t.core, 10)); o.p.push(r(t.p, 100)); o.b.push(r(t.brake, 1));
+      o.nP.push(r(t.nP, 1000)); o.nC.push(r(t.nC, 1000)); o.nB.push(r(t.nB, 1000));
+      o.s.push(r(a.s[w], 10)); o.a.push(r(a.a[w] / a.n, 10000)); o.r.push(r(a.r[w] / a.n, 1000)); o.l.push(a.l[w]);
+    }
+    lap.acc = null;
   }
 
   finalize(lap, lapTimeMs, f) {

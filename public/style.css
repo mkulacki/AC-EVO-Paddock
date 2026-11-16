@@ -637,3 +637,34 @@ button.cseg:hover { box-shadow: inset 0 0 0 2px var(--text-primary); }
 .laps-fold summary { cursor: pointer; }
 .laps-fold table.laps tbody tr[data-open] { cursor: pointer; }
 @media (max-width: 1000px) { .tele-grid { grid-template-columns: 1fr; } .tele-side { position: static; } }
+
+/* ---- Car & setup tab: suggestions, the four tyres, balance */
+.note-warn { border-left: 3px solid var(--warning, #9a7300); font-size: var(--fs-sm); padding: 10px 14px; }
+.sugs { list-style: none; margin: 0; padding: 0; }
+.sugs li { display: grid; grid-template-columns: 10px 96px 1fr; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
+.sugs .lvl { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.sugs .lvl.l2 { background: var(--warning, #eda100); }
+.sugs .lvl.l3 { background: var(--slower); }
+.sugs .tag, .tele-corner .tag { font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 1px 5px; border-radius: 2px; background: var(--surface-3); color: var(--text-secondary); text-align: center; }
+.car-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.car4 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.car4 .axle { grid-column: 1 / -1; text-align: center; margin: -4px 0; }
+.car4 .axle { order: 0; }
+.tyre { border: 1px solid var(--border); border-radius: var(--radius-ctl); padding: 10px 12px; background: var(--surface-1); }
+.tyre .tread { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 8px 0; border-radius: 4px; overflow: hidden; }
+.tyre .tread .cell { text-align: center; padding: 10px 0; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.tyre dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; font-size: var(--fs-sm); }
+.tyre dt { color: var(--text-muted); }
+.tyre dd { margin: 0; font-variant-numeric: tabular-nums; }
+.tyre .hint, .car-grid .hint, .sugs .hint { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 400; }
+.bal { display: grid; grid-template-columns: 80px 1fr 130px; gap: 4px 10px; align-items: center; margin: 8px 0; }
+.bal > .hint { grid-column: 3; margin-top: -4px; }
+.balbar { position: relative; height: 10px; background: var(--surface-3); border-radius: 5px; }
+.balbar .mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--text-muted); }
+.balbar .fill { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.balbar .fill.us { background: var(--slower); }
+.balbar .fill.os { background: var(--faster); }
+.us-t { color: var(--slower); }
+.os-t { color: var(--faster); }
+.balscale { display: flex; justify-content: space-between; margin-left: 90px; margin-right: 140px; }
+@media (max-width: 1000px) { .car-grid { grid-template-columns: 1fr; } }

@@ -3,6 +3,7 @@
 // conditions, lap-time trend, theoretical best, track limits, next practice targets and the AI debrief.
 import { $, css, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES, md } from './util.js';
 import { mountTelemetry } from './telemetry.js';
+import { mountCarSetup } from './carsetup.js';
 
 const stamp = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -144,7 +145,7 @@ export async function viewReport(view, params, cleanup) {
     b.disabled = false;
   };
 
-  await bindSession(view, params, cleanup, { id, laps: res.laps, bestLapId: r.best.lapId, hasKey: res.hasKey, reload, onReport: drawTrend });
+  await bindSession(view, params, cleanup, { id, laps: res.laps, bestLapId: r.best.lapId, hasKey: res.hasKey, probeConfirmed: res.probeConfirmed, reload, onReport: drawTrend });
 
   // ---- lap-time trend (uPlot): valid laps, invalid laps, clean average, theoretical best. Drawn when the Report tab is first shown
   function drawTrend() {
@@ -185,15 +186,18 @@ export async function viewReport(view, params, cleanup) {
 
 // ---- the session page's tabs: Telemetry (with the laps folded under it) and the report
 function sessionTabs(laps, bestLapId, bestMs, report = true) {
-  return `<div class="tabs sess-tabs"><a href="#" data-tab="tele">Telemetry</a>${report ? '<a href="#" data-tab="report">Report &amp; targets</a>' : ''}</div>
+  return `<div class="tabs sess-tabs"><a href="#" data-tab="tele">Telemetry</a>${report ? '<a href="#" data-tab="report">Report &amp; targets</a>' : ''}<a href="#" data-tab="car">Car &amp; setup</a></div>
+    <div id="tabCar" hidden></div>
     <div id="tabTele"><div id="tele"><div class="card"><span class="spinner"></span> Loading telemetry…</div></div>
       <details class="card laps-fold" id="rLaps"><summary><b>All ${laps.length} lap${laps.length === 1 ? '' : 's'} of this session</b>
         <span class="hint">click a lap to analyse it · tick up to 3 to compare</span></summary>
         ${lapsBlock(laps, { bestMs, bestLapId })}</details></div>`;
 }
-async function bindSession(view, params, cleanup, { id, laps, bestLapId, hasKey, reload, onReport }) {
-  const state = { tab: params.get('tab') === 'report' && onReport ? 'report' : 'tele', tele: null };
-  const url = (s) => `#/report?session=${id}${s ? `&laps=${s.laps.join(',')}&ref=${s.ref}${s.corner ? `&c=${encodeURIComponent(s.corner)}` : ''}` : ''}${state.tab === 'report' ? '&tab=report' : ''}`;
+async function bindSession(view, params, cleanup, { id, laps, bestLapId, hasKey, probeConfirmed, reload, onReport }) {
+  const want = params.get('tab');
+  const state = { tab: want === 'report' && onReport ? 'report' : want === 'car' ? 'car' : 'tele', tele: null };
+  const url = (s) => `#/report?session=${id}${s ? `&laps=${s.laps.join(',')}&ref=${s.ref}${s.corner ? `&c=${encodeURIComponent(s.corner)}` : ''}` : ''}${state.tab !== 'tele' ? `&tab=${state.tab}` : ''}`;
+  let carShown = false;
   let teleState = null;
   let trendDrawn = false;
   const show = (tab) => {
@@ -201,7 +205,9 @@ async function bindSession(view, params, cleanup, { id, laps, bestLapId, hasKey,
     view.querySelectorAll('.sess-tabs [data-tab]').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
     $('#tabTele').hidden = tab !== 'tele';
     if ($('#tabReport')) $('#tabReport').hidden = tab !== 'report';
+    $('#tabCar').hidden = tab !== 'car';
     if (tab === 'report' && !trendDrawn && onReport) { trendDrawn = true; onReport(); }
+    if (tab === 'car' && !carShown) { carShown = true; mountCarSetup($('#tabCar'), id, { probeConfirmed }); }
     history.replaceState(null, '', url(teleState));
   };
   view.querySelectorAll('.sess-tabs [data-tab]').forEach((a) => a.onclick = (e) => { e.preventDefault(); show(a.dataset.tab); });
@@ -292,5 +298,5 @@ async function viewBasic(view, res, reload, params, cleanup) {
     </div>
     <p class="muted" style="margin:0 0 16px">A session report needs 3 laps or more, one of them valid.</p>
     ${sessionTabs(laps, best?.id, best?.lap_time_ms, false)}`;
-  await bindSession(view, params, cleanup, { id: s?.id ?? c.session_id, laps, bestLapId: best?.id ?? null, hasKey: res.hasKey, reload, onReport: null });
+  await bindSession(view, params, cleanup, { id: s?.id ?? c.session_id, laps, bestLapId: best?.id ?? null, hasKey: res.hasKey, probeConfirmed: res.probeConfirmed, reload, onReport: null });
 }

@@ -137,6 +137,19 @@ When you leave a session with at least 3 laps (one of them valid), Paddock write
 
 **How the setup is recognised:** AC EVO does not say which setup is loaded, so Paddock takes a fingerprint while the car stands in the pit box (tyre pressures, camber, brake bias, fuel) and matches it with your saved setups for that car and track. No match = **Standard**. These shared-memory values are not confirmed in game yet: check them once in **Setups → Setup recognition** with a saved setup loaded, standing in the pit box.
 
+### Car & setup (session page)
+
+What the car did in the session, from tyre, brake and suspension data Paddock now records 10 times a second with every lap (laps driven before this have none):
+
+- **Tyres:** inner, middle and outer tread temperature, core temperature and hot pressure per tyre, drawn as the four corners of the car. The spread across the tread hints at camber (outer edge hotter = more negative camber), the middle against the edges at pressure (middle hotter = over-inflated).
+- **Brakes:** peak temperature per wheel and every lock-up, with the corner where it happened.
+- **Suspension:** travel per wheel, how often it reaches the end of its travel (bump stops) and where, lowest ride height.
+- **Balance:** front against rear slip angle while cornering, for corner entry, mid-corner and exit: understeer or oversteer, and in which corners.
+- **Wheelspin** on corner exits, and a lap-by-lap table of tyre temperatures, pressures and brake peaks.
+- **Setup suggestions** from these readings (rules of thumb, e.g. "mid-corner understeer: soften the front anti-roll bar"), ranked by importance. The **AI engineer** in Setups gets the same data for the latest session on that track, with the setup it was driven on.
+
+The tyre data comes from AC EVO's own tyre block; suspension travel and slip angles from the ACC-style physics block. None of it is confirmed in game yet: **Setups → Setup recognition → Tyres, brakes and suspension** shows the live values to compare with the game's tyre screen.
+
 ## Tracks tab and track data
 
 Paddock reads AC EVO's own track data straight from the game's `content.kspkg`. It reads the archive in place, read-only, and never extracts or modifies it. The game folder is found through Steam, or you can set it in *Settings*. For every track and layout this gives:
@@ -237,6 +250,7 @@ Open **Settings → Telemetry debug → Show live raw values** while driving, an
 - `npos` going from 0 to 1 over a lap
 - `x`/`z` coordinates changing
 - `probe`: tyre pressures (PSI), camber (°), brake bias and air / track temperature (°C), used for setup recognition and the report's conditions (ACC's physics layout; **Setups → Setup recognition** compares them with a saved setup)
+- `carData`: per wheel, AC EVO's tyre block (tread and core temperatures, pressure, brake temperature, lock-up, and the game's window values) and, from the physics block, suspension travel, slip angle and slip ratio. Used by the Car & setup report; **Setups → Setup recognition → Tyres, brakes and suspension** shows them live
 
 If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src/shm.js`.
 `npm run check-limits [laps]` prints the track-limit channels (tyres out, wheel positions, kerbs) of the most recent laps, to check those offsets.
@@ -247,7 +261,8 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | --- | --- |
 | `src/server.js` | HTTP server and API, 60 Hz telemetry loop |
 | `src/shm.js`, `src/mock.js` | telemetry sources: game shared memory, simulated car |
-| `src/recorder.js`, `src/db.js` | turning frames into laps, storage |
+| `src/recorder.js`, `src/db.js` | turning frames into laps (with 10 Hz car data in `data.car`), storage |
+| `src/carreport.js`, `public/carsetup.js` | Car & setup report: tyres, brakes, suspension, balance, setup suggestions |
 | `src/analysis.js`, `src/service.js`, `src/track.js` | resampling, corners, ideal lap, compare / consistency / progress |
 | `src/trackdata.js`, `src/cars.js`, `src/kspkg.js`, `src/pb.js`, `src/bc7.js` | reading tracks, cars and thumbnails from the game's archives |
 | `src/live.js`, `src/gamebridge.js` | HUD data and the file/log bridge to the game |
