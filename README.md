@@ -86,10 +86,10 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Tyre compounds** are shown as *Compound 1, 2, 3* in the game's order; the files do not store their names.
 - **Names of a few settings are inferred** from the file layout, the game's own setting names and their ranges (Kunos does not document the format). Unusual settings show as *Setting x.y*. Values the game works out by itself (e.g. static ride heights) are left as they were in the file; Paddock does not recalculate them.
 - **The game's format may change** with a game update; Paddock checks every write by reading the file back, and refuses to edit setups of a car whose limits it cannot find.
-- **Laps are not linked to setups.** The AI engineer uses all your laps with that car on that track, whichever setup they were driven on, and mainly relies on what you tell it about the car. It cannot see tyre temperatures, pressures or suspension travel yet.
+- **The AI engineer does not split laps by setup yet.** Each lap now remembers its setup (see Session reports), but the engineer still uses all your laps with that car on that track, and mainly relies on what you tell it about the car. It cannot see tyre temperatures, pressures or suspension travel yet.
 - **AI advice is a suggestion.** Check the proposed changes before saving, and try them on track; the engineer explains each change so you can judge it.
 
-## Laps tab
+## Sessions tab
 
 - **Lap list:** per track/layout/car, with your best lap, ideal lap and every session. Filter by track or car and sort.
 - **Start hotlap:** starts that car and track in Hotlap mode with clear weather and optimum grip. Progress shows on the Race tab.
@@ -117,7 +117,7 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 
 ## Session reports
 
-When you leave a session with at least 3 laps (one of them valid), Paddock writes a report and the desktop app shows a notification. Open it under **Reports**, or with the *Report* link on a session in the Laps tab (older sessions get one on request).
+When you leave a session with at least 3 laps (one of them valid), Paddock writes a report and the desktop app shows a notification. Open it under **Sessions → Reports**, or with the *Report* link on a session in **Sessions → Laps** (older sessions get one on request).
 
 - **Best lap and session average** (clean laps: valid and within 7 % of the session's best), and the change against your previous session and your all-time best.
 - **Three best and three weakest corners:** your typical time through each corner against your fastest pass ever, with what differs on the weak ones (braking earlier, less apex speed, later throttle, running wide…).

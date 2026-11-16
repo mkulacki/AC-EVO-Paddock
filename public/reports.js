@@ -15,13 +15,15 @@ const MATCH = {
   manual: ['Set by you', 'You picked this setup in the report'],
 };
 
+// the Sessions tab's header: its two pages, Laps and Reports
+export const sessionsHead = (on, sub = '') => `<div class="race-head"><div><h1>Sessions</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div><span class="spacer"></span>
+  <div class="tabs"><a href="#/" class="${on === 'laps' ? 'on' : ''}">Laps</a><a href="#/reports" class="${on === 'reports' ? 'on' : ''}">Reports</a></div></div>`;
+
 // ================================================================== list
 export async function viewReports(view) {
   const { reports, sessions } = await api('/api/reports');
   view.innerHTML = `
-    <div class="row" style="margin-bottom:6px"><h1>Session reports</h1></div>
-    <p class="muted" style="margin:0 0 16px;max-width:80ch">A report is made when you leave a session with at least 3 laps, one of them valid.
-      Older or shorter sessions get one on request.</p>
+    ${sessionsHead('reports', 'A report is made when you leave a session with at least 3 laps, one of them valid. Older or shorter sessions get one on request.')}
     ${reports.length ? `<div class="card"><div class="tablewrap"><table>
       <thead><tr><th>Session</th><th>Track</th><th>Car</th><th>Best lap</th><th>Average</th><th>Laps</th><th></th></tr></thead>
       <tbody>${reports.map((r) => `<tr data-open="#/report?session=${r.sessionId}" style="cursor:pointer">
@@ -95,7 +97,7 @@ export async function viewReport(view, params, cleanup) {
 
   view.innerHTML = `
     <div class="cmp-head">
-      <a href="#/reports"><button class="ghost">All reports</button></a>
+      <a href="#/reports"><button class="ghost">← Reports</button></a>
       <div><h1>${comboTxt(r.combo)}</h1>
         <div class="secondary">${esc(prettyName(r.combo.car))} · ${esc(SESSION_TYPES[r.sessionType] || 'Session')} on ${esc(when(r.startedAt))}</div></div>
       <span class="spacer"></span>
