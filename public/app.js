@@ -7,7 +7,7 @@ import { viewRace } from './race.js';
 import { viewProgress } from './progress.js';
 import { viewMods } from './mods.js';
 import { viewSetups } from './setups.js';
-import { initSpotter, spotterAudioState } from './spotter.js';
+import { initSpotter, spotterAudioState, loadVoice } from './spotter.js';
 
 const view = $('#view');
 
@@ -737,7 +737,7 @@ async function viewSettings() {
         The braking points come from the HUD's reference lap (your all-time best unless you switch it), so you can keep your eyes on the road.</p>
       <div class="form">
         <label>Spotter</label><label class="row"><input type="checkbox" id="spOn" ${s.spotter.on ? 'checked' : ''}> On</label>
-        <label>Sound</label><select id="spSound"><option value="voice">Voice</option><option value="beep">Beeps</option></select>
+        <label>Sound</label><select id="spSound"><option value="orus">Voice: Orus (team radio)</option><option value="algenib">Voice: Algenib (team radio)</option><option value="beep">Beeps</option></select>
         <label>Countdown</label><select id="spCountdown"><option value="full">Three, two, one, brake</option><option value="brake">Only “brake”</option></select>
         <label>Corners</label><select id="spCorners"><option value="all">Every braking and lifting point</option><option value="big">Big stops only</option></select>
         <label>Volume</label><label class="hud-slider"><input type="range" id="spVolume" min="0" max="100" step="5" value="${s.spotter.volume}"><b id="spVolumeV">${s.spotter.volume}%</b></label>
@@ -772,7 +772,7 @@ async function viewSettings() {
     }, 250);
   };
   $('#spOn').onchange = (e) => spSave({ on: e.target.checked });
-  $('#spSound').onchange = (e) => spSave({ sound: e.target.value });
+  $('#spSound').onchange = (e) => { loadVoice(e.target.value); spSave({ sound: e.target.value }); };
   $('#spCountdown').onchange = (e) => spSave({ countdown: e.target.value });
   $('#spCorners').onchange = (e) => spSave({ corners: e.target.value });
   $('#spVolume').oninput = (e) => { $('#spVolumeV').textContent = `${e.target.value}%`; spSave({ volume: +e.target.value }); };

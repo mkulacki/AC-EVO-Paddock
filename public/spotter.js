@@ -7,7 +7,8 @@
 const CLIPS = ['three', 'two', 'one', 'brake', 'lift'];
 const BEEPS = { three: [880, 0.09], two: [880, 0.09], one: [880, 0.09], brake: [1320, 0.35], lift: [660, 0.3] };
 
-let ctx = null, gain = null, buffers = null, player = false;
+let ctx = null, gain = null, player = false;
+const voices = {}; // voice -> { word: AudioBuffer }, loaded on first use
 
 function audio() {
   if (!ctx) {
@@ -17,15 +18,13 @@ function audio() {
   return ctx;
 }
 
-async function loadClips() {
-  if (buffers) return buffers;
-  const ac = audio();
-  buffers = {};
-  await Promise.all(CLIPS.map(async (n) => {
-    try { buffers[n] = await ac.decodeAudioData(await (await fetch(`/audio/spotter/${n}.wav`)).arrayBuffer()); }
+export function loadVoice(voice) {
+  if (voice === 'beep' || voices[voice]) return;
+  const ac = audio(), set = voices[voice] = {};
+  CLIPS.forEach(async (n) => {
+    try { set[n] = await ac.decodeAudioData(await (await fetch(`/audio/spotter/${voice}/${n}.wav`)).arrayBuffer()); }
     catch { /* missing clip: that word falls back to a beep */ }
-  }));
-  return buffers;
+  });
 }
 
 function beep(say, at) {
@@ -45,7 +44,8 @@ export function play({ say, sound, volume }) {
   if (ac.state === 'suspended') ac.resume().catch(() => {});
   gain.gain.value = Math.max(0, Math.min(1, (volume ?? 80) / 100));
   const at = ac.currentTime;
-  const buf = sound === 'voice' ? buffers?.[say] : null;
+  loadVoice(sound);
+  const buf = voices[sound]?.[say];
   if (!buf) return beep(say, at);
   const s = ac.createBufferSource();
   s.buffer = buf; s.connect(gain); s.start(at);
@@ -61,7 +61,8 @@ export function spotterAudioState() {
 export function initSpotter(events) {
   const start = () => {
     player = true;
-    loadClips();
+    // load the chosen voice up front, so the first cue on track is not a beep
+    fetch('/api/settings').then((r) => r.json()).then((s) => loadVoice(s.spotter?.sound)).catch(() => {});
     events.addEventListener('spotter', (e) => { try { play(JSON.parse(e.data)); } catch { /* ignore */ } });
     // browsers keep sound off until the page is clicked once
     const unlock = () => { if (ctx?.state === 'suspended') ctx.resume().catch(() => {}); };

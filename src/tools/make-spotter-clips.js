@@ -1,20 +1,29 @@
 // Generates the brake spotter's voice clips (public/audio/spotter/*.wav) with Gemini text-to-speech.
 // Only needed to (re)make the clips; they are shipped with the app. Uses GEMINI_API_KEY, else the key in
 // data/settings.json. Only the words and the style direction below are sent.
-//   node src/tools/make-spotter-clips.js [--voice Fenrir] [--model gemini-2.5-pro-preview-tts] [--radio] [--out dir]
+// The shipped voices were made with:
+//   node src/tools/make-spotter-clips.js --voice Orus --radio
+//   node src/tools/make-spotter-clips.js --voice Algenib --radio
+// Options: --voice <Gemini voice>, --model <tts model>, --radio, --out <dir> (default public/audio/spotter/<voice>),
+//   --keep-raw <dir> saves the raw takes, --from <dir> re-processes them without new requests.
 //   --radio adds a team-radio sound: telephone band, light crunch, a little static.
+// A new voice also needs adding to SPOTTER_VOICES (src/settings.js) and the Sound list in public/app.js.
+// The free Gemini allowance for speech is small: expect a few minutes per voice.
 import fs from 'node:fs';
 import path from 'node:path';
 
 const arg = (name, d) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : d; };
-const MODEL = arg('model', 'gemini-2.5-pro-preview-tts');
-const VOICE = arg('voice', 'Fenrir');
+const MODEL = arg('model', 'gemini-2.5-flash-preview-tts');
+const VOICE = arg('voice', 'Orus');
 const RADIO = process.argv.includes('--radio');
-const OUT = path.resolve(arg('out', 'public/audio/spotter'));
-const WORDS = { three: 'Three!', two: 'Two!', one: 'One!', brake: 'BRAKE!', lift: 'LIFT!' };
+const OUT = path.resolve(arg('out', `public/audio/spotter/${VOICE.toLowerCase()}`));
+const WORDS = { three: 'Three.', two: 'Two.', one: 'One.', brake: 'Brake.', lift: 'Lift.' };
+// tense but controlled: a focused engineer under pressure, never cheerful or excited
+const MOOD = 'Low, steady, serious voice. Tense and under pressure, but completely calm and controlled. ' +
+  'No smile, no excitement, no cheerfulness, no rising pitch. Clipped, with falling intonation.';
 const STYLE = {
-  three: 'You are a race engineer on team radio, counting the driver down to the braking point on a qualifying lap. Punchy, urgent and confident, slightly raised voice, clipped. Say only this one word:',
-  brake: 'You are a race engineer on team radio. This is the braking point on a flying qualifying lap: shout this one command, sharp, loud and urgent, like a call that must be obeyed instantly. Say only:',
+  three: `You are a focused race engineer on team radio, counting the driver down to the braking point on a tense qualifying lap. ${MOOD} Say only this one word:`,
+  brake: `You are a focused race engineer on team radio. This is the braking point on a tense qualifying lap. Give this one command firmly and tersely. ${MOOD} Say only:`,
 };
 const styleFor = (n) => (n === 'brake' || n === 'lift' ? STYLE.brake : STYLE.three);
 
@@ -128,4 +137,4 @@ for (const name of Object.keys(WORDS)) {
   fs.writeFileSync(path.join(OUT, `${name}.wav`), wav(finish(clip, rate), rate));
   console.log(`${name}.wav  ${(clip.length / rate).toFixed(2)} s`);
 }
-console.log(`voice ${VOICE}, model ${MODEL}${RADIO ? ', team radio' : ''} -> ${OUT}`);
+console.log(`voice ${VOICE}, ${FROM ? `re-processed from ${FROM}` : `model ${MODEL}`}${RADIO ? ', team radio' : ''} -> ${OUT}`);

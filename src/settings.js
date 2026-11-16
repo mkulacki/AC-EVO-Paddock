@@ -22,11 +22,13 @@ function normHud(h) {
 }
 
 // audio brake spotter: voice clips or beeps counting down to the reference lap's brake points
-export const SPOTTER_DEFAULTS = { on: false, sound: 'voice', volume: 80, countdown: 'full', corners: 'all', offsetMs: 0 };
+// sound: a voice (clips in public/audio/spotter/<voice>/) or 'beep'
+export const SPOTTER_VOICES = ['orus', 'algenib'];
+export const SPOTTER_DEFAULTS = { on: false, sound: 'orus', volume: 80, countdown: 'full', corners: 'all', offsetMs: 0 };
 const pick = (v, allowed, d) => (allowed.includes(v) ? v : d);
 function normSpotter(p) {
   const D = SPOTTER_DEFAULTS;
-  return { on: typeof p?.on === 'boolean' ? p.on : D.on, sound: pick(p?.sound, ['voice', 'beep'], D.sound),
+  return { on: typeof p?.on === 'boolean' ? p.on : D.on, sound: pick(p?.sound === 'voice' ? 'orus' : p?.sound, [...SPOTTER_VOICES, 'beep'], D.sound),
     volume: clampNum(p?.volume, 0, 100, D.volume), countdown: pick(p?.countdown, ['full', 'brake'], D.countdown),
     corners: pick(p?.corners, ['all', 'big'], D.corners), offsetMs: clampNum(p?.offsetMs, -500, 500, D.offsetMs) };
 }

@@ -10,9 +10,9 @@ Changes merged to `main` that are not in a release yet. Move them under a versio
 
 - A voice or beeps count down to each braking point while you drive: "three, two, one, brake", or "lift" where the reference lap only lifted. Suggested in [#3](https://github.com/mkulacki/AC-EVO-Paddock/issues/3), so you can keep your eyes on the road. It also works in VR.
 - It uses the braking points of the HUD's reference lap (all-time best by default). The countdown is in seconds from your current speed.
-- Settings → Brake spotter: on/off (off by default), voice or beeps, full countdown or only "brake", every point or big stops only, volume, timing (±500 ms), and a Test button.
+- Settings → Brake spotter: on/off (off by default), sound (two calm team-radio voices, Orus and Algenib, or beeps), full countdown or only "brake", every point or big stops only, volume, timing (±500 ms), and a Test button.
 - Sound plays from Paddock on the default audio device, also while the desktop app is in the tray.
-- The voice clips were generated with Gemini text-to-speech and ship with the app (`src/tools/make-spotter-clips.js` remakes them).
+- The voice clips were generated with Gemini text-to-speech, with a team-radio effect, and ship with the app (`src/tools/make-spotter-clips.js` remakes them).
 
 ### Fixes
 
