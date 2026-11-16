@@ -404,7 +404,7 @@ async function route(req, res) {
     if (!r) {
       // too short for a report: the session page shows the basics and the laps
       if (!laps.length) return send(res, 404, { error: 'This session has no laps.' });
-      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return send(res, 200, { data: null, session: db.getSession(id) ?? null, laps });
+      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return send(res, 200, { data: null, session: db.getSession(id) ?? null, laps, hasKey: !!settings.get().geminiApiKey });
       try { report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); }
     }
     const c = r.data.combo;

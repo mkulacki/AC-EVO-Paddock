@@ -92,7 +92,13 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 ## Sessions tab
 
 - **Sessions:** *By track & car* (a card per track/layout/car with your best and ideal lap) or *By date* (newest first). Each session is one row with its best lap, change against the last session or a new PB, average, consistency, laps, setup and weakest corners. Filter by track or car.
-- **Session page** (click a session): the session report (see below) and that session's laps. Sessions under 3 laps show the basics and their laps. Imported laps are listed under their track and car.
+- **Session page** (click a session): a *Telemetry* tab and a *Report & targets* tab (see Session reports). Sessions under 3 laps show the basics and the telemetry. Imported laps are listed under their track and car.
+- **Telemetry** (session page, and Compare): opens on the session's best lap against the ideal lap.
+  - *Your lap* and *Reference* are drop-down menus: every lap of the session (and of other sessions), the ideal lap or your all-time best. *+ Add a lap* overlays up to 3 laps; ← / → steps your lap through its session.
+  - *Where the time went*: the lap as one bar, a segment per corner, red where you lost time and blue where you gained it. Click a corner to zoom the charts and the map to it; the map then shows both driven lines and both brake points.
+  - The corner card says what was different at entry, apex and exit, with one tip. Without a corner selected it lists your three biggest losses.
+  - Charts: gap to the reference, speed, pedals (throttle up, brake down) and steering; gear, RPM and racing line on request. One cursor: hovering a chart or the map moves the cursor on every chart and the cars on the map. Drag to zoom, double-click for the whole lap.
+  - All laps of the session are in a folded table under the telemetry: click one to analyse it.
 - **Start hotlap:** starts that car and track in Hotlap mode with clear weather and optimum grip. Progress shows on the Race tab.
 - **Compare:** up to 3 laps against a reference:
   - *my best lap*,

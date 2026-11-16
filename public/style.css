@@ -577,3 +577,63 @@ nav a .nav-dot { display: inline-block; width: 7px; height: 7px; border-radius: 
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 @media (max-width: 900px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
 .setup-check td, .setup-check th { padding: 3px 6px; font-size: var(--fs-xs); }
+
+/* ---- Telemetry (session page and compare page): picker, time-loss bar, map + corner on the left, charts on the right */
+.tele .hint, .tele-pick .hint, .laps-fold .hint { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 400; }
+.tele-pick { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 12px; position: relative; z-index: 3; }
+.tchip { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius-ctl); padding: 6px 10px; background: var(--surface-2); cursor: pointer; min-width: 230px; white-space: nowrap; }
+.tchip:hover { border-color: var(--text-muted); }
+.tchip:focus-visible { outline: 2px solid var(--sel-bg); }
+.tchip > i { width: 14px; height: 4px; border-radius: 1px; transform: skewX(-20deg); flex: none; }
+.tchip .l { display: block; font-size: 11px; color: var(--text-muted); }
+.tchip .t { font-weight: 700; font-variant-numeric: tabular-nums; }
+.tchip .badge { font-size: 11px; padding: 0 5px; margin-left: 2px; }
+.tchip .dd { margin-left: auto; color: var(--text-muted); }
+.tchip .tx { margin-left: auto; }
+.tele-pick .vs { font-weight: 800; color: var(--text-muted); }
+.tele-pick .add { border-style: dashed; background: transparent; }
+.tmenu { position: absolute; z-index: 20; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 28px rgba(0,0,0,.18);
+  width: 320px; max-height: 380px; overflow: auto; padding: 6px; }
+.tmenu .grp { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; padding: 8px 8px 2px; }
+.tmenu .it { display: grid; grid-template-columns: 26px 1fr 80px; gap: 6px; width: 100%; text-align: left; border: 0; background: transparent; padding: 5px 8px; border-radius: 2px;
+  font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 400; }
+.tmenu .it:hover, .tmenu .it.on { background: var(--surface-3); }
+.tmenu .inv { text-decoration: line-through; color: var(--text-muted); }
+.tele-bar { padding: 12px 14px; }
+.cbar { display: flex; min-height: 46px; border: 1px solid var(--border); border-radius: var(--radius-ctl); overflow: hidden; }
+.cseg { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 0; border: 0; border-right: 1px solid var(--surface-1);
+  border-radius: 0; padding: 2px; font-size: 12px; font-weight: 400; overflow: hidden; }
+.cseg b { font-size: 13px; }
+.cseg span, .cseg small { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cseg.str { background: var(--surface-2); color: var(--text-muted); cursor: default; }
+button.cseg:hover { box-shadow: inset 0 0 0 2px var(--text-primary); }
+.cseg.sel { box-shadow: inset 0 0 0 3px var(--text-primary); }
+.tele-grid { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px; align-items: start; }
+.tele-side { position: sticky; top: 72px; }
+.tele-map { padding: 12px 14px; }
+.tele-map canvas { width: 100%; height: 300px; display: block; margin-top: 6px; }
+.tele-map .sw { display: inline-block; width: 10px; height: 4px; margin: 0 4px 2px 8px; vertical-align: middle; }
+.tele-corner { padding: 14px; }
+.tele-corner h3 { font-size: var(--fs-md); }
+.cnotes { margin: 10px 0 0; padding: 0; list-style: none; }
+.cnotes li { margin: 5px 0; font-size: var(--fs-sm); }
+.cnotes .tag { display: inline-block; min-width: 46px; font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 1px 5px; margin-right: 6px; border-radius: 2px; background: var(--surface-3); color: var(--text-secondary); text-align: center; }
+.ctry { margin-top: 10px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius-ctl); font-size: var(--fs-sm); }
+.loss-row { display: grid; grid-template-columns: 34px 1fr; gap: 2px 6px; align-items: baseline; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--border);
+  background: transparent; padding: 7px 2px; border-radius: 0; font-weight: 400; color: var(--text-primary); }
+.loss-row:hover { background: var(--surface-2); }
+.loss-row .hint { grid-column: 2; white-space: normal; }
+.loss-row > * { text-align: left; }
+.tele-charts { padding: 12px 14px; min-width: 0; }
+.tele-charts .tcheck { display: inline-flex; gap: 4px; align-items: center; font-size: var(--fs-xs); color: var(--text-secondary); margin-left: 8px; }
+.tchart { margin-top: 6px; }
+.tchart .chart-title { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); }
+.tchart .chart-title span { text-transform: none; font-weight: 400; color: var(--text-muted); letter-spacing: 0; margin-left: 4px; }
+/* values under the cursor above each chart, not below */
+.tchart .uplot { display: flex; flex-direction: column; }
+.tchart .u-legend { order: -1; text-align: left; font-size: 12px; margin: 0 0 2px; }
+.tchart .u-legend .u-series th { font-weight: 400; color: var(--text-secondary); }
+.tchart .u-legend .u-series td { font-weight: 700; font-variant-numeric: tabular-nums; }
+.laps-fold summary { cursor: pointer; }
+.laps-fold table.laps tbody tr[data-open] { cursor: pointer; }
+@media (max-width: 1000px) { .tele-grid { grid-template-columns: 1fr; } .tele-side { position: static; } }

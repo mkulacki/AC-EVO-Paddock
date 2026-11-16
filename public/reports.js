@@ -1,7 +1,8 @@
-// Session page (Sessions → Open session): the session report and the session's laps. Reports are made automatically when a session ends (3+ laps, one valid), or on request for older sessions.
+// Session page (Sessions → a session): telemetry of its laps (public/telemetry.js), its report and its laps. Reports are made automatically when a session ends (3+ laps, one valid), or on request for older sessions.
 // Best lap and average, change against earlier sessions, best / weakest corners, consistency, setups and
 // conditions, lap-time trend, theoretical best, track limits, next practice targets and the AI debrief.
 import { $, css, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES, md } from './util.js';
+import { mountTelemetry } from './telemetry.js';
 
 const stamp = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -21,7 +22,7 @@ export async function viewReport(view, params, cleanup) {
   const id = Number(params.get('session'));
   const res = await api(`/api/report?session=${id}`);
   const reload = () => viewReport(view, params, cleanup);
-  if (!res.data) { viewBasic(view, res, reload); return; }
+  if (!res.data) { await viewBasic(view, res, reload, params, cleanup); return; }
   const r = res.data, imp = r.improvement, cons = r.consistency;
   const cornerBy = new Map(r.corners.all.map((c) => [c.name, c]));
   const prevTxt = imp.prev ? `previous session (${when(imp.prev.startedAt)})` : null;
@@ -79,7 +80,6 @@ export async function viewReport(view, params, cleanup) {
       <div><h1>${comboTxt(r.combo)}</h1>
         <div class="secondary">${esc(prettyName(r.combo.car))} · ${esc(SESSION_TYPES[r.sessionType] || 'Session')} on ${esc(when(r.startedAt))}</div></div>
       <span class="spacer"></span>
-      <a href="#/compare?laps=${r.best.lapId}&ref=best"><button>Open best lap</button></a>
       <a href="#/consistency?combo=${encodeURIComponent(`${r.combo.track}|${r.combo.layout}|${r.combo.car}`)}&session=${id}"><button>Consistency</button></a>
       <button class="ghost" id="rRegen" title="Build the report again from the laps (keeps nothing but the AI debrief)">Regenerate</button>
     </div>
@@ -93,8 +93,8 @@ export async function viewReport(view, params, cleanup) {
       <div class="card stat"><span class="k">Laps</span><span class="v">${r.laps.valid}<small class="muted"> valid / ${r.laps.total}</small></span></div>
     </div>
 
-    <div class="card" id="rLaps"><h2 style="margin:0">Laps</h2>${lapsBlock(res.laps, { bestMs: r.best.ms, bestLapId: r.best.lapId })}</div>
-
+    ${sessionTabs(res.laps, r.best.lapId, r.best.ms)}
+    <div id="tabReport" hidden>
     <div class="card"><h2>Next practice targets</h2><ol style="margin:0 0 0 20px;padding:0">${r.targets.map((t) => `<li style="margin:4px 0">${esc(t.text)}</li>`).join('')}</ol>
       ${r.prevTargets ? `<h3 style="margin:14px 0 6px">Last session's targets</h3><ul style="list-style:none;margin:0;padding:0">${r.prevTargets.items.map((t) => `<li style="margin:4px 0">
         <span class="${t.met ? 'neg' : t.met === false ? 'pos' : 'muted'}" style="font-weight:700">${t.met ? '✔' : t.met === false ? '✘' : '·'}</span> ${esc(t.text)} <span class="muted">: ${esc(t.actual)}</span></li>`).join('')}</ul>` : ''}
@@ -121,7 +121,8 @@ export async function viewReport(view, params, cleanup) {
     <div class="card"><div class="row"><h2 style="margin:0">AI debrief</h2><span class="spacer"></span>
       <button id="rAi" class="${res.ai ? 'ghost' : 'primary'}" ${res.hasKey ? '' : 'disabled title="Add a Gemini API key in Settings"'}>${res.ai ? 'Write again' : 'Write debrief'}</button></div>
       <div id="rAiOut" style="margin-top:8px">${res.ai ? `<div class="ai-out">${md(res.ai.text)}</div><p class="muted" style="font-size:12px">${esc(res.ai.model)}, ${esc(when(res.ai.at))}</p>`
-        : `<p class="muted" style="margin:0">${res.hasKey ? 'Gemini turns this report into a short debrief with a plan for your next session.' : 'Add a Gemini API key in <a href="#/settings">Settings</a> for an AI debrief.'}</p>`}</div></div>`;
+        : `<p class="muted" style="margin:0">${res.hasKey ? 'Gemini turns this report into a short debrief with a plan for your next session.' : 'Add a Gemini API key in <a href="#/settings">Settings</a> for an AI debrief.'}</p>`}</div></div>
+    </div>`;
 
   // ---- actions
   $('#rRegen').onclick = async () => { await post('/api/report/regenerate', { session: id }); reload(); };
@@ -143,9 +144,10 @@ export async function viewReport(view, params, cleanup) {
     b.disabled = false;
   };
 
-  bindLaps($('#rLaps'), res.laps, afterDelete(res.laps, reload));
+  await bindSession(view, params, cleanup, { id, laps: res.laps, bestLapId: r.best.lapId, hasKey: res.hasKey, reload, onReport: drawTrend });
 
-  // ---- lap-time trend (uPlot): valid laps, invalid laps, clean average, theoretical best
+  // ---- lap-time trend (uPlot): valid laps, invalid laps, clean average, theoretical best. Drawn when the Report tab is first shown
+  function drawTrend() {
   const el = $('#rTrend');
   const laps = r.trend;
   const xs = laps.map((_, i) => i + 1);
@@ -178,6 +180,43 @@ export async function viewReport(view, params, cleanup) {
   const onResize = () => plot.setSize({ width: el.clientWidth, height: 240 });
   window.addEventListener('resize', onResize);
   cleanup.push(() => { window.removeEventListener('resize', onResize); plot.destroy(); });
+  }
+}
+
+// ---- the session page's tabs: Telemetry (with the laps folded under it) and the report
+function sessionTabs(laps, bestLapId, bestMs, report = true) {
+  return `<div class="tabs sess-tabs"><a href="#" data-tab="tele">Telemetry</a>${report ? '<a href="#" data-tab="report">Report &amp; targets</a>' : ''}</div>
+    <div id="tabTele"><div id="tele"><div class="card"><span class="spinner"></span> Loading telemetry…</div></div>
+      <details class="card laps-fold" id="rLaps"><summary><b>All ${laps.length} lap${laps.length === 1 ? '' : 's'} of this session</b>
+        <span class="hint">click a lap to analyse it · tick up to 3 to compare</span></summary>
+        ${lapsBlock(laps, { bestMs, bestLapId })}</details></div>`;
+}
+async function bindSession(view, params, cleanup, { id, laps, bestLapId, hasKey, reload, onReport }) {
+  const state = { tab: params.get('tab') === 'report' && onReport ? 'report' : 'tele', tele: null };
+  const url = (s) => `#/report?session=${id}${s ? `&laps=${s.laps.join(',')}&ref=${s.ref}${s.corner ? `&c=${encodeURIComponent(s.corner)}` : ''}` : ''}${state.tab === 'report' ? '&tab=report' : ''}`;
+  let teleState = null;
+  let trendDrawn = false;
+  const show = (tab) => {
+    state.tab = tab;
+    view.querySelectorAll('.sess-tabs [data-tab]').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
+    $('#tabTele').hidden = tab !== 'tele';
+    if ($('#tabReport')) $('#tabReport').hidden = tab !== 'report';
+    if (tab === 'report' && !trendDrawn && onReport) { trendDrawn = true; onReport(); }
+    history.replaceState(null, '', url(teleState));
+  };
+  view.querySelectorAll('.sess-tabs [data-tab]').forEach((a) => a.onclick = (e) => { e.preventDefault(); show(a.dataset.tab); });
+  show(state.tab);
+  bindLaps($('#rLaps'), laps, afterDelete(laps, reload), (lapId) => {
+    state.tele?.set({ laps: [lapId], corner: null });
+    $('#tele').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  const first = bestLapId ?? laps[0]?.id;
+  if (first == null) return;
+  const lapsParam = (params.get('laps') || '').split(',').map(Number).filter(Boolean);
+  state.tele = await mountTelemetry($('#tele'), {
+    laps: lapsParam.length ? lapsParam : [first], ref: params.get('ref') || 'ideal', corner: params.get('c'), sessionId: id, hasKey,
+    onState: (s) => { teleState = s; history.replaceState(null, '', url(s)); },
+  }, cleanup);
 }
 
 // ---- a list of laps: compare (up to 3), open, export, delete. Session page, and imported laps on the Sessions page
@@ -190,7 +229,7 @@ export function lapsBlock(laps, { bestMs, bestLapId, bestLabel = 'Session best' 
     <table class="laps"><thead><tr><th></th><th>Lap</th><th>Time</th><th>Gap</th><th>Setup</th><th>Recorded</th><th></th></tr></thead><tbody>
     ${laps.map((l) => {
       const isBest = l.id === bestLapId;
-      return `<tr class="${l.valid ? '' : 'invalid'}" data-open="#/compare?laps=${l.id}&ref=best" title="Compare with your best lap">
+      return `<tr class="${l.valid ? '' : 'invalid'}" data-open="#/compare?laps=${l.id}&ref=best" data-id="${l.id}" title="Analyse this lap">
         <td><input type="checkbox" data-lap="${l.id}" aria-label="Select lap for comparison"></td>
         <td class="muted">${l.lap_number ?? ''}</td>
         <td class="time${isBest ? ' pb' : ''}"><b>${fmt(l.lap_time_ms)}</b> ${isBest ? `<span class="badge pb">${bestLabel}</span>` : ''} ${l.valid ? '' : '<span class="badge bad">Invalid</span>'}</td>
@@ -204,8 +243,8 @@ export function lapsBlock(laps, { bestMs, bestLapId, bestLabel = 'Session best' 
         </td></tr>`;
     }).join('')}</tbody></table>`;
 }
-// after(deletedIds): called once laps were deleted
-export function bindLaps(root, laps, after) {
+// after(deletedIds): called once laps were deleted; onOpen(lapId): a click on a lap (default: open it in Compare)
+export function bindLaps(root, laps, after, onOpen = null) {
   const sel = new Set();
   const btn = root.querySelector('.cmp-sel');
   const upd = () => { btn.disabled = !sel.size; btn.textContent = `Compare selected (${sel.size})`; };
@@ -218,7 +257,10 @@ export function bindLaps(root, laps, after) {
     const ids = [...sel]; const ref = root.querySelector('.ref-sel').value;
     location.hash = `#/compare?laps=${ids.join(',')}&ref=${ref === 'first' ? ids[0] : ref}`;
   };
-  root.querySelectorAll('table.laps tr[data-open]').forEach((tr) => tr.onclick = (e) => { if (!e.target.closest('input, button, a, label')) location.hash = tr.dataset.open; });
+  root.querySelectorAll('table.laps tr[data-open]').forEach((tr) => tr.onclick = (e) => {
+    if (e.target.closest('input, button, a, label')) return;
+    if (onOpen) onOpen(+tr.dataset.id); else location.hash = tr.dataset.open;
+  });
   const remove = async (ids, what) => {
     if (!confirm(`Delete ${what} permanently?\n\nThis cannot be undone.`)) return;
     await post('/api/laps/delete', { ids });
@@ -232,7 +274,7 @@ export function bindLaps(root, laps, after) {
 const afterDelete = (laps, reload) => (ids) => { if (laps.every((l) => ids.includes(l.id))) location.hash = '#/'; else reload(); };
 
 // a session too short for a report (fewer than 3 laps, or none valid): the basics and its laps
-function viewBasic(view, res, reload) {
+async function viewBasic(view, res, reload, params, cleanup) {
   const s = res.session, laps = res.laps, c = laps[0];
   const valid = laps.filter((l) => l.valid);
   const best = valid.reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
@@ -249,6 +291,6 @@ function viewBasic(view, res, reload) {
       <div class="card stat"><span class="k">Setup</span><span class="v" style="font-size:18px">${setups.length ? setups.map(esc).join(', ') : '–'}</span></div>
     </div>
     <p class="muted" style="margin:0 0 16px">A session report needs 3 laps or more, one of them valid.</p>
-    <div class="card" id="rLaps"><h2 style="margin:0">Laps</h2>${lapsBlock(laps, { bestMs: best?.lap_time_ms, bestLapId: best?.id })}</div>`;
-  bindLaps($('#rLaps'), laps, afterDelete(laps, reload));
+    ${sessionTabs(laps, best?.id, best?.lap_time_ms, false)}`;
+  await bindSession(view, params, cleanup, { id: s?.id ?? c.session_id, laps, bestLapId: best?.id ?? null, hasKey: res.hasKey, reload, onReport: null });
 }
