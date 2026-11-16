@@ -7,7 +7,7 @@ import { viewRace } from './race.js';
 import { viewProgress } from './progress.js';
 import { viewMods } from './mods.js';
 import { viewSetups } from './setups.js';
-import { viewReports, viewReport } from './reports.js';
+import { viewReports, viewReport, sessionsHead } from './reports.js';
 import { initSpotter, spotterAudioState, loadVoice } from './spotter.js';
 
 const view = $('#view');
@@ -36,10 +36,10 @@ const STATUS_TEXT = {
   live: 'On track', unknown: 'AC EVO is running',
 };
 events.addEventListener('lap', () => { if (currentRoute === 'laps') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
-// a session report was just made: a dot on the Reports tab until it is opened (the desktop app also notifies)
+// a session report was just made: a dot on the Sessions tab until Reports is opened (the desktop app also notifies)
 events.addEventListener('report', () => {
   if (currentRoute === 'reports') { render(); return; }
-  const a = document.querySelector('nav a[data-nav=reports]');
+  const a = document.querySelector('nav a[data-nav=laps]');
   if (a && !a.querySelector('.nav-dot')) a.insertAdjacentHTML('beforeend', '<span class="nav-dot" title="New session report"></span>');
 });
 let reloadT;
@@ -87,8 +87,8 @@ async function render() {
   const prevRoute = currentRoute;
   currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/reports': 'reports', '/report': 'report' }[path] || 'laps';
   if (currentRoute === 'laps' && prevRoute !== 'laps') lapView = { ...LAP_VIEW_DEFAULT };
-  const navKey = currentRoute === 'track' ? 'tracks' : currentRoute === 'report' ? 'reports' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks', 'reports'].includes(currentRoute) ? currentRoute : 'laps';
-  if (navKey === 'reports') document.querySelector('nav a[data-nav=reports] .nav-dot')?.remove();
+  const navKey = currentRoute === 'track' ? 'tracks' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
+  if (currentRoute === 'reports' || currentRoute === 'report') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
     if (currentRoute === 'game') await viewGame();
@@ -142,7 +142,7 @@ async function removeLaps(ids, what) {
 async function viewLaps() {
   const o = await api('/api/overview');
   if (!o.combos.length) {
-    view.innerHTML = `<div class="card empty">
+    view.innerHTML = `${sessionsHead('laps')}<div class="card empty">
       <h2>No laps yet</h2>
       <p>Start Assetto Corsa EVO and drive. Laps are saved automatically when you cross the line.</p>
       <p class="muted">Want to try it first? Run <code>npm run seed</code> for demo laps, or start with <code>npm run mock</code>.</p>
@@ -172,8 +172,9 @@ async function viewLaps() {
   const comboLaps = (c) => o.laps.filter((l) => `${l.track}|${l.layout}|${l.car}` === c.key);
   const opts = (list, cur, all) => `<option value="">${all}</option>` + list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(prettyName(v))}</option>`).join('');
   view.innerHTML = `
+    ${sessionsHead('laps')}
     <div class="row" style="margin-bottom:16px">
-      <h1>Your laps</h1><span class="spacer"></span>
+      <span class="spacer"></span>
       <select id="f-track" title="Filter by track">${opts(tracks, lapView.track, 'All tracks')}</select>
       <select id="f-car" title="Filter by car">${opts(cars, lapView.car, 'All cars')}</select>
       <select id="f-order" title="Order by">${Object.entries(orders).map(([k, [label]]) => `<option value="${k}" ${k === lapView.order ? 'selected' : ''}>${label}</option>`).join('')}</select>
