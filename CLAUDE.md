@@ -23,14 +23,14 @@ Ask the user before pushing, tagging or publishing. Each of those is public.
 
 1. **Version:** bump `version` in `package.json` and in both top-level entries of `package-lock.json` (semver; betas are `0.x.y-beta.N`). If the in-game HUD changed, also bump `mod/trainerhud/app.json` `version`.
    If AC EVO updated since the last release, check that `mod/ACEUIAppLoader/loader.json` `game` matches the new game version. If it doesn't, replace both zips with the matching [ACE UI App Loader release](https://github.com/dreasgrech/ACEUIAppLoader/releases) and update `version`, `game` and the two `.kspkg` SHA-256s. Paddock never installs a loader that was built for a different game version.
-2. **Syntax check:** `for f in desktop/*.cjs desktop/*.mjs overlay/*.cjs src/*.js src/tools/*.js public/*.js mod/trainerhud/*.js; do node --check "$f" || echo FAIL $f; done`
+2. **Syntax check and tests:** `npm run check` (syntax of every shipped script) and `npm test` (unit tests + API smoke test against a mock server, ~2 s). Both must pass. The tests use temporary data dirs under `%TEMP%\paddock-tests` and never write to `data\` or `Saved Games\ACE`.
 3. **Secret scan of what will be committed:**
    - `git diff --cached --name-only | grep -iE "^data/|node_modules|^dist/|\.db$|settings\.json|\.log$"` must print nothing.
    - `git grep --cached -nIE "AIza[0-9A-Za-z_-]{20,}|AQ\.[A-Za-z0-9_-]{20,}|ghp_|gho_|sk-[A-Za-z0-9]{20,}"` must print nothing.
 4. **Commit** (end with the Co-Authored-By line from the session's attribution instructions) and push `main`.
 5. **Build:** `rm -rf dist && npx electron-builder --win dir`, which gives `dist/win-unpacked/AC EVO Paddock.exe`. Use the build only, not `npm run dist`, which also deploys locally.
 6. **Smoke test** with a throwaway data dir, so nothing is written into the build:
-   - PowerShell: `Remove-Item Env:ELECTRON_RUN_AS_NODE`; set `$env:ACEVO_DATA` to a scratch folder; start the exe; `Invoke-WebRequest http://localhost:8080/` should give 200 with title "AC EVO Paddock"; check `<scratch>\logs\paddock.log`; then `Stop-Process -Name "AC EVO Paddock"`.
+   - PowerShell: `Remove-Item Env:ELECTRON_RUN_AS_NODE`; set `$env:ACEVO_DATA` to a scratch folder; start the exe; `Invoke-WebRequest http://127.0.0.1:8080/ -UseBasicParsing` should give 200 (not `localhost`: Windows PowerShell tries IPv6 first and can time out, while the server listens on 127.0.0.1 only) with title "AC EVO Paddock"; check `<scratch>\logs\paddock.log`; then `Stop-Process -Name "AC EVO Paddock"`.
    - Port 8080 must be free, so quit the user's running app first.
    - The Claude session has `ELECTRON_RUN_AS_NODE=1` set, so it must be cleared or Electron runs as plain Node.
    - Then confirm `dist/win-unpacked/data` does **not** exist.

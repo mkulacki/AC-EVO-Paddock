@@ -123,13 +123,19 @@ export class MockSource {
   tick() { for (let i = 0; i < this.speedup; i++) this.step(); }
 }
 
-// Seed the database with N mock laps: node src/mock.js --seed 10
-if (process.argv[1]?.endsWith('mock.js') && process.argv.includes('--seed')) {
-  const n = Number(process.argv[process.argv.indexOf('--seed') + 1]) || 8;
+/** Drive the mock car until n laps are saved in the database (one session). onLap gets each saved lap. */
+export async function seedLaps(n, onLap = () => {}) {
   const { Recorder } = await import('./recorder.js');
   const rec = new Recorder(() => 'Mock Driver');
   const src = new MockSource();
-  rec.on('lap', (l) => console.log(`lap #${l.id} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? '' : '(invalid)'}`));
+  rec.on('lap', onLap);
   while (rec.state.savedLaps < n) { src.step(); rec.onFrame(src.frame()); }
   rec.endSession();
+  return rec;
+}
+
+// Seed the database with N mock laps: node src/mock.js --seed 10
+if (process.argv[1]?.endsWith('mock.js') && process.argv.includes('--seed')) {
+  const n = Number(process.argv[process.argv.indexOf('--seed') + 1]) || 8;
+  await seedLaps(n, (l) => console.log(`lap #${l.id} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? '' : '(invalid)'}`));
 }
