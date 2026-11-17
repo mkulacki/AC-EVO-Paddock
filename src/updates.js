@@ -42,7 +42,8 @@ export function newest(releases, current) {
   ok.sort((a, b) => compare(b.tag_name, a.tag_name));
   const top = ok[0];
   if (!top || compare(top.tag_name, current) <= 0) return null;
-  return { version: top.tag_name.replace(/^v/i, ''), name: top.name || top.tag_name, url: top.html_url, publishedAt: top.published_at, prerelease: !!top.prerelease };
+  const url = typeof top.html_url === 'string' && top.html_url.startsWith(`https://github.com/${REPO}/`) ? top.html_url : `https://github.com/${REPO}/releases`;
+  return { version: top.tag_name.replace(/^v/i, ''), name: String(top.name || top.tag_name).slice(0, 120), url, publishedAt: top.published_at, prerelease: !!top.prerelease };
 }
 
 let state = (() => { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return {}; } })();

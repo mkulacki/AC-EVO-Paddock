@@ -118,6 +118,91 @@ test('restore at start: files swapped before the database opens; key and passwor
   backup.cancelRestore();
 });
 
+test('restore at start, failure: the database cannot be replaced → current data unchanged, retried, set aside after 3 tries', async () => {
+  await backup.stageRestore(plain.name);
+  const other = fs.mkdtempSync(path.join(dir, 'locked-'));
+  fs.cpSync(path.join(ACEVO_DATA, PENDING), path.join(other, PENDING), { recursive: true });
+  backup.cancelRestore();
+  // a folder where the database should be: the rename over it fails, like a locked file would
+  fs.mkdirSync(path.join(other, 'telemetry.db'));
+  fs.writeFileSync(path.join(other, 'telemetry.db', 'marker'), 'old data');
+  fs.writeFileSync(path.join(other, 'settings.json'), JSON.stringify({ driverName: 'Current' }));
+  for (let k = 1; k <= 2; k++) {
+    const r = applyPendingRestore(other);
+    assert.equal(r.ok, false);
+    assert.match(r.error, /unchanged/);
+    assert.ok(fs.existsSync(path.join(other, PENDING, 'manifest.json')), 'kept for the next start');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(other, PENDING, 'manifest.json'), 'utf8')).attempts, k);
+  }
+  assert.equal(fs.readFileSync(path.join(other, 'telemetry.db', 'marker'), 'utf8'), 'old data');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(other, 'settings.json'), 'utf8')).driverName, 'Current', 'nothing else touched');
+  assert.ok(!fs.existsSync(path.join(other, 'telemetry.db.restoring')));
+  const third = applyPendingRestore(other);
+  assert.equal(third.ok, false);
+  assert.ok(!fs.existsSync(path.join(other, PENDING)), 'given up after 3 starts');
+  assert.ok(fs.readdirSync(other).some((n) => n.startsWith('restore-failed-')));
+});
+
+test('restore merges server passwords everywhere in race.json (servers, presets, last)', async () => {
+  const other = fs.mkdtempSync(path.join(dir, 'race-'));
+  fs.mkdirSync(path.join(other, PENDING));
+  fs.writeFileSync(path.join(other, PENDING, 'race.json'), JSON.stringify({ servers: [{ id: 's1', ip: '1.2.3.4', port: 9600, password: '' }],
+    presets: [{ spec: { server: { ip: '1.2.3.4', port: 9600, password: '' } } }], last: { server: { ip: '5.6.7.8', port: 1, password: '' } } }));
+  fs.writeFileSync(path.join(other, PENDING, 'manifest.json'), JSON.stringify({ files: ['race.json'] }));
+  fs.writeFileSync(path.join(other, 'race.json'), JSON.stringify({ servers: [{ id: 's1', ip: '1.2.3.4', port: 9600, password: 'pw1' }], last: { server: { ip: '5.6.7.8', port: 1, password: 'pw2' } } }));
+  assert.equal(applyPendingRestore(other).ok, true);
+  const r = JSON.parse(fs.readFileSync(path.join(other, 'race.json'), 'utf8'));
+  assert.equal(r.servers[0].password, 'pw1');
+  assert.equal(r.presets[0].spec.server.password, 'pw1');
+  assert.equal(r.last.server.password, 'pw2');
+});
+
+test('backups leave out the Mods manifest and game caches; reserved and odd names refused; manifest values typed', async () => {
+  fs.writeFileSync(path.join(ACEVO_DATA, 'mods.json'), '{"mods":[]}');
+  const b = await backup.create();
+  assert.ok(!zip.list(backup.fileOf(b.name)).some((e) => e.name === 'mods.json'));
+  for (const bad of ['CON.zip', 'nul.zip', 'com1.zip']) assert.throws(() => backup.fileOf(bad), /Unknown backup/);
+  const evil = path.join(backup.BACKUP_DIR, 'paddock-backup-evil.zip');
+  await zip.writeZip(evil, [{ name: 'manifest.json', data: JSON.stringify({ format: backup.FORMAT, version: 1, files: ['telemetry.db'], createdAt: '<b>x</b>', app: { a: 1 },
+    reason: '<img src=x onerror=alert(1)>', includesSecrets: 'yes', counts: { laps: '<img src=x onerror=alert(1)>', sessions: 2 } }) }, { name: 'telemetry.db', data: 'x' }]);
+  const d = backup.listBackups().find((x) => x.name === 'paddock-backup-evil.zip');
+  assert.equal(d.counts.laps, null);
+  assert.equal(d.counts.sessions, 2);
+  assert.equal(d.app, null);
+  assert.equal(d.includesSecrets, false);
+  assert.equal(typeof d.createdAt, 'number');
+  backup.remove('paddock-backup-evil.zip');
+});
+
+test('two backups at once both succeed, with different names', async () => {
+  const [a, b] = await Promise.all([backup.create(), backup.create()]);
+  assert.ok(a.ok && b.ok);
+  assert.notEqual(a.name, b.name);
+});
+
+test('writeZip errors: missing folder rejects cleanly; never overwrites; no .part left', async () => {
+  await assert.rejects(zip.writeZip(path.join(dir, 'no', 'such', 'dir', 'x.zip'), [{ name: 'a', data: 'b' }]), /ENOENT/);
+  const dest = path.join(dir, 'exists.zip');
+  fs.writeFileSync(dest, 'keep me');
+  await assert.rejects(zip.writeZip(dest, [{ name: 'a', data: 'b' }]), /already exists/);
+  assert.equal(fs.readFileSync(dest, 'utf8'), 'keep me');
+  assert.ok(!fs.existsSync(`${dest}.part`));
+  await assert.rejects(zip.writeZip(path.join(dir, 'gone.zip'), [{ name: 'a', file: path.join(dir, 'missing-source') }]), /ENOENT/);
+  assert.ok(!fs.existsSync(path.join(dir, 'gone.zip')) && !fs.existsSync(path.join(dir, 'gone.zip.part')));
+});
+
+test('crafted zips: an entry larger than it says, or an oversized manifest, is refused without inflating it', async () => {
+  const z = path.join(dir, 'bomb.zip');
+  await zip.writeZip(z, [{ name: 'manifest.json', data: 'x'.repeat(200000) }]);
+  assert.throws(() => zip.readEntry(z, 'manifest.json', { maxSize: 1000 }), /unexpectedly large/);
+  // claim 10 bytes in the central directory for 200 kB of data
+  const buf = fs.readFileSync(z);
+  const cen = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  buf.writeUInt32LE(10, cen + 24);
+  fs.writeFileSync(z, buf);
+  assert.throws(() => zip.readEntry(z, 'manifest.json'), /larger than it says/);
+});
+
 // ---------------------------------------------------------------- export
 test('CSV export: one row per lap / session, spreadsheet formulas neutralised', () => {
   const laps = dataexport.lapsCsv().trim().split('\r\n');
@@ -138,6 +223,15 @@ test('redact: keys, given secrets, driver names, the user folder', () => {
   const t = diagnostics.redact(`key ${KEY} at ${home}\\x and ${lookalike} by Jan Kowalski, pw ${PW}`, { secrets: [KEY, PW], names: ['Jan Kowalski'] });
   assert.ok(!t.includes(KEY) && !t.includes(PW) && !t.includes('Jan Kowalski') && !t.includes(home) && !t.includes('AIzaSy'), t);
   assert.match(t, /%USERPROFILE%/);
+  // the user folder in JSON (doubled backslashes), in a file URL, and the bare user name after Users\
+  const B = String.fromCharCode(92);
+  const user = os.userInfo().username;
+  const forms = [JSON.stringify(home), `file:///${encodeURI(home.split(B).join('/'))}/x`, `D:${B}Users${B}${user}${B}Documents`, `D:/Users//${user}/x`];
+  for (const f of forms) {
+    const r = diagnostics.redact(f);
+    assert.ok(!r.toLowerCase().includes(home.toLowerCase()) && !new RegExp(`Users[${B}${B}/]+${user}([${B}${B}/"]|$)`, 'i').test(r), `${f} → ${r}`);
+  }
+  assert.equal(diagnostics.redact('pw abc here', { secrets: ['abc'] }), 'pw [secret] here', '3-character secrets too');
 });
 
 test('diagnostics report: useful content, no private data', () => {

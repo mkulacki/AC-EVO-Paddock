@@ -35,3 +35,17 @@ Earlier product decisions (Race tab, Mods, setups, spotter, brake marks, reports
 - **Why:** this follows the data-integrity rules (measured, calculated, interpreted and missing are shown apart) without hiding features the user built.
 - **Rejected:** hiding unconfirmed data entirely (it would lose the Car & setup tab until verified, and slip can never be verified); a numeric confidence score for rule-based hints (it would suggest a precision the rules don't have).
 - **Backward compatibility:** `settings.probeConfirmed` (≤ 0.5) still counts as checking the pit-box readings and the temperatures; the confirm endpoint without `group` keeps its old meaning.
+
+## 2026-11-17: P3, application management
+
+- **D2, update mechanism (user's choice): check and notify.** Once a day, one anonymous request to the GitHub releases API with a generic User-Agent. Nothing is downloaded or installed, and it can be switched off (`updateCheck`). Beta users are offered betas; stable users only stable releases. Never in mock runs or tests.
+  - **Rejected:** auto-download and install (unsigned builds, more risk); no check (the user's choice).
+- **Backups:** a zip in `data\backups` with a `VACUUM INTO` copy of telemetry.db and the small JSON files. Secrets are out by default. Caches, logs, disabled mods and the backups themselves are excluded.
+  - **Why:** one file is easy to keep or move, and `VACUUM INTO` gives a consistent copy while the app keeps running.
+  - **Rejected:** copying the data folder (inconsistent while the database is open; caches can be large).
+- **Restore = stage, then swap at the next start** (`src/restore-apply.js`, called from db.js before the database opens), with an automatic backup of the current data first.
+  - **Why:** an open SQLite database can't be replaced safely; the safety backup means a restore can always be undone.
+  - A failed apply moves the staging aside instead of retrying at every start.
+- **Backup and restore refused while on track:** `VACUUM` is synchronous and would stall the 60 Hz loop.
+- **Diagnostics redaction** is done value by value: the key, passwords, driver names (settings and laps), the Windows user folder, and anything that looks like a Google key or GitHub token.
+- **The zip writer** is part of src/zip.js (deflate, data descriptors, no Zip64), so there are no new dependencies. Verified readable by .NET ZipFile and Expand-Archive.

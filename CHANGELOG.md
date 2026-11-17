@@ -13,6 +13,13 @@ Changes merged to `main` that are not in a release yet. Move them under a versio
 - **Car & setup:** suggestions based on readings you have not checked are listed apart, under *Unconfirmed hints*, instead of as advice. Balance (understeer / oversteer) comes from slip angles, which the game does not show, so it is shown as an unconfirmed reading.
 - **AI coach, debrief and setup engineer** now rate their confidence (high, medium, low) and say what it rests on; they are told which readings are not checked and must not state them as facts.
 
+### New: backup, export, diagnostics, update check (Settings)
+
+- **Backup and restore:** one zip with your laps, sessions, reports, brake points, AI answers, presets and settings (without your Gemini key and server passwords unless you ask). Restoring backs up your current data first and restarts Paddock.
+- **Export** laps and sessions as CSV.
+- **Diagnostics** to paste into a bug report, with private data taken out.
+- **Update check:** once a day Paddock asks GitHub whether a newer version is out and shows a link. Nothing is downloaded. It can be switched off.
+
 ### Development
 
 - Automated tests: `npm test` (unit tests and an API smoke test with the mock car) and `npm run check` (syntax). See README, Contributing.

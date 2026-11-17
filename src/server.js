@@ -203,10 +203,29 @@ function serveStatic(res, file) {
 const safeName = (s) => String(s).replace(/[^a-z0-9_.-]+/gi, '_');
 
 // ---------------------------------------------------------------- routes
+// Only Paddock's own pages may use the API. The server listens on 127.0.0.1 only, but a web page open in the
+// browser could still send requests to it (cross-site requests, DNS rebinding): those are refused here.
+const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+function foreignRequest(req) {
+  const host = String(req.headers.host || '').toLowerCase();
+  const name = host.replace(/:\d+$/, '');
+  if (!OWN_HOSTS.has(name)) return 'unknown host';
+  if (req.method === 'GET' || req.method === 'HEAD') return null;
+  if (req.headers['sec-fetch-site'] === 'cross-site') return 'cross-site request';
+  const origin = req.headers.origin;
+  if (origin && origin !== 'null') {
+    let o; try { o = new URL(origin); } catch { return 'bad origin'; }
+    if (!OWN_HOSTS.has(o.hostname === '::1' ? '[::1]' : o.hostname) || o.port !== (host.match(/:(\d+)$/)?.[1] ?? '')) return 'foreign origin';
+  } else if (origin === 'null') return 'opaque origin';
+  return null;
+}
+
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const m = req.method;
+  const foreign = foreignRequest(req);
+  if (foreign) { console.warn(`[http] refused ${m} ${p}: ${foreign} (host ${req.headers.host}, origin ${req.headers.origin ?? '-'})`); return send(res, 403, { error: 'Forbidden' }); }
 
   if (p === '/api/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -504,7 +523,7 @@ async function route(req, res) {
       if (p === '/api/backup/restore' && m === 'POST') {
         if (busy()) return;
         const { name } = await readJson(req);
-        const out = await backup.stageRestore(name, { appVersion: VERSION });
+        const out = await backup.stageRestore(name, { appVersion: VERSION, stillIdle: () => !inSession() });
         send(res, 200, { ...out, restarting: true });
         setTimeout(restartApp, 300); // the files are swapped at the next start, before the database is opened
         return;

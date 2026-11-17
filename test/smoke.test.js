@@ -136,6 +136,22 @@ test('application management routes: export, diagnostics without private data, u
   assert.equal((await fetch(base + '/api/backup/file?name=..%2fsettings.json')).status, 400);
 });
 
+test('only Paddock pages may use the API: foreign origins, cross-site requests and other host names are refused', async () => {
+  const send = (headers, method = 'POST', p = '/api/backup/restore') => new Promise((resolve, reject) => {
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { 'content-type': 'text/plain', ...headers } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    r.on('error', reject); r.end(method === 'POST' ? '{"name":"x.zip"}' : undefined);
+  });
+  assert.equal(await send({ origin: 'https://evil.example' }), 403);
+  assert.equal(await send({ origin: `http://127.0.0.1:${port + 1}` }), 403, 'another local port is another site');
+  assert.equal(await send({ origin: 'null' }), 403);
+  assert.equal(await send({ 'sec-fetch-site': 'cross-site' }), 403);
+  assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/diagnostics'), 403, 'DNS rebinding');
+  assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/backup/file?name=x.zip'), 403);
+  // Paddock's own page: allowed (the restore itself then fails: on track / no such backup)
+  assert.notEqual(await send({ origin: `http://127.0.0.1:${port}` }), 403);
+  assert.notEqual(await send({ origin: `http://localhost:${port}`, host: `localhost:${port}` }), 403);
+});
+
 // raw request: fetch/URL would clean up "../" before sending it
 const raw = (p) => new Promise((resolve, reject) => {
   http.get({ host: '127.0.0.1', port, path: p }, (r) => { let b = ''; r.on('data', (c) => { b += c; }); r.on('end', () => resolve({ status: r.statusCode, body: b })); }).on('error', reject);

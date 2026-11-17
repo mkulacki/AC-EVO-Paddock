@@ -13,12 +13,19 @@ const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Removes private values from any text: secrets and names given, the user folder, anything that looks like a key. */
 export function redact(text, { secrets = [], names = [] } = {}) {
   let t = String(text ?? '');
-  for (const s of secrets.filter((x) => x && String(x).length >= 4)) t = t.replace(new RegExp(esc(String(s)), 'g'), '[secret]');
+  // longest first, so a secret containing another is taken out whole; 3 characters at least (shorter would hit ordinary text)
+  for (const s of secrets.filter((x) => x && String(x).length >= 3).map(String).sort((a, b) => b.length - a.length)) t = t.replace(new RegExp(esc(s), 'g'), '[secret]');
   for (const n of names.filter((x) => x && String(x).trim().length >= 2)) t = t.replace(new RegExp(esc(String(n).trim()), 'gi'), '[driver]');
+  // the user folder as written in paths, in JSON (doubled backslashes) and in file URLs (%20 for spaces)
   const home = os.homedir();
-  if (home) for (const h of new Set([home, home.replace(/\\/g, '/')])) t = t.replace(new RegExp(esc(h), 'gi'), '%USERPROFILE%');
+  if (home) {
+    const fwd = home.split(String.fromCharCode(92)).join('/');
+    const forms = [home, fwd, home.split(String.fromCharCode(92)).join(String.fromCharCode(92).repeat(2)), encodeURI(fwd)];
+    for (const h of [...new Set(forms)].sort((a, b) => b.length - a.length)) t = t.replace(new RegExp(esc(h), 'gi'), '%USERPROFILE%');
+  }
+  // any other mention of the Windows user name after a Users folder (8.3 names, other drives), whatever its length
   const user = os.userInfo?.().username;
-  if (user && user.length >= 3) t = t.replace(new RegExp(`([\\\\/]Users[\\\\/])${esc(user)}(?=[\\\\/]|$)`, 'gi'), '$1[user]');
+  if (user) t = t.replace(new RegExp(`(Users(?:[\\\\/]+))${esc(user)}(?=[\\\\/"'\\s]|$)`, 'gi'), '$1[user]');
   // Google API keys and GitHub tokens that are not in settings (e.g. pasted into a log line)
   return t.replace(/AIza[0-9A-Za-z_-]{20,}/g, '[secret]').replace(/\bAQ\.[A-Za-z0-9_-]{20,}/g, '[secret]').replace(/\bgh[pousr]_[A-Za-z0-9]{20,}/g, '[secret]');
 }

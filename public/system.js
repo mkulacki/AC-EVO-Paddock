@@ -4,7 +4,7 @@ import { $, esc, api, post } from './util.js';
 
 const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const when = (t) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const plural = (n, w) => `${esc(String(n ?? '?'))} ${w}${n === 1 ? '' : 's'}`;
 const REASON = { 'before-restore': 'made before a restore' };
 
 export const systemHtml = () => `
@@ -63,7 +63,7 @@ async function backupCard(onRestart) {
       <div class="row" style="margin-bottom:8px"><button class="primary" id="bkMake">Back up now</button>
         <label class="row" title="The key and passwords stay on this PC unless you tick this. Untick it for a backup you give to someone else."><input type="checkbox" id="bkSecrets"> Include my Gemini key and server passwords</label>
         <span class="spacer"></span><button id="bkPick" title="A backup from another PC or an older copy">Add a backup file…</button><input type="file" id="bkUpload" accept=".zip" hidden></div>
-      <p id="bkMsg" class="muted" style="margin:0 0 8px">${msg}</p>
+      <p id="bkMsg" class="muted" style="margin:0 0 8px">${esc(msg)}</p>
       ${b.backups.length ? `<div class="tablewrap"><table><thead><tr><th>Backup</th><th>Laps</th><th>Size</th><th></th></tr></thead><tbody>${b.backups.map((x) => `<tr>
         <td>${x.ok ? esc(when(x.createdAt)) : esc(x.name)}${x.reason && REASON[x.reason] ? ` <span class="muted">(${REASON[x.reason]})</span>` : ''}${x.includesSecrets ? ' <span class="badge" title="Contains your Gemini key and server passwords">with key</span>' : ''}
           ${x.ok ? `<div class="muted" style="font-size:12px">${esc(x.name)}${x.app ? `, Paddock ${esc(x.app)}` : ''}</div>` : `<div class="error" style="font-size:12px">${esc(x.error)}</div>`}</td>
