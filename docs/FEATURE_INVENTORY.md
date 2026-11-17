@@ -97,12 +97,12 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 
 | Capability | Status | Note |
 | --- | --- | --- |
-| Backup & restore | Missing | only the automatic pre-migration DB backup |
-| Data export | Partial | per-lap `.lap.gz` export; no bulk/CSV export |
-| Automatic updates | Missing | needs a decision (D2): network access, unsigned builds |
-| Diagnostics | Partial | Game tab status, raw telemetry debug, Setup recognition, tray "Open log" |
+| Backup & restore | Done (P3) | Settings → Backup and restore |
+| Data export | Done (P3) | laps/sessions CSV + per-lap `.lap.gz` |
+| Automatic updates | Done (P3, check and notify) | daily GitHub check, link to the release; no auto-install (user's choice) |
+| Diagnostics | Done (P3) | Settings → Diagnostics, redacted |
 | App health information | Partial | as above, spread over three pages |
-| Error reporting | Partial | uncaught errors logged to `paddock.log`; no "copy diagnostics for a bug report" |
+| Error reporting | Done (P3) | "Copy for a bug report" (redacted) |
 
 ## Engineering
 

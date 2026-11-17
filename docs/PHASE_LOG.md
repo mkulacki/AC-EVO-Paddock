@@ -86,4 +86,48 @@
   - No critical or high findings.
   - Fixed: 3 medium (legacy check lost when changing the other group; the engineer not told whether the recognised setup is trustworthy; the confidence parser missing common formats) and 4 low (old-answer wording, `ok` type check, wrong readings still sent to the AI, dead parameter).
   - Left as limitations: 2 low (balance wording, setup names without a badge in the lap table).
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
+
+## P3: Application management
+
+- **Started / finished:** 2026-11-17 · branch `phase/p3-app-management` · D2 answered: **check and notify**
+- **Implemented:**
+  - **Backup:** a zip in `data\backups` with a VACUUM INTO copy of the database plus settings, race presets/servers and setup notes. The key and passwords are left out unless ticked. List, Save as, Delete, and Add a backup file (upload).
+  - **Restore:** checks the backup (format, newer version, the database opens, quick_check), makes a safety backup, stages the files and restarts. At the next start, before the database opens, the database is swapped by rename after clearing the old WAL. A failure keeps the current data and retries, and is set aside after 3 starts. The current key and passwords are kept if the backup has none. Refused while on track.
+  - **Export:** laps and sessions as CSV, with formula injection neutralised and a BOM for Excel.
+  - **Diagnostics:** a JSON or text report, with the key, passwords, driver names and the user folder (all its forms) removed. "Copy for a bug report".
+  - **Update check:** GitHub releases once a day, a generic User-Agent, a 15 s timeout, never in mock runs or tests, a nav dot plus a Settings card, and a switch to turn it off. Nothing is downloaded.
+  - **API request guard:** foreign origins, other ports, cross-site requests and other host names (DNS rebinding) are refused.
+  - `src/zip.js`: a streaming writer (`.part` then rename, never overwrites, errors handled); inflate capped at the declared size.
+- **Files:**
+  - new: `src/backup.js`, `src/restore-apply.js`, `src/dataexport.js`, `src/diagnostics.js`, `src/updates.js`, `public/system.js`, `test/appmgmt.test.js`;
+  - changed: `src/db.js`, `src/zip.js`, `src/server.js`, `src/settings.js`, `public/app.js`, `test/smoke.test.js`, README, CHANGELOG, DECISIONS.
+- **Tests performed:**
+  - `npm run check`: 73/73. `npm test`: 71/71.
+  - Coverage includes:
+    - the zip round trip and error paths;
+    - backups with and without secrets, and parallel backups;
+    - restore staging and apply, including the locked-database failure;
+    - merging passwords back;
+    - typed manifest values;
+    - reserved names and zip bombs;
+    - CSV injection;
+    - all forms of redaction;
+    - the version order and update checks with a stubbed fetch;
+    - the request guard.
+  - Mutation: disabling the request guard failed the smoke test.
+  - End-to-end with the real server (backup, delete a lap, restore, restart: the lap is back and the key is kept), and the same with the packaged Electron app (relaunch).
+  - Backups open with .NET ZipFile and Expand-Archive.
+  - Settings cards screenshotted with headless Edge: 0 JS errors.
+  - Deployed to `E:\AC EVO Paddock` and started; the new routes answer.
+- **Known limitations:**
+  - VACUUM INTO and quick_check are synchronous: a large database pauses the app for a moment while backing up. Backup and restore are refused while on track, so recording is safe.
+  - No Zip64, so the database must be under 3.9 GB.
+  - Disabled mods and `mods.json` are not backed up (they describe this PC's game folder).
+  - A pending restore is shown only on the Settings page.
+  - The `restore-failed-*` folders kept after a failed restore are not cleaned up automatically.
+- **Review findings (code-review subagent):**
+  - No critical findings. Two high ones were fixed: cross-site request forgery leading to stored XSS and key theft, and a restore that inflated the whole database in memory on the main thread.
+  - All 4 medium findings fixed: zip writer errors, an empty database after a failed apply, the Mods manifest being restored, user-folder leaks.
+  - Lows: L1–L3, L5, L6 (a size check before writing), L7 and L8 fixed. L4 fixed in part: the server re-checks that you're not on track before committing a restore; the pending banner still shows only on the Settings page.
 - **User approval:** pending.
