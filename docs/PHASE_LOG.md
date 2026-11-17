@@ -349,4 +349,4 @@
   - No critical or high findings.
   - Mediums, both fixed: post-lap work blocked the telemetry loop (now debounced 3 s after the lap, met goals not re-measured, report ids without parsing reports, laps read once, result cached); a consistency goal could be met silently when a page load noticed it first (now announced wherever it is stored).
   - Lows fixed: planner text vs. stored goal (weekends now show their goal), unreachable "met late", 500 on malformed goal bodies, weekend achievement time = first lap, a session in two weekends, imported-only combos offered, page re-rendering on every event (debounced, not while the form is open); nits: "days left" rounding, first run marking all achievements new.
-- **User approval:** pending.
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.

@@ -2,9 +2,9 @@
 
 _Last updated: 2026-11-17_
 
-**Status:** P0–P8 approved and merged into local `main`. **P9 done on `phase/p9-development`, waiting for approval.**
-**Current phase:** P9, driver development (approval gate). D3 = yes (achievements and challenges).
-**Branch:** `phase/p9-development` (local, not pushed; the installed app runs the P9 build).
+**Status:** P0–P9 approved and merged into local `main`. **P10 in progress.**
+**Current phase:** P10, final regression and release preparation.
+**Branch:** `phase/p10-release` (local, not pushed).
 
 ## Phases
 
@@ -19,12 +19,12 @@ _Last updated: 2026-11-17_
 | P6 | Driving technique analysis | Done, approved 2026-11-17 |
 | P7 | Setup history and comparison | Done, approved 2026-11-17 |
 | P8 | AI coach upgrade | Done, approved 2026-11-17 |
-| P9 | Driver development | Done, waiting for approval (D3: yes) |
+| P9 | Driver development | Done, approved 2026-11-17 (D3: yes) |
 | P10 | Final regression and release prep | Pending |
 
 ## Current task
 
-P9 approval gate: the user reviews the Development page (goals, challenges, achievements, race weekends, planner) and the Home card.
+P10: full regression, release preparation (no push, tag or publish without asking).
 
 ## Known problems
 
@@ -41,7 +41,7 @@ P9 approval gate: the user reviews the Development page (goals, challenges, achi
 
 ## Next action
 
-On APPROVE: merge `phase/p9-development` into local `main` (no push), mark P9 approved, then start P10 (final regression and release preparation) on `phase/p10-release`. On changes requested: fix on the P9 branch, redeploy, report again.
+Work through P10 on `phase/p10-release`; report at the approval gate. Pushing, tagging and publishing need the user's explicit go.
 
 ## How to resume
 
