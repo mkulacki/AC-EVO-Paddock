@@ -350,3 +350,20 @@
   - Mediums, both fixed: post-lap work blocked the telemetry loop (now debounced 3 s after the lap, met goals not re-measured, report ids without parsing reports, laps read once, result cached); a consistency goal could be met silently when a page load noticed it first (now announced wherever it is stored).
   - Lows fixed: planner text vs. stored goal (weekends now show their goal), unreachable "met late", 500 on malformed goal bodies, weekend achievement time = first lap, a session in two weekends, imported-only combos offered, page re-rendering on every event (debounced, not while the form is open); nits: "days left" rounding, first run marking all achievements new.
 - **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
+
+## P10: Final regression and release preparation
+
+- **Started / finished:** 2026-11-17 · branch `phase/p10-release`
+- **Done:**
+  - Version **0.6.0-beta.1** (`package.json`, both `package-lock.json` entries). The in-game HUD did not change since 0.5.0-beta.1 (`mod/` unchanged), so `app.json` stays 0.11.0. The bundled loader (0.27.0) matches the installed game (0.9.1+release.6).
+  - CHANGELOG: the unreleased entries moved under 0.6.0-beta.1, and the shortcut text was corrected. ARCHITECTURE refreshed: tests, P8/P9 tables, routes, known weaknesses.
+  - Release checklist steps 2–3 and 5–7 (CLAUDE.md):
+    - tests 137/137, check 93/93;
+    - secret scans clean (the only key-scan hit is CLAUDE.md quoting the pattern);
+    - `electron-builder --win dir`;
+    - packaged exe on a throwaway data dir: 200, title "AC EVO Paddock", version 0.6.0-beta.1, clean log, no `dist/win-unpacked/data`;
+    - zip `release/AC-EVO-Paddock-v0.6.0-beta.1-win64.zip` (676 entries, 155.8 MB): no data, settings, db or race.json entries, and neither the key prefix nor the driver name in the staged folder. SHA-256 `BFA36F50169D2B183C37ABC480CA32C8BA370340D9539F4AA7B1AFA7A1B2E4F0`.
+  - Release notes drafted in `release/notes-v0.6.0-beta.1.md` (gitignored).
+  - The installed app runs the 0.6.0-beta.1 build.
+- **Not done (needs the user's go):** merge to `main`, push, tag `v0.6.0-beta.1`, GitHub pre-release, overtake.gg update.
+- **User approval:** pending.
