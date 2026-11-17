@@ -9,12 +9,12 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const TMP = path.join(os.tmpdir(), 'paddock-tests');
 
 // left-overs of earlier runs (SQLite keeps its files locked until the process ends, so each run cleans the old ones)
-try {
-  for (const d of fs.readdirSync(TMP)) {
-    const p = path.join(TMP, d);
-    if (Date.now() - fs.statSync(p).mtimeMs > 3600e3) fs.rmSync(p, { recursive: true, force: true });
-  }
-} catch { /* nothing yet */ }
+let old = [];
+try { old = fs.readdirSync(TMP); } catch { /* nothing yet */ }
+for (const d of old) {
+  const p = path.join(TMP, d);
+  try { if (Date.now() - fs.statSync(p).mtimeMs > 3600e3) fs.rmSync(p, { recursive: true, force: true }); } catch { /* still locked: next run */ }
+}
 
 /**
  * A fresh, empty data dir and AC EVO user folder for this test process. Nothing is written to the project's

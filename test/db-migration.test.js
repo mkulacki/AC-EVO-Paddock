@@ -6,7 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
-import { isolate } from './helpers.js';
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { isolate, ROOT } from './helpers.js';
 
 const { ACEVO_DATA } = isolate('migration');
 const L = 1000;
@@ -71,8 +73,13 @@ test('additive columns and tables exist and work', () => {
   assert.deepEqual(db.getSnapshot('h1'), { values: { a: 1 } });
 });
 
-test('migration is not repeated on the next start', async () => {
-  // a second import in a new process would see user_version = 1; check the stored version directly
+test('the next start does not migrate again (no new backup, distances unchanged)', () => {
+  const before = db.getLap(1).data.d;
+  const out = execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e',
+    `const db = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/db.js')).href)}); console.log(JSON.stringify(db.getLap(1).data.d.slice(0, 5)));`],
+  { env: process.env, encoding: 'utf8' });
+  assert.deepEqual(JSON.parse(out), before.slice(0, 5));
+  assert.equal(fs.readdirSync(ACEVO_DATA).filter((f) => f.startsWith('telemetry.backup-')).length, 1);
   const raw = new DatabaseSync(path.join(ACEVO_DATA, 'telemetry.db'), { readOnly: true });
   assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 1);
   raw.close();
