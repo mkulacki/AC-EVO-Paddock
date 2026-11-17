@@ -32,7 +32,7 @@ test('filterItems: empty shows pages and sessions; "kind words" filters; a singl
   assert.equal(pal.filterItems(items, 'zzz').length, 0);
 });
 
-test('Alt+1…7 follow the sidebar order', () => {
+test('Alt+1…8 follow the sidebar order', () => {
   const nav = [...html.matchAll(/<a href="(#\/[^"]*)" data-nav="/g)].map((m) => m[1]);
   assert.deepEqual(nav, pal.NAV_ORDER);
   assert.ok(pal.SHORTCUTS.some(([k]) => k.startsWith('Alt 1')));
@@ -48,6 +48,6 @@ test('every page the palette links to is a route of the shell', () => {
 
 test('the sidebar keeps the ids and hooks the shell uses', () => {
   for (const id of ['status', 'openPalette', 'openShortcuts', 'sideToggle', 'view']) assert.match(html, new RegExp(`id="${id}"`));
-  for (const key of ['race', 'laps', 'tracks', 'setups', 'game', 'mods', 'settings']) assert.match(html, new RegExp(`data-nav="${key}"`));
+  for (const key of ['home', 'race', 'laps', 'tracks', 'setups', 'game', 'mods', 'settings']) assert.match(html, new RegExp(`data-nav="${key}"`));
   assert.match(html, /<span class="dot"><\/span><span class="txt">/, 'the status line keeps its parts');
 });

@@ -70,6 +70,16 @@ test('read-only API routes answer', async () => {
     `/api/carreport?session=${sid}`, `/api/ai/summary?lap=${c.bestLapId}&ref=ideal`]) await json(p);
 });
 
+test('home dashboard: data and what needs attention', async () => {
+  const d = await json('/api/dashboard');
+  assert.ok(d.totals.laps >= 6);
+  assert.ok(Array.isArray(d.warnings));
+  assert.ok(d.warnings.every((w) => ['warning', 'info'].includes(w.level) && w.href.startsWith('#/') && w.text));
+  assert.ok(d.warnings.some((w) => /not checked against the game/.test(w.text)), 'unchecked telemetry is mentioned');
+  assert.ok(!d.warnings.some((w) => /Gemini API key/.test(w.text)), 'a key is set in this test');
+  await get('/home.js');
+});
+
 test('the Gemini key is never sent to the page, only masked', async () => {
   const s = await json('/api/settings');
   assert.equal(s.geminiApiKey, '••••' + FAKE_KEY.slice(-4));

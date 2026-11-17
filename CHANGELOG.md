@@ -20,6 +20,11 @@ Changes merged to `main` that are not in a release yet. Move them under a versio
 - **Diagnostics** to paste into a bug report, with private data taken out.
 - **Update check:** once a day Paddock asks GitHub whether a newer version is out and shows a link. Nothing is downloaded. It can be switched off.
 
+### New: Home
+
+- Paddock opens on **Home**: what needs attention (HUD update waiting, readings not checked in game, no Gemini key, a newer Paddock…), your totals, recent sessions, the next practice targets from your latest reports, your best lap per day for the cars and tracks you drive most, and your records with the ideal lap. Everything comes from your own laps; nothing is estimated.
+- Sessions is still one click away (and at the same address).
+
 ### New look: sidebar and search
 
 - The pages are in a **sidebar** now (it collapses to icons with Ctrl+B, and by itself in narrow windows). The lime accent stays.

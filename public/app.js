@@ -8,6 +8,7 @@ import { viewMods } from './mods.js';
 import { viewSetups } from './setups.js';
 import { initSpotter } from './spotter.js';
 import { viewSessions } from './sessions.js';
+import { viewHome } from './home.js';
 import { viewCompare } from './compare.js';
 import { viewGame, STATUS_TEXT } from './game.js';
 import { viewSettings } from './settingspage.js';
@@ -36,10 +37,10 @@ events.addEventListener('status', (e) => {
   // the title also carries the text in the collapsed sidebar, where only the dot shows
   statusEl.title = `${statusEl.querySelector('.txt').textContent}${recording ? '. Every lap you finish is saved.' : ''}`;
 });
-events.addEventListener('lap', () => { if (currentRoute === 'laps') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
+events.addEventListener('lap', () => { if (currentRoute === 'laps' || currentRoute === 'home') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
 // a session report was just made: a dot on the Sessions tab until it is opened (the desktop app also notifies)
 events.addEventListener('report', () => {
-  if (currentRoute === 'laps') { render(); return; }
+  if (currentRoute === 'laps' || currentRoute === 'home') { render(); return; } // Home shows the report's summary and targets
   const a = document.querySelector('nav a[data-nav=laps]');
   if (a && !a.querySelector('.nav-dot')) a.insertAdjacentHTML('beforeend', '<span class="nav-dot" title="New session report"></span>');
 });
@@ -99,15 +100,16 @@ async function render() {
   const mine = cleanup; // this page's own list: if it finishes loading after you left, its timers and listeners are stopped below
   // loading: a thin bar along the top of the page while a page loads (shown only if it takes a moment)
   view.classList.add('busy');
-  const [path, query] = (location.hash.slice(1) || '/').split('?');
+  const [path, query] = (location.hash.slice(1) || '/home').split('?'); // Paddock opens on Home; #/ is Sessions
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/report': 'report' }[path] || 'laps';
-  const navKey = currentRoute === 'track' ? 'tracks' : ['settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
+  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/report': 'report' }[path] || 'laps';
+  const navKey = currentRoute === 'track' ? 'tracks' : ['home', 'settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
   if (navKey === 'laps') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
-    if (currentRoute === 'game') await viewGame(view, mine);
+    if (currentRoute === 'home') await viewHome(view, mine);
+    else if (currentRoute === 'game') await viewGame(view, mine);
     else if (currentRoute === 'mods') await viewMods(view, mine);
     else if (currentRoute === 'race') await viewRace(view, mine);
     else if (currentRoute === 'setups') await viewSetups(view, params, mine);

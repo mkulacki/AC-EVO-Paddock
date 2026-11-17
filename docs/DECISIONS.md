@@ -59,3 +59,11 @@ Earlier product decisions (Race tab, Mods, setups, spotter, brake marks, reports
   - **Rejected:** a full-page spinner per navigation, because it flashed on every fast page.
 - **`public/app.js` is the shell only.** Sessions, Compare, Game and Settings moved to their own modules by a mechanical split (no behaviour change), following the existing `viewX(view, params, cleanup)` pattern.
 - **Page order in the sidebar:** grouped as driving (Race, Sessions, Tracks, Setups), then the app (Game, Mods, Settings). Setups moved after Tracks.
+
+## 2026-11-17: P5, the home dashboard
+
+- **Home is where Paddock opens** (an empty address opens `#/home`). `#/` stays Sessions, so every existing link, back button and bookmark keeps working.
+- **One request, real data only:** `service.dashboard()` aggregates the stored laps and reports (no new metric), and the server adds the "Needs attention" list from the state it already tracks. A value that doesn't exist is shown as missing ("no valid lap", "no report yet"), never as 0.
+- **Trend = best lap per driving day** from the existing `progress()`, for the 3 combos driven most in the last 60 days. It is drawn the same way up as the Progress page (higher = slower), with new personal bests marked in the timing purple.
+  - **Rejected:** a composite "performance score" on Home. It is planned for P6 with its formula shown, not before.
+- **Fixed layout** rather than customisable widgets (as planned in the roadmap).

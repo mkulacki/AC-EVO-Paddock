@@ -48,9 +48,10 @@ Paddock also runs as a standalone Windows app (Electron) with its own window and
 
 ## Finding your way
 
-- **Sidebar:** Race, Sessions, Tracks and Setups, then Game, Mods and Settings. The live status (recording, game state) is at the bottom. Collapse it to icons with the arrow at the bottom or **Ctrl+B**; narrow windows get the icons automatically.
+- **Home** (where Paddock opens): what needs attention, your totals, recent sessions, next practice targets, your best lap per day for the cars and tracks you drive most, and your records. Everything on it comes from your own laps.
+- **Sidebar:** Home, Race, Sessions, Tracks and Setups, then Game, Mods and Settings. The live status (recording, game state) is at the bottom. Collapse it to icons with the arrow at the bottom or **Ctrl+B**; narrow windows get the icons automatically.
 - **Search (Ctrl+K):** type to jump to a page, a Settings section, a track and layout, a recent session, a car's setups, or the progress, consistency or best-against-ideal view of a car and track you have driven. Start with a kind to narrow it down, for example `track brands` or `session monza`. It never starts the game.
-- **Shortcuts:** press **?** for the list. **Alt+1…7** open the pages in sidebar order.
+- **Shortcuts:** press **?** for the list. **Alt+1…8** open the pages in sidebar order.
 
 ## Race tab
 

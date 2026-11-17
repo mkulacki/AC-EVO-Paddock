@@ -133,7 +133,8 @@ function bindMarkKey() {
 }
 bindMarkKey();
 
-recorder.on('lap', (l) => { svc.invalidate(); broadcast('lap', l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
+// a new lap: only its track + car is worked out again (service.js invalidate)
+recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
 recorder.on('session', (s) => console.log(`[session] ${s.track} ${s.layout} / ${s.car}`));
 recorder.on('discarded', (e) => console.log(`[lap discarded] ${e.reason}`));
 // end of a session: keep its conditions, then the session report (needs a few laps and a valid one)
@@ -552,6 +553,28 @@ async function route(req, res) {
   if (p === '/api/updates/check' && m === 'POST') {
     if (mockIdx >= 0 && !process.env.PADDOCK_UPDATE_CHECK) return send(res, 200, { ...updates.status(), error: 'Not checked in a mock run' });
     return send(res, 200, await updates.check());
+  }
+  // home page: the driver's data (src/service.js dashboard) plus what needs attention, each with where to fix it
+  if (p === '/api/dashboard') {
+    const warnings = [];
+    const add = (level, text, href, label) => warnings.push({ level, text, href, label });
+    const safe = (fn) => { try { return fn(); } catch { return null; } };
+    if (backup.pending()) add('warning', 'A restore is waiting for Paddock to restart.', '#/settings', 'Settings → Backup and restore');
+    if (db.restoreResult && !db.restoreResult.ok) add('warning', `The last restore did not complete: ${db.restoreResult.error}`, '#/settings', 'Settings → Backup and restore');
+    if (!fs.existsSync(ACE)) add('warning', "AC EVO's game files folder was not found, so the HUD, mods and setups are not available.", '#/settings', 'Settings → Game files folder');
+    const hud = safe(() => hudInstall.status({ quick: true })); // quick: no tasklist call (this runs after every lap)
+    if (hud?.state === 'outdated') add('warning', `A Paddock HUD update (${hud.installed} → ${hud.bundled}) is waiting for AC EVO to close.`, '#/mods', 'Mods');
+    else if (hud?.state === 'missing' && !hud.removed && fs.existsSync(ACE)) add('warning', hud.autoError ? `The Paddock HUD could not be installed: ${hud.autoError}` : 'The Paddock HUD is not installed yet; Paddock installs it when AC EVO is closed.', '#/mods', 'Mods');
+    const loader = hud?.loaderInfo ?? safe(() => loaderInstall.status());
+    if (loader?.gameMatch === false) add('warning', `AC EVO was updated (${loader.game}); the bundled ACE UI App Loader is for ${loader.builtFor}. Update Paddock when a new version is out.`, '#/game', 'Game');
+    const unchecked = channels.list().filter((g) => g.confirmable && g.status !== 'verified');
+    const wrong = unchecked.filter((g) => g.status === 'mismatch');
+    if (wrong.length) add('warning', `${wrong.length} telemetry reading group${wrong.length === 1 ? '' : 's'} marked as not matching the game: their hints are left out.`, '#/setups', 'Setups → Setup recognition');
+    else if (unchecked.length) add('info', `${unchecked.length} of ${channels.CONFIRMABLE.length} telemetry reading groups are not checked against the game yet, so tyre, brake and suspension hints are shown as unconfirmed.`, '#/setups', 'Setups → Setup recognition');
+    const up = updates.status();
+    if (up.enabled && up.latest) add('info', `AC EVO Paddock ${up.latest.version} is out.`, '#/settings', 'Settings → Updates');
+    if (!settings.get().geminiApiKey) add('info', 'The AI coach, debrief and setup engineer need a free Gemini API key.', '#/settings', 'Settings');
+    return send(res, 200, { ...svc.dashboard(), warnings, recording: recorder.state.status === 'live' });
   }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows
