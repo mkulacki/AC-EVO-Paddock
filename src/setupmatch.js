@@ -51,6 +51,12 @@ function fileValues(f) {
   return out;
 }
 
+/** The current values of a saved setup file by its rel path ({name: shown value}), or null (gone or unreadable). */
+export function valuesOfRel(rel) {
+  const f = rel ? setups.scan().find((x) => x.rel === rel) : null;
+  return f ? fileValues(f) : null;
+}
+
 /** The saved setups of a car (game car name) on a track (game track / layout names): [{file, values}] */
 export function candidates(car, track, layout) {
   const carId = carsDb.match(car)?.id;

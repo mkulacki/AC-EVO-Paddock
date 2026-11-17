@@ -51,6 +51,7 @@ async function sources() {
     const key = encodeURIComponent(c.key);
     items.push({ kind: 'Progress', label: name, hint: `${c.laps} laps`, href: `#/progress?combo=${key}` });
     if (c.validLaps >= 2) items.push({ kind: 'Consistency', label: name, href: `#/consistency?combo=${key}` });
+    items.push({ kind: 'Setup history', label: name, href: `#/setuphistory?combo=${key}` });
     if (c.bestLapId && c.idealMs) items.push({ kind: 'Compare', label: `Best lap against ideal · ${name}`, href: `#/compare?laps=${c.bestLapId}&ref=ideal` });
   }
   const sessions = (ov?.sessions || []).filter((s) => (ov.laps || []).some((l) => l.session_id === s.id)).slice(0, 40);
@@ -72,7 +73,7 @@ async function sources() {
 const otherDialog = () => !!document.querySelector('.modal-back, .palette-back');
 
 // ---------------------------------------------------------------- the dialog
-const KINDS = ['Page', 'Settings', 'Progress', 'Consistency', 'Compare', 'Session', 'Track', 'Setups', 'Command'];
+const KINDS = ['Page', 'Settings', 'Progress', 'Consistency', 'Compare', 'Session', 'Track', 'Setups', 'Setup history', 'Command'];
 /**
  * What the palette lists for a query. Empty: pages and recent sessions. A first word naming a kind, followed by more
  * words ("track brands", "session monza"), keeps only that kind; a single word is always searched as text, so
@@ -81,7 +82,7 @@ const KINDS = ['Page', 'Settings', 'Progress', 'Consistency', 'Compare', 'Sessio
 export function filterItems(items, q) {
   const words = String(q || '').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return items.filter((it) => it.kind === 'Page' || it.kind === 'Session').slice(0, 14);
-  const kind = words.length > 1 && words[0].length >= 3 ? KINDS.find((k) => k.toLowerCase().startsWith(words[0].toLowerCase())) : null;
+  const kind = words.length > 1 && words[0].length >= 3 ? KINDS.find((k) => k.toLowerCase().split(' ').some((w) => w.startsWith(words[0].toLowerCase()))) : null;
   const text = kind ? words.slice(1).join(' ') : words.join(' ');
   const pool = kind ? items.filter((it) => it.kind === kind) : items;
   return pool.map((it) => ({ it, s: score(text, it.label) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s).slice(0, 40).map((x) => x.it);

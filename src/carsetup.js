@@ -323,4 +323,11 @@ export function tooltips() {
   return out;
 }
 /** Help text for a value from read(), or ''. */
-export const tipFor = (v) => { const t = tooltips(); const base = v.name.replace(CORNER_RE, ''); return t[base] || ({ arbs0: t.arbs0, arbs1: t.arbs1 })[base] || ''; };
+/** Label, corner, unit and group of a value name (as stored in setup snapshots), without the car's limits file. */
+export function describeName(name) {
+  const corner = (name.match(CORNER_RE) || [])[1] || null;
+  const base = name.replace(CORNER_RE, '');
+  const P = PROPS[base] || { label: `Setting ${base.replace(/^x/, '').replace(/_/g, '.')}`, group: 'other' };
+  return { name, label: P.label, corner, unit: P.unit || '', group: P.group };
+}
+export const tipFor =(v) => { const t = tooltips(); const base = v.name.replace(CORNER_RE, ''); return t[base] || ({ arbs0: t.arbs0, arbs1: t.arbs1 })[base] || ''; };

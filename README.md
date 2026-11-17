@@ -93,7 +93,7 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Tyre compounds** are shown as *Compound 1, 2, 3* in the game's order; the files do not store their names.
 - **Names of a few settings are inferred** from the file layout, the game's own setting names and their ranges (Kunos does not document the format). Unusual settings show as *Setting x.y*. Values the game works out by itself (e.g. static ride heights) are left as they were in the file; Paddock does not recalculate them.
 - **The game's format may change** with a game update; Paddock checks every write by reading the file back, and refuses to edit setups of a car whose limits it cannot find.
-- **The AI engineer does not split laps by setup yet.** Each lap now remembers its setup (see Session reports), but the engineer still uses all your laps with that car on that track, and mainly relies on what you tell it about the car. It does see the tyre, brake and suspension data of the latest session on that track (see Car & setup).
+- **The AI engineer's lap split is only as good as setup recognition.** It gets your laps split by the setup they were driven on, with the one it is working on marked, but setups are recognised from pit-box readings that are not checked in game until you confirm them (Setups → Setup recognition). It also sees the tyre, brake and suspension data of the latest session on that track (see Car & setup).
 - **AI advice is a suggestion.** Check the proposed changes before saving, and try them on track; the engineer explains each change so you can judge it. It rates its confidence (overall and per change) and says what the proposal rests on; it is told which readings are not checked in game and must not rely on them alone.
 
 ## Sessions tab
@@ -131,6 +131,7 @@ The setups you save in AC EVO's own setup screen are the library. They are files
   - **Corner rankings:** for every corner, your fastest, middle and slowest pass, each a link to that lap.
   - **Driving technique** per corner, from your pedals and steering: brake application time, trail braking (braking while turning), brake release time and re-presses, apex to full throttle, throttle re-lifts, big steering reversals and small corrections ("saw"), coasting. Each shows your typical value and your fastest pass; hover a heading for how it is measured. The limits are relative to each pass (its own peak brake and steering lock), so they suit any car. Each metric can also be plotted lap by lap under *Spread per corner*.
 - **Inputs on the track map:** the map in Telemetry can be coloured by time (gaining / losing) or by **inputs** (braking, coasting, part and full throttle).
+- **Setup history** (button on each track/car, and *Your laps here* in the Setups tab): every setup you drove there, with dates, sessions, laps, best and typical lap, spread and conditions. A saved setup you changed between sessions is listed once per version, so changed values are never mixed. **Compare two setups** shows their lap times side by side and exactly which values differ (from the values recorded when you drove them).
 - **Export/import:** share `.lap.gz` files with friends and compare against their laps.
 
 ## Session reports

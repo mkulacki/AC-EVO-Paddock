@@ -28,6 +28,7 @@ import { createSetupTracker } from './setupmatch.js';
 import * as setupmatch from './setupmatch.js';
 import * as report from './report.js';
 import * as carreport from './carreport.js';
+import * as setuphistory from './setuphistory.js';
 import * as channels from './channels.js';
 import * as backup from './backup.js';
 import * as dataexport from './dataexport.js';
@@ -81,8 +82,8 @@ if (db.restoreResult) console.log(`[backup] restore at start: ${db.restoreResult
 function startGame(order) { if ((mockIdx < 0 || process.env.ACE_BRIDGE) && !game.isRunningNow()) hudInstall.autoUpdate('before starting the game'); return game.start(order); }
 /**
  * What the AI setup engineer gets from the driver's laps with this car on this track: lap times and, for the best
- * valid lap, the corner-by-corner comparison with the ideal lap (null when there are no laps). Laps are not linked
- * to setups, so they may have been driven on other setups.
+ * valid lap, the corner-by-corner comparison with the ideal lap (null when there are no laps), and the laps split by
+ * the setup they were driven on (by_setup, P7; this_setup marks the setup being engineered).
  */
 function setupTelemetry(setup, trackId, layout) {
   const laps = db.listLaps().filter((l) => l.source === 'local' && cars.match(l.car)?.id === setup.carId).filter((l) => {
@@ -93,6 +94,12 @@ function setupTelemetry(setup, trackId, layout) {
   const valid = laps.filter((l) => l.valid);
   const best = valid.reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
   const out = { laps: laps.length, valid_laps: valid.length, recent_lap_times_ms: laps.slice(0, 15).map((l) => (l.valid ? l.lap_time_ms : `${l.lap_time_ms} (invalid)`)) };
+  // the laps split by setup: which setup was faster, from the driver's own laps (setup recognition may be unconfirmed)
+  const combos = [...new Map(laps.map((l) => [`${l.track}|${l.layout}|${l.car}`, { track: l.track, layout: l.layout, car: l.car }])).values()];
+  try {
+    out.by_setup = setuphistory.forAi(combos, setup.rel ?? null);
+    out.by_setup_note = `Setups are recognised from pit-box readings (${channels.trusted('setupProbe') ? 'checked against the game' : 'not checked against the game yet'}). "Standard" = no saved setup matched; "Not recorded" = laps from before setups were tracked.`;
+  } catch (e) { out.by_setup_note = `not available: ${e.message}`; }
   // what the car did in the latest session with car data (tyres, brakes, suspension, balance)
   for (const sid of [...new Set(laps.map((l) => l.session_id).filter(Boolean))].slice(0, 5)) {
     try {
@@ -586,6 +593,27 @@ async function route(req, res) {
     const q = url.searchParams;
     return send(res, 200, svc.consistency({ track: q.get('track'), layout: q.get('layout'), car: q.get('car') },
       q.get('session') || 'all', q.get('invalid') === '1'));
+  }
+  // setup history (P7): every setup driven on a track + car, and two of them compared value by value
+  if (p === '/api/setuphistory') {
+    const q = url.searchParams, combo = { track: q.get('track'), layout: q.get('layout'), car: q.get('car') };
+    return send(res, 200, { combo, entries: setuphistory.history(combo), probe: channels.status('setupProbe') });
+  }
+  if (p === '/api/setuphistory/diff') {
+    const q = url.searchParams;
+    try { return send(res, 200, setuphistory.diff({ track: q.get('track'), layout: q.get('layout'), car: q.get('car') }, q.get('a'), q.get('b'))); } catch (e) { return send(res, 400, { error: e.message }); }
+  }
+  // the track + car combos with laps for a Setups-tab car and track (catalogue ids): the link to their setup history
+  if (p === '/api/setuphistory/combos') {
+    const q = url.searchParams, carId = q.get('carId'), trackId = q.get('trackId');
+    const out = new Map();
+    for (const l of db.listLaps()) {
+      if (l.source !== 'local' || cars.match(l.car)?.id !== carId || trackdata.find(l.track, l.layout)?.track.id !== trackId) continue;
+      const k = `${l.track}|${l.layout}|${l.car}`;
+      if (!out.has(k)) out.set(k, { key: k, track: l.track, layout: l.layout, car: l.car, laps: 0 });
+      out.get(k).laps++;
+    }
+    return send(res, 200, { combos: [...out.values()] });
   }
   if (p === '/api/progress') {
     const q = url.searchParams;

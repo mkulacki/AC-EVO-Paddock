@@ -64,7 +64,7 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | Technique analysis | Done (P6) | per-corner brake/trail/release/throttle/steering metrics, corner rankings, inputs map layer, report style section, performance score |
 | Braking-point recommendations | Partial | coach + brake marks "fill from best lap"; no AI-proposed marks |
 | Corner entry/exit analysis | Done | corner card entry/apex/exit + coach |
-| Setup vs driving issue analysis | Partial | setup engineer + Car & setup rules, but on **unverified** channels, and the engineer does not split laps by setup (README limitation) |
+| Setup vs driving issue analysis | Partial | setup engineer + Car & setup rules, on **unverified** channels; laps split by setup since P7 |
 | Telemetry-aware chat | Partial | follow-ups per lap only; no chat across sessions or combos |
 | Improvement recommendations | Done | coach, debrief, targets |
 | Confidence indicators | Done (P2) | provenance badges, unconfirmed hints kept apart, AI confidence on every answer |
