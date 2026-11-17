@@ -46,6 +46,12 @@ Paddock also runs as a standalone Windows app (Electron) with its own window and
 - Shortcuts: F5 reload, F11 full screen, Ctrl +/−/0 zoom, F12 developer tools.
 - `npm run make-icon` regenerates `desktop/icon.ico` and `icon.png`.
 
+## Finding your way
+
+- **Sidebar:** Race, Sessions, Tracks and Setups, then Game, Mods and Settings. The live status (recording, game state) is at the bottom. Collapse it to icons with the arrow at the bottom or **Ctrl+B**; narrow windows get the icons automatically.
+- **Search (Ctrl+K):** type to jump to a page, a Settings section, a track and layout, a recent session, a car's setups, or the progress, consistency or best-against-ideal view of a car and track you have driven. Start with a kind to narrow it down, for example `track brands` or `session monza`. It never starts the game.
+- **Shortcuts:** press **?** for the list. **Alt+1…7** open the pages in sidebar order.
+
 ## Race tab
 
 Set up a session, press Start, and the Paddock HUD sets it up and starts it inside the game, the way Content Manager does for AC1.

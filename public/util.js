@@ -67,6 +67,16 @@ export const stats = (vals) => {
   return { n: v.length, mean, sd, min: v[0], max: v[v.length - 1], median: q(0.5), q1: q(0.25), q3: q(0.75) };
 };
 
+// ---------------------------------------------------------------- page states: loading, empty, error (the same on every page)
+/** A card with a spinner, for a part of a page that is still loading. */
+export const loadingHtml = (text = 'Loading…') => `<div class="card state-loading" role="status"><span class="spinner"></span> ${esc(text)}</div>`;
+/** "Nothing here yet": title, a sentence (HTML, from the page itself) and an optional action (HTML). */
+export const emptyHtml = (title, body = '', action = '') => `<div class="card empty"><h2>${esc(title)}</h2>${body ? `<p class="muted">${body}</p>` : ''}${action ? `<div class="row">${action}</div>` : ''}</div>`;
+/** Something failed: what, a retry button (data-retry) and where to get help. */
+export const errorHtml = (err, { retry = true } = {}) => `<div class="card state-error" role="alert"><h2>This page could not be shown</h2>
+  <p>${esc(err?.message || String(err))}</p>
+  <div class="row">${retry ? '<button data-retry>Try again</button>' : ''}<span class="muted" style="font-size:12px">If it keeps happening, copy <a href="#/settings">Settings → Diagnostics</a> into a bug report.</span></div></div>`;
+
 // ---------------------------------------------------------------- provenance (src/channels.js, docs/DECISIONS.md)
 // Where a value comes from and whether it was checked against the game. Kinds: a channel status (verified,
 // unverified, mismatch, missing) or calculated / ai.

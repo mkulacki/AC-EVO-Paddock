@@ -1,5 +1,5 @@
 // Consistency view: lap-to-lap spread per corner for one track + car.
-import { $, css, esc, api, fmt, fmtGap, prettyName, SESSION_TYPES, stats } from './util.js';
+import { $, css, esc, api, fmt, fmtGap, prettyName, SESSION_TYPES, stats, emptyHtml } from './util.js';
 
 const METRICS = [
   { k: 'timeMs', label: 'Corner time', unit: 'ms', hint: 'time through the corner segment; left = faster', lowerBetter: true },
@@ -18,7 +18,13 @@ export async function viewConsistency(view, params, cleanup) {
   const invalid = params.get('invalid') === '1';
   let metric = params.get('metric') || 'timeMs';
   const q = new URLSearchParams({ track, layout, car, session, invalid: invalid ? '1' : '0' });
-  const data = await api(`/api/consistency?${q}`);
+  let data;
+  try { data = await api(`/api/consistency?${q}`); } catch (e) {
+    // no valid lap on this track with this car yet: nothing to compare, which is not an error (src/service.js consistency)
+    if (!/^No valid laps/.test(e.message)) throw e;
+    view.innerHTML = emptyHtml('No valid laps yet', `Consistency compares your valid laps with this car on ${esc(prettyName(track))} ${esc(prettyName(layout))}. Drive at least two clean laps first.`, '<a href="#/"><button>Sessions</button></a>');
+    return;
+  }
   const laps = data.laps;
   const nav = (patch) => {
     const p = new URLSearchParams({ combo: params.get('combo'), session, invalid: invalid ? '1' : '0', metric, ...patch });

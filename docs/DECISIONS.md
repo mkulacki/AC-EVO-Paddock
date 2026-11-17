@@ -49,3 +49,13 @@ Earlier product decisions (Race tab, Mods, setups, spotter, brake marks, reports
 - **Backup and restore refused while on track:** `VACUUM` is synchronous and would stall the 60 Hz loop.
 - **Diagnostics redaction** is done value by value: the key, passwords, driver names (settings and laps), the Windows user folder, and anything that looks like a Google key or GitHub token.
 - **The zip writer** is part of src/zip.js (deflate, data descriptors, no Zip64), so there are no new dependencies. Verified readable by .NET ZipFile and Expand-Archive.
+
+## 2026-11-17: P4, the app shell
+
+- **D1 (user's choice): lime accent + sidebar.** The 0.5.0 palette and the lime accent stay; the top tab bar became a sidebar with icons that collapses to a rail (Ctrl+B, remembered; automatic below 900 px).
+  - **Rejected:** orange accent (it is a chart series colour here); keeping the top bar.
+- **Command palette:** a client-side fuzzy match over data the app already has (/api/overview, /api/tracks, /api/setups), cached for 30 s and dropped when a lap is saved. **Nothing in it starts the game:** launching stays a deliberate click on the Race tab.
+- **Page states:** the router shows a loading bar (after 150 ms, so fast pages do not flash) and an error card with *Try again*; pages use `util.js` loadingHtml / emptyHtml / errorHtml for their own parts.
+  - **Rejected:** a full-page spinner per navigation, because it flashed on every fast page.
+- **`public/app.js` is the shell only.** Sessions, Compare, Game and Settings moved to their own modules by a mechanical split (no behaviour change), following the existing `viewX(view, params, cleanup)` pattern.
+- **Page order in the sidebar:** grouped as driving (Race, Sessions, Tracks, Setups), then the app (Game, Mods, Settings). Setups moved after Tracks.

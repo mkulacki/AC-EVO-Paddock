@@ -130,4 +130,32 @@
   - No critical findings. Two high ones were fixed: cross-site request forgery leading to stored XSS and key theft, and a restore that inflated the whole database in memory on the main thread.
   - All 4 medium findings fixed: zip writer errors, an empty database after a failed apply, the Mods manifest being restored, user-folder leaks.
   - Lows: L1–L3, L5, L6 (a size check before writing), L7 and L8 fixed. L4 fixed in part: the server re-checks that you're not on track before committing a restore; the pending banner still shows only on the Settings page.
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
+
+## P4: App shell (navigation, command palette, page states)
+
+- **Started / finished:** 2026-11-17 · branch `phase/p4-shell` · D1 answered: **lime accent + sidebar**
+- **Implemented:**
+  - **Sidebar:** Race, Sessions, Tracks, Setups | Game, Mods, Settings, each with an icon. The live status sits at the bottom and its text is also the tooltip. It collapses to an icon rail (Ctrl+B or the button, remembered; automatic below 900 px). Nav dots for a new report, a HUD update and a Paddock update still work.
+  - **Command palette (Ctrl+K):** pages, Settings sections (scrolls to the card), combos (progress, consistency, best against ideal), the 40 most recent sessions, all tracks and layouts, cars with setups, and three commands. Fuzzy matching; "kind words" filters by kind; fresh data on each open. It never starts the game and stays out of other dialogs.
+  - **Shortcuts:** `?` shows the list (focus kept in the dialog); Alt+1…7 by key position; Ctrl+B. Settings warns when the brake-mark key takes one of these.
+  - **Page states:** a router loading bar (after 150 ms) on every page; an error card with Try again and a link to Diagnostics; `util.js` loadingHtml / emptyHtml / errorHtml; an empty state on Consistency without valid laps.
+  - **`public/app.js` is the shell only (122 lines):** Sessions → `sessions.js`, Compare → `compare.js`, Game → `game.js`, Settings → `settingspage.js`. The split was mechanical, and the reviewer checked it line by line. Each render now has its own cleanup list, so a page that finishes loading after you leave is stopped.
+- **Tests performed:**
+  - `npm run check`: 79/79. `npm test`: 76/76. New: palette matching and filtering, Alt order equals sidebar order, palette links are routed, shell ids, new modules served.
+  - Headless Edge, 0 JS errors throughout:
+    - 12 pages with an empty database (empty and error states);
+    - 14 pages with demo data;
+    - palette queries;
+    - the shortcut dialog in dark theme;
+    - 860 px and 1024 px windows (the rail, no sideways scroll).
+  - Built, deployed to `E:\AC EVO Paddock` and started.
+- **Known limitations:**
+  - The dialogs don't trap Tab fully (the shortcut list does; the palette's input keeps focus).
+  - Mobile phone widths were not targeted (desktop app; the rail works down to about 700 px).
+  - Pages other than Consistency already had their own empty states; they keep their wording.
+- **Review findings (code-review subagent):**
+  - No critical or high findings.
+  - All 3 medium fixed: the kind-filter regex typo (backslash lost in a shell heredoc) hiding the Tracks page; listeners leaking when you left a page during its load; dialogs stacking on the garage and text prompts.
+  - All 6 low fixed: stale palette cache, delayed close hitting a new palette, shortcut-list focus and keys, AZERTY Alt+digits, the narrow-window toggle overwriting the stored choice, the status tooltip in the rail, the brake-mark key conflict.
 - **User approval:** pending.
