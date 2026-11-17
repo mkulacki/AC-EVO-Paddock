@@ -2,9 +2,9 @@
 
 _Last updated: 2026-11-17_
 
-**Status:** P0–P7 approved and merged into local `main`. **P8 done on `phase/p8-coach`, waiting for approval.**
-**Current phase:** P8, AI coach upgrade (approval gate).
-**Branch:** `phase/p8-coach` (local, not pushed; the installed app runs the P8 build).
+**Status:** P0–P8 approved and merged into local `main`. **P9 starting: decision D3 asked.**
+**Current phase:** P9, driver development (D3 pending).
+**Branch:** `main` (local, not pushed; the installed app runs the P8 build).
 
 ## Phases
 
@@ -18,13 +18,13 @@ _Last updated: 2026-11-17_
 | P5 | Driver home dashboard | Done, approved 2026-11-17 |
 | P6 | Driving technique analysis | Done, approved 2026-11-17 |
 | P7 | Setup history and comparison | Done, approved 2026-11-17 |
-| P8 | AI coach upgrade | Done, waiting for approval |
+| P8 | AI coach upgrade | Done, approved 2026-11-17 |
 | P9 | Driver development | Pending (D3) |
 | P10 | Final regression and release prep | Pending |
 
 ## Current task
 
-P8 approval gate: the user reviews the Coach page (Sessions → a combo → Coach), the training plan on reports, and AI braking points.
+P9 start: ask D3 (achievements and challenges), then branch `phase/p9-development`.
 
 ## Known problems
 
@@ -41,7 +41,7 @@ P8 approval gate: the user reviews the Coach page (Sessions → a combo → Coac
 
 ## Next action
 
-On APPROVE: merge `phase/p8-coach` into local `main` (no push), mark P8 approved, then ask decision D3 (achievements and challenges) and start P9 on `phase/p9-development`. On changes requested: fix on the P8 branch, redeploy, report again.
+Ask D3, record it in DECISIONS.md, then start P9 on `phase/p9-development`.
 
 ## How to resume
 

@@ -322,4 +322,4 @@
     - the chat touched the next page after navigation.
   - Lows fixed: the `parseJson` regex, error status mapping, older sessions labelled "other plan", session-less laps counted as sessions, the 60-mark limit, the unconditional 15 m test.
   - Accepted: corners matched by name; the 90 s timeout (documented).
-- **User approval:** pending.
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
