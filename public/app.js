@@ -40,7 +40,7 @@ events.addEventListener('status', (e) => {
 events.addEventListener('lap', () => { if (currentRoute === 'laps' || currentRoute === 'home') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
 // a session report was just made: a dot on the Sessions tab until it is opened (the desktop app also notifies)
 events.addEventListener('report', () => {
-  if (currentRoute === 'laps') { render(); return; }
+  if (currentRoute === 'laps' || currentRoute === 'home') { render(); return; } // Home shows the report's summary and targets
   const a = document.querySelector('nav a[data-nav=laps]');
   if (a && !a.querySelector('.nav-dot')) a.insertAdjacentHTML('beforeend', '<span class="nav-dot" title="New session report"></span>');
 });

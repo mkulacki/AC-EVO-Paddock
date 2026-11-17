@@ -12,7 +12,12 @@ const resampleCache = new Map(); // lapId -> {R, meta}
 const comboCache = new Map();    // comboKey -> {version, best, corners, ideal}
 const modelCache = new Map();    // 'track|layout' -> track model data | null
 let version = 0;
-export const invalidate = () => { version++; comboCache.clear(); modelCache.clear(); };
+const progressCache = new Map(); // comboKey -> {version, value}
+/** Laps changed. With a combo (a new lap): only that track + car is worked out again; without: everything. */
+export const invalidate = (combo = null) => {
+  if (combo) { const k = comboKey(combo); comboCache.delete(k); progressCache.delete(k); return; }
+  version++; comboCache.clear(); modelCache.clear(); progressCache.clear();
+};
 
 // Shared track model (edges, centre line, corners, gates) for a track/layout, read from AC EVO's own
 // track data (content.kspkg), or null when the game data has no such track (e.g. the mock track).
@@ -194,6 +199,13 @@ export function consistency(combo, session = 'all', includeInvalid = false) {
 // "Clean" laps = valid laps within 7 % of the day's best (leaves out laps with a big mistake or traffic).
 const CLEAN_WITHIN = 1.07;
 export function progress(combo) {
+  const pk = comboKey(combo), hit = progressCache.get(pk);
+  if (hit && hit.version === version) return hit.value;
+  const value = progressNow(combo);
+  progressCache.set(pk, { version, value });
+  return value;
+}
+function progressNow(combo) {
   const info = comboInfo(combo);
   const all = db.lapsForCombo(combo.track, combo.layout, combo.car, true).sort((a, b) => a.recorded_at - b.recorded_at);
   const p2 = (n) => String(n).padStart(2, '0');
@@ -230,6 +242,8 @@ export function progress(combo) {
 }
 
 // ---------------------------------------------------------------- home dashboard
+// targets of the previous report this one checked: unknown kinds (met null) do not count either way
+const lastCheck = (pt) => { const known = (pt?.items || []).filter((t) => t.met === true || t.met === false); return known.length ? { met: known.filter((t) => t.met).length, of: known.length } : null; };
 // Everything the home page shows, from the stored laps and session reports only: totals, recent sessions, personal
 // records per track + car, the best lap per driving day for the most driven combos, and the open practice targets.
 // No number is made up: a value that does not exist (no report, no valid lap) is null and the page says so.
@@ -278,11 +292,15 @@ export function dashboard({ now = Date.now(), recent = 5, trends = 3, trendDays 
 
   // trends: the most driven combos of the last 60 days (else of all time), best lap per driving day
   const since = now - 60 * DAY_MS;
-  const busy = [...combos.values()].map((c) => ({ c, n: laps.filter((l) => comboKey(l) === c.key && l.recorded_at >= since).length }))
+  const recentBy = new Map();
+  for (const l of laps) if (l.recorded_at >= since) recentBy.set(comboKey(l), (recentBy.get(comboKey(l)) || 0) + 1);
+  const busy = [...combos.values()].map((c) => ({ c, n: recentBy.get(c.key) || 0 }))
     .sort((a, b) => b.n - a.n || b.c.laps - a.c.laps).filter((x) => x.c.validLaps > 0).slice(0, trends);
   const trendList = busy.map(({ c }) => {
     const p = progress(c);
-    const days = p.days.filter((d) => d.bestMs != null).slice(-trendDays).map((d) => ({ day: d.day, bestMs: d.bestMs, newBest: d.newBest, laps: d.laps }));
+    // the first driving day sets the first best: it is not shown as a new personal best
+    const firstDay = p.days.find((d) => d.bestMs != null)?.day;
+    const days = p.days.filter((d) => d.bestMs != null).slice(-trendDays).map((d) => ({ day: d.day, bestMs: d.bestMs, newBest: d.newBest && d.day !== firstDay, laps: d.laps }));
     return { key: c.key, track: c.track, layout: c.layout, car: c.car, bestMs: p.bestMs, idealMs: p.idealMs, days };
   });
 
@@ -298,7 +316,7 @@ export function dashboard({ now = Date.now(), recent = 5, trends = 3, trendDays 
     .filter((x) => Array.isArray(x.r.targets) && x.r.targets.length)
     .map((x) => ({ sessionId: x.sid, startedAt: x.at, track: x.r.combo.track, layout: x.r.combo.layout, car: x.r.combo.car,
       targets: x.r.targets.map((t) => ({ kind: t.kind, text: t.text })),
-      lastCheck: x.r.prevTargets?.items?.length ? { met: x.r.prevTargets.items.filter((t) => t.met === true).length, of: x.r.prevTargets.items.length } : null }));
+      lastCheck: lastCheck(x.r.prevTargets) }));
 
   return { generatedAt: now, totals, recentSessions: sessions, records, trends: trendList, targets };
 }

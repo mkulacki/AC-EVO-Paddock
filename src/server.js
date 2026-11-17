@@ -133,7 +133,8 @@ function bindMarkKey() {
 }
 bindMarkKey();
 
-recorder.on('lap', (l) => { svc.invalidate(); broadcast('lap', l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
+// a new lap: only its track + car is worked out again (service.js invalidate)
+recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
 recorder.on('session', (s) => console.log(`[session] ${s.track} ${s.layout} / ${s.car}`));
 recorder.on('discarded', (e) => console.log(`[lap discarded] ${e.reason}`));
 // end of a session: keep its conditions, then the session report (needs a few laps and a valid one)
@@ -561,10 +562,10 @@ async function route(req, res) {
     if (backup.pending()) add('warning', 'A restore is waiting for Paddock to restart.', '#/settings', 'Settings → Backup and restore');
     if (db.restoreResult && !db.restoreResult.ok) add('warning', `The last restore did not complete: ${db.restoreResult.error}`, '#/settings', 'Settings → Backup and restore');
     if (!fs.existsSync(ACE)) add('warning', "AC EVO's game files folder was not found, so the HUD, mods and setups are not available.", '#/settings', 'Settings → Game files folder');
-    const hud = safe(() => hudInstall.status());
+    const hud = safe(() => hudInstall.status({ quick: true })); // quick: no tasklist call (this runs after every lap)
     if (hud?.state === 'outdated') add('warning', `A Paddock HUD update (${hud.installed} → ${hud.bundled}) is waiting for AC EVO to close.`, '#/mods', 'Mods');
-    else if (hud?.state === 'missing' && !hud.removed && fs.existsSync(ACE)) add('warning', 'The Paddock HUD is not installed yet; Paddock installs it when AC EVO is closed.', '#/mods', 'Mods');
-    const loader = safe(() => loaderInstall.status());
+    else if (hud?.state === 'missing' && !hud.removed && fs.existsSync(ACE)) add('warning', hud.autoError ? `The Paddock HUD could not be installed: ${hud.autoError}` : 'The Paddock HUD is not installed yet; Paddock installs it when AC EVO is closed.', '#/mods', 'Mods');
+    const loader = hud?.loaderInfo ?? safe(() => loaderInstall.status());
     if (loader?.gameMatch === false) add('warning', `AC EVO was updated (${loader.game}); the bundled ACE UI App Loader is for ${loader.builtFor}. Update Paddock when a new version is out.`, '#/game', 'Game');
     const unchecked = channels.list().filter((g) => g.confirmable && g.status !== 'verified');
     const wrong = unchecked.filter((g) => g.status === 'mismatch');

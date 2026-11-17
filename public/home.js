@@ -5,8 +5,10 @@ import { esc, api, fmt, fmtGap, prettyName, emptyHtml } from './util.js';
 
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const dayTxt = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+// calendar days, like the rest of Paddock (a lap at 23:00 yesterday is "yesterday" at 08:00)
 const ago = (t) => {
-  const d = Math.floor((Date.now() - t) / 86400e3);
+  const midnight = (x) => { const m = new Date(x); m.setHours(0, 0, 0, 0); return m.getTime(); };
+  const d = Math.round((midnight(Date.now()) - midnight(t)) / 86400e3);
   return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d < 30 ? `${d} days ago` : new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
 const hours = (ms) => (ms >= 3600e3 ? `${(ms / 3600e3).toFixed(1)} h` : `${Math.round(ms / 60e3)} min`);
@@ -33,7 +35,7 @@ export async function viewHome(view, cleanup) {
   const tiles = `<div class="home-tiles">
     ${tile('Laps', `${T.validLaps}<small> / ${T.laps}</small>`, 'valid of all laps', '#/?by=date')}
     ${tile('Sessions', T.sessions, `${plural(T.combos, 'car and track')}`, '#/')}
-    ${tile('Time on track', hours(T.drivingMs), `over ${plural(T.days, 'day')}`)}
+    ${tile('Time in laps', hours(T.drivingMs), `saved laps, over ${plural(T.days, 'day')}`)}
     ${tile('Last 7 days', plural(T.last7, 'lap'), `${plural(T.last30, 'lap')} in 30 days`)}
     ${tile('Last lap', ago(T.lastAt), d.recording ? '<span class="pos-live">recording now</span>' : '')}</div>`;
 
@@ -113,6 +115,6 @@ function bindSparks(view, trends) {
       tip.style.left = `${Math.min(Math.max(0, px - 60), r.width - 130)}px`;
     };
     const hide = () => { cross.setAttribute('visibility', 'hidden'); dot.hidden = true; tip.hidden = true; };
-    svg.addEventListener('pointermove', show); svg.addEventListener('pointerleave', hide);
+    svg.addEventListener('pointermove', show); svg.addEventListener('pointerdown', show); svg.addEventListener('pointerleave', hide);
   });
 }
