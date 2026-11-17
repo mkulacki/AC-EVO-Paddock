@@ -1,0 +1,115 @@
+# Feature inventory
+
+Audited 2026-11-17 against `main` = `de836d2` (v0.5.0-beta.1). It compares the requested capability list with the code.
+
+Status key: **Done** = implemented · **Partial** = implemented in part · **Missing** · **Broken** · **Refactor** = works but needs restructuring · **Not feasible** = cannot be done with the available data or infrastructure.
+"Unverified" means the feature exists, but its input channels are not confirmed in game.
+
+## Already in the app (not in the requested list, kept as is)
+
+Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race weekend, online join, presets, random), in-game Paddock HUD (delta, cues, corners, track limits), audio brake spotter, own brake points, Mods tab (mod manager), bundled ACE UI App Loader management, Tracks tab (EVO-native track models), desktop overlay, lap export/import.
+
+## User interface and experience
+
+| Capability | Status | Where / note |
+| --- | --- | --- |
+| Motorsport engineering-cockpit design | Done | `style.css` "pit-wall timing screen" design system (0.5.0 design pass) |
+| Dark graphite interface | Done | dark first, light theme from the OS setting |
+| Orange accent | **Conflict** | the accent is deliberately **lime** (`--accent: #c8ff1e`); orange is `--series-2` (a chart colour). Product decision D1 |
+| Consistent typography/spacing | Done | Barlow / Barlow Condensed, type scale tokens |
+| Reusable component library | Partial | CSS classes are shared; no JS component helpers for cards, states and tables beyond `util.js` |
+| Sidebar navigation | Missing | top navigation bar with 7 tabs. Decision D1 |
+| Responsive layouts | Partial | desktop-sized; some grids wrap, nothing tested below ~1100 px |
+| Customizable dashboard widgets | Missing | no dashboard yet. Deferred: low value for the cost |
+| Global search | Missing | per-page filters only (garage, tracks, setups) |
+| Keyboard shortcuts | Partial | replay/telemetry arrows, F8 in the HUD, F5/F11/F12 in the desktop app; no app-wide shortcuts, no help |
+| Command Center (palette) | Missing | |
+| Loading/empty/error states | Partial | present on most pages, written ad hoc in each page, not consistent |
+
+## Driver dashboard
+
+| Capability | Status | Note |
+| --- | --- | --- |
+| Driver performance overview | Missing | the home page is the Sessions list |
+| Recent sessions | Done | Sessions tab, by date |
+| Performance trends | Done | Progress page per combo; report lap-time trend |
+| Personal records | Partial | PB per combo on Sessions cards; no records list across all combos |
+| Driving consistency | Done | Consistency page, 0–100 score in reports |
+| Session summaries | Done | session reports |
+| Important warnings | Partial | nav dots (HUD outdated, new report); loader/game version warnings on Game/Mods tabs; not collected in one place |
+| Recommended next actions | Partial | "next practice targets" per report; not shown across the app |
+
+## Telemetry engineering
+
+| Capability | Status | Note |
+| --- | --- | --- |
+| Session analysis | Done | session page: telemetry, report, Car & setup |
+| Driver performance score | Partial | consistency score only; no overall score |
+| Driving style analysis | Missing | channels exist (thr/brk/str at 60 Hz) to measure trail braking, release, throttle pickup and steering corrections |
+| Corner-by-corner rankings | Partial | best/weakest 3 per session, focus corners on Consistency; no ranking of all corners across passes |
+| Session timeline | Partial | lap list, trend chart, invalid-lap locations; no single timeline view |
+| Speed & braking analysis | Done | corner table, charts |
+| Throttle & steering analysis | Done | charts + corner metrics (throttle-on, coasting) |
+| Telemetry comparison | Done | Compare (up to 3 laps vs best/ideal/any) |
+| Driving heatmaps | Partial | map coloured by delta; replay can colour the line by inputs; no brake/throttle heatmap layer on the map |
+| Performance progression | Done | Progress page |
+| Ghost & replay | Done (desktop) | racing-line replay with same-time ghost mode. An in-game ghost car is **not feasible**: the game has no API to draw one |
+
+## AI driving coach (Gemini, user's key)
+
+| Capability | Status | Note |
+| --- | --- | --- |
+| Post-session engineer report | Done | AI debrief button on the report |
+| Personalised training plans | Partial | the debrief contains a plan, but it isn't saved as structured data or tracked |
+| Technique analysis | Partial | per-lap coach on corner summaries |
+| Braking-point recommendations | Partial | coach + brake marks "fill from best lap"; no AI-proposed marks |
+| Corner entry/exit analysis | Done | corner card entry/apex/exit + coach |
+| Setup vs driving issue analysis | Partial | setup engineer + Car & setup rules, but on **unverified** channels, and the engineer does not split laps by setup (README limitation) |
+| Telemetry-aware chat | Partial | follow-ups per lap only; no chat across sessions or combos |
+| Improvement recommendations | Done | coach, debrief, targets |
+| Confidence indicators | Missing | Car & setup says "(to be confirmed in game)" in its text; AI answers carry no confidence or provenance |
+
+## Garage and car setup
+
+| Capability | Status | Note |
+| --- | --- | --- |
+| Car profiles | Done | garage with the game's spec sheet (Race tab) |
+| Setup management | Done | Setups tab, edits the game's `.carsetup` within the limits |
+| Setup history | Partial | every lap stores a setup snapshot; there is no history view |
+| Setup version comparison | Missing | the editor only highlights pending changes |
+| Performance comparison per setup | Partial | the report lists best lap per setup for one session only |
+| Import / export / portable sharing | Done | `.carsetup` share/import |
+| Setup recommendations | Done (unverified) | rules + AI engineer; inputs unverified |
+
+## Driver development
+
+| Capability | Status | Note |
+| --- | --- | --- |
+| Personal goals | Missing | |
+| Achievements | Missing | needs a product yes (gamification) |
+| Challenges | Missing | needs a product yes |
+| Training plans | Partial | see AI coach |
+| Session planner | Partial | Race tab presets; no plan with goals |
+| Race weekend history | Partial | sessions store `session_type`; no weekend grouping view |
+| Progress tracking | Done | Progress + report target checks |
+
+## Application management
+
+| Capability | Status | Note |
+| --- | --- | --- |
+| Backup & restore | Missing | only the automatic pre-migration DB backup |
+| Data export | Partial | per-lap `.lap.gz` export; no bulk/CSV export |
+| Automatic updates | Missing | needs a decision (D2): network access, unsigned builds |
+| Diagnostics | Partial | Game tab status, raw telemetry debug, Setup recognition, tray "Open log" |
+| App health information | Partial | as above, spread over three pages |
+| Error reporting | Partial | uncaught errors logged to `paddock.log`; no "copy diagnostics for a bug report" |
+
+## Engineering
+
+| Item | Status |
+| --- | --- |
+| Automated tests | **Missing** (none) |
+| Lint / type checks | Missing (`node --check` only) |
+| `src/server.js` router + loop + orchestration in one file | Refactor (gradual) |
+| Shared-memory offsets for car data and setup fingerprint | **Unverified in game** |
+| Broken features found in the baseline | None. All main endpoints return 200 with seeded mock data |
