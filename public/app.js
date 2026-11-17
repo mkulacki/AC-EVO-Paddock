@@ -2,6 +2,7 @@
 import { $, esc, api, post, fmt, prettyName } from './util.js';
 import { viewConsistency } from './consistency.js';
 import { viewSetupHistory } from './setuphistory.js';
+import { viewCoach } from './coach.js';
 import { viewTracks, viewTrack } from './tracks.js';
 import { viewRace } from './race.js';
 import { viewProgress } from './progress.js';
@@ -104,7 +105,7 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/home').split('?'); // Paddock opens on Home; #/ is Sessions
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/report': 'report' }[path] || 'laps';
+  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/coach': 'coach', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/report': 'report' }[path] || 'laps';
   const navKey = currentRoute === 'track' ? 'tracks' : ['home', 'settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
   if (navKey === 'laps') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
@@ -120,6 +121,7 @@ async function render() {
     else if (currentRoute === 'consistency') await viewConsistency(view, params, mine);
     else if (currentRoute === 'progress') await viewProgress(view, params, mine);
     else if (currentRoute === 'setuphistory') await viewSetupHistory(view, params, mine);
+    else if (currentRoute === 'coach') await viewCoach(view, params, mine);
     else if (currentRoute === 'settings') await viewSettings(view, mine, { restartPaddock, setStatus: (s) => { status = s; } });
     else if (currentRoute === 'report') await viewReport(view, params, mine);
     else await viewSessions(view, params, { rerender: render, entering: prevRoute !== 'laps' });

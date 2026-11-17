@@ -9,6 +9,19 @@ const stamp = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', m
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const s3 = (ms) => (ms == null ? '–' : `${(ms / 1000).toFixed(3)} s`);
 const pm = (ms) => (ms == null ? '–' : `±${(ms / 1000).toFixed(3)} s`);
+// the training plan as seen from this session: made from it, checked by it, or another session's plan
+function planHtml(p, combo) {
+  const coach = `#/coach?combo=${encodeURIComponent(`${combo.track}|${combo.layout}|${combo.car}`)}`;
+  if (p?.role === 'source') return `<p class="muted" style="margin:12px 0 0">These targets are your <b>training plan</b>: every later session here is checked against them. <a href="${coach}">Open in Coach</a></p>`;
+  const btn = `<button id="rPlan" class="small" title="Every later session with this car on this track is checked against these targets">${p ? 'Make these my training plan instead' : 'Make these my training plan'}</button>`;
+  if (p?.role === 'checked') {
+    const items = p.check.skipped ? `<p class="muted" style="margin:0">Not checked: ${esc(p.check.skipped)}</p>`
+      : `<ul style="list-style:none;margin:0;padding:0">${p.plan.targets.map((t, k) => { const i = p.check.items[k]; return `<li style="margin:4px 0">
+        <span class="${i.met ? 'neg' : i.met === false ? 'pos' : 'muted'}" style="font-weight:700">${i.met ? '✔' : i.met === false ? '✘' : '·'}</span> ${esc(t.text)} <span class="muted">: ${esc(i.actual)}</span></li>`; }).join('')}</ul>`;
+    return `<h3 style="margin:14px 0 6px">Training plan</h3>${items}<div class="row" style="margin-top:8px;gap:8px"><a href="${coach}" class="hint">Plan and history in Coach</a><span class="spacer"></span>${btn}</div>`;
+  }
+  return `<div class="row" style="margin-top:10px;gap:8px">${p ? `<a href="${coach}" class="hint">You follow another training plan here</a>` : ''}<span class="spacer"></span>${btn}</div>`;
+}
 const cls = (d) => (d == null ? 'muted' : d < 0 ? 'neg' : d > 0 ? 'pos' : '');
 const comboTxt = (c) => `${esc(prettyName(c.track))} <span class="muted">${esc(prettyName(c.layout))}</span>`;
 const MATCH = {
@@ -99,6 +112,7 @@ export async function viewReport(view, params, cleanup) {
     <div class="card"><h2>Next practice targets</h2><ol style="margin:0 0 0 20px;padding:0">${r.targets.map((t) => `<li style="margin:4px 0">${esc(t.text)}</li>`).join('')}</ol>
       ${r.prevTargets ? `<h3 style="margin:14px 0 6px">Last session's targets</h3><ul style="list-style:none;margin:0;padding:0">${r.prevTargets.items.map((t) => `<li style="margin:4px 0">
         <span class="${t.met ? 'neg' : t.met === false ? 'pos' : 'muted'}" style="font-weight:700">${t.met ? '✔' : t.met === false ? '✘' : '·'}</span> ${esc(t.text)} <span class="muted">: ${esc(t.actual)}</span></li>`).join('')}</ul>` : ''}
+      ${planHtml(res.plan, r.combo)}
     </div>
 
     <div class="card"><h2>Improvement</h2>${imp.prev ? `<div class="tablewrap"><table>
@@ -128,6 +142,12 @@ export async function viewReport(view, params, cleanup) {
     </div>`;
 
   // ---- actions
+  // training plan (P8): this report's targets become the plan of this track + car
+  $('#rPlan')?.addEventListener('click', async (e) => {
+    if (res.plan && !confirm('Replace your current training plan for this track and car with these targets?')) return;
+    e.target.disabled = true;
+    try { await post('/api/plan', { action: 'create', session: id }); reload(); } catch (err) { e.target.disabled = false; alert(err.message); }
+  });
   $('#rRegen').onclick = async () => { await post('/api/report/regenerate', { session: id }); reload(); };
   view.querySelectorAll('select[data-seg]').forEach((sel) => {
     sel.onchange = async () => {

@@ -5,7 +5,7 @@ import { esc, api, post, prettyName } from './util.js';
 
 const PAGES = [
   ['Home', '#/home', 'Your driving at a glance'], ['Race', '#/race', 'Set up and start a session'], ['Sessions', '#/', 'Your sessions by track and car'], ['Sessions by date', '#/?by=date', 'Newest first'],
-  ['Tracks', '#/tracks', 'Maps, corners and brake points'], ['Setups', '#/setups', 'Your saved setups and the AI engineer'],
+  ['Tracks', '#/tracks', 'Maps, corners and brake points'], ['Coach', '#/coach', 'AI coach, training plan and braking points per track and car'], ['Setups', '#/setups', 'Your saved setups and the AI engineer'],
   ['Game', '#/game', 'AC EVO, App Loader and HUD status'], ['Mods', '#/mods', 'Install, disable and remove mods'], ['Settings', '#/settings', 'Driver, Gemini, folders'],
 ];
 // Settings sections: [label, element id or heading text on the Settings page]
@@ -52,6 +52,7 @@ async function sources() {
     items.push({ kind: 'Progress', label: name, hint: `${c.laps} laps`, href: `#/progress?combo=${key}` });
     if (c.validLaps >= 2) items.push({ kind: 'Consistency', label: name, href: `#/consistency?combo=${key}` });
     items.push({ kind: 'Setup history', label: name, href: `#/setuphistory?combo=${key}` });
+    items.push({ kind: 'Coach', label: name, href: `#/coach?combo=${key}` });
     if (c.bestLapId && c.idealMs) items.push({ kind: 'Compare', label: `Best lap against ideal · ${name}`, href: `#/compare?laps=${c.bestLapId}&ref=ideal` });
   }
   const sessions = (ov?.sessions || []).filter((s) => (ov.laps || []).some((l) => l.session_id === s.id)).slice(0, 40);
@@ -73,7 +74,7 @@ async function sources() {
 const otherDialog = () => !!document.querySelector('.modal-back, .palette-back');
 
 // ---------------------------------------------------------------- the dialog
-const KINDS = ['Page', 'Settings', 'Progress', 'Consistency', 'Compare', 'Session', 'Track', 'Setups', 'Setup history', 'Command'];
+const KINDS = ['Page', 'Settings', 'Progress', 'Consistency', 'Compare', 'Session', 'Track', 'Setups', 'Setup history', 'Coach', 'Command'];
 /**
  * What the palette lists for a query. Empty: pages and recent sessions. A first word naming a kind, followed by more
  * words ("track brands", "session monza"), keeps only that kind; a single word is always searched as text, so

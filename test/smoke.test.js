@@ -78,6 +78,36 @@ test('read-only API routes answer', async () => {
   assert.deepEqual((await json('/api/setuphistory/combos?carId=nope&trackId=nope')).combos, []);
 });
 
+test('coach: page data, what is sent (without the key), plan from a report, braking-point data; no Gemini call', async () => {
+  const o = await json('/api/overview');
+  const c = o.combos[0];
+  const q = new URLSearchParams({ track: c.track, layout: c.layout, car: c.car });
+  const page = await json(`/api/coach?${q}`);
+  assert.equal(page.hasKey, true);
+  assert.deepEqual(page.messages, []);
+  assert.ok(page.marksCombo.track);
+  const ctxText = await get(`/api/coach/context?${q}`);
+  assert.ok(!ctxText.includes(FAKE_KEY), 'the key is not in what is sent');
+  const ctx = JSON.parse(ctxText);
+  assert.match(ctx.instructions, /Confidence/);
+  assert.equal(ctx.data.totals.laps, c.laps);
+  assert.ok((await json(`/api/coach/brakes/data?${q}`)).corners.length >= 1);
+  // a plan from the session's report (the report is made on first view)
+  const sid = o.sessions[0].id;
+  await json(`/api/report?session=${sid}`);
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const made = await (await post('/api/plan', { action: 'create', session: sid })).json();
+  assert.equal(made.plan.fromSession, sid);
+  assert.equal((await json(`/api/report?session=${sid}`)).plan.role, 'source');
+  assert.equal((await json(`/api/plan?${q}`)).plan.id, made.plan.id);
+  assert.equal((await (await post('/api/plan', { action: 'close', id: made.plan.id })).json()).plan, null);
+  // errors without calling Gemini: an empty question, a missing combo, a bad brake point
+  assert.equal((await post('/api/coach/ask', { track: c.track, layout: c.layout, car: c.car, question: ' ' })).status, 400);
+  assert.equal((await fetch(`${base}/api/coach`)).status, 400);
+  assert.equal((await post('/api/coach/brakes/apply', { track: c.track, layout: c.layout, car: c.car, items: [{ corner: 'T99', m: 1 }] })).status, 400);
+  await get('/coach.js');
+});
+
 test('home dashboard: data and what needs attention', async () => {
   const d = await json('/api/dashboard');
   assert.ok(d.totals.laps >= 6);

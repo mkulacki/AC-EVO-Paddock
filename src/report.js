@@ -138,7 +138,7 @@ function trackLimits(laps, R, corners) {
 }
 
 /** Did this session meet the targets of an earlier report? */
-function checkTargets(targets, r) {
+export function checkTargets(targets, r) {
   return targets.map((t) => {
     if (t.kind === 'lap') {
       const a = r.best?.ms ?? null;

@@ -33,6 +33,7 @@ test('filterItems: empty shows pages and sessions; "kind words" filters; a singl
   assert.deepEqual(pal.filterItems([...items, { kind: 'Setup history', label: 'Monza GP · Ferrari' }], 'history monza').map((x) => x.kind), ['Setup history']);
   const withSetups = [...items, { kind: 'Setup history', label: 'Monza GP · Ferrari' }, { kind: 'Setups', label: 'Monza GP · Ferrari' }];
   assert.deepEqual(pal.filterItems(withSetups, 'setup history monza').map((x) => x.kind), ['Setup history'], 'the full kind name');
+  assert.deepEqual(pal.filterItems([...withSetups, { kind: 'Coach', label: 'Monza GP · Ferrari' }], 'coach monza').map((x) => x.kind), ['Coach'], 'Coach per track + car');
   assert.deepEqual(pal.filterItems(withSetups, 'setup monza').map((x) => x.kind), ['Setups'], 'unchanged: setup = Setups');
   assert.equal(pal.filterItems(items, 'zzz').length, 0);
 });
