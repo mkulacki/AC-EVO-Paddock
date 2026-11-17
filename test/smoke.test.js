@@ -75,6 +75,19 @@ test('the Gemini key is never sent to the page, only masked', async () => {
   for (const p of ['/api/settings', '/api/status', '/api/game', '/api/overview']) assert.ok(!(await get(p)).includes(FAKE_KEY), `${p} leaks the key`);
 });
 
+test('telemetry checks: list, confirm a group, refuse unknown ones, not settable through /api/settings', async () => {
+  const list = await json('/api/channels');
+  assert.equal(list.find((g) => g.id === 'tyres').status, 'unverified');
+  const send = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  let r = await send('/api/setupcheck/confirm', { group: 'tyres', ok: true });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).channels.find((g) => g.id === 'tyres').status, 'verified');
+  assert.equal((await send('/api/setupcheck/confirm', { group: 'slip', ok: true })).status, 400);
+  await send('/api/settings', { channelChecks: { brakes: true } });
+  assert.equal((await json('/api/channels')).find((g) => g.id === 'brakes').status, 'unverified');
+  await send('/api/setupcheck/confirm', { group: 'tyres', ok: null });
+});
+
 // raw request: fetch/URL would clean up "../" before sending it
 const raw = (p) => new Promise((resolve, reject) => {
   http.get({ host: '127.0.0.1', port, path: p }, (r) => { let b = ''; r.on('data', (c) => { b += c; }); r.on('end', () => resolve({ status: r.statusCode, body: b })); }).on('error', reject);

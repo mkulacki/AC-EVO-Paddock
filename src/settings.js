@@ -10,7 +10,8 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   spotter: null, // audio brake spotter (see SPOTTER_DEFAULTS); null = defaults
   markButton: null, // wheel button that marks a brake point: {vid, pid, nth, button, name}; null = none
   markKey: '', // keyboard shortcut (Electron accelerator) that marks a brake point, desktop app only
-  probeConfirmed: false }; // the driver checked in game that the setup fingerprint / temperatures read right (Setups tab)
+  probeConfirmed: false, // the driver checked in game that the setup fingerprint / temperatures read right (Setups tab; before 0.6)
+  channelChecks: null }; // per telemetry group, whether the readings match the game: {group: true|false} (src/channels.js)
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
 export const HUD_PARTS = ['lap', 'ref', 'delta', 'current', 'speed', 'predicted', 'best', 'session', 'last', 'cues', 'ideal', 'corners', 'footer',

@@ -6,8 +6,12 @@
 // The rules are the usual race-engineering rules of thumb. Thresholds are deliberately wide: a suggestion is a hint
 // of where to look, not a verdict. Values the game gives as a position in its optimal window (nP, nC, nB) are used
 // carefully: their meaning has not been checked in game yet.
+//
+// Provenance (src/channels.js): every suggestion names the telemetry groups it rests on (basis). It counts as confirmed
+// only when all of them were checked against the game; the page lists the others apart, as unconfirmed hints.
 import * as db from './db.js';
 import * as svc from './service.js';
+import * as channels from './channels.js';
 
 const WHEELS = ['FL', 'FR', 'RL', 'RR'];
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
@@ -150,7 +154,11 @@ export function build(sessionId) {
   const report = { sessionId, available: true, combo, laps: laps.length, warmupSkipped: hot.length < laps.length, has, tyres, brakes, locks: lockList,
     suspension: susp.map(({ hits, ...s }) => ({ ...s, hitCorners: topCorners(hits), hitsBraking: hits.filter((h) => h.braking).length })), rideHeightMin: rh,
     balance, traction, perLap };
-  report.suggestions = suggest(report);
+  // per section: the group's status, or 'missing' where the game left the readings empty in this session
+  const st = (id, present) => (present ? channels.status(id) : 'missing');
+  report.provenance = { tyres: st('tyres', has.tyres), pressures: st('tyres', has.pressures), brakes: st('brakes', has.brakes),
+    suspension: st('suspension', has.susp), rideHeight: st('suspension', has.rideHeight), slip: st('slip', has.slip), windows: st('windows', has.window) };
+  report.suggestions = suggest(report).map((x) => ({ ...x, confirmed: channels.allTrusted(x.basis) }));
   return report;
 }
 
@@ -160,10 +168,10 @@ function topCorners(list) {
   return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
 }
 
-// ---- setup suggestions: {area, level 1..3, text, why}
+// ---- setup suggestions: {area, level 1..3, text, why, basis: [telemetry groups it rests on]}
 function suggest(r) {
   const out = [];
-  const add = (area, level, text, why) => out.push({ area, level, text, why });
+  const add = (area, level, text, why, basis) => out.push({ area, level, text, why, basis });
   const axle = (a) => (a === 0 ? 'front' : 'rear');
   const pair = (arr, a) => arr.slice(a * 2, a * 2 + 2);
   const list = (a) => (a.length ? ` (${a.join(', ')})` : '');
@@ -171,35 +179,35 @@ function suggest(r) {
   if (r.has.tyres) for (const a of [0, 1]) {
     const [L, R] = pair(r.tyres, a);
     const spread = mean([L.spread, R.spread]), crown = mean([L.crown, R.crown]);
-    if (spread < -1) add('Tyres', 2, `More negative camber on the ${axle(a)}`, `The outer edge of the ${axle(a)} tyres runs hotter than the inner edge (${fmtC(spread)} inner − outer): the tyre is not leaning into the corner enough.`);
-    else if (spread > 12) add('Tyres', 2, `Less negative camber on the ${axle(a)}`, `The inner edge of the ${axle(a)} tyres runs ${fmtC(spread)} hotter than the outer edge: too much camber wears and overheats the inside.`);
+    if (spread < -1) add('Tyres', 2, `More negative camber on the ${axle(a)}`, `The outer edge of the ${axle(a)} tyres runs hotter than the inner edge (${fmtC(spread)} inner − outer): the tyre is not leaning into the corner enough.`, ['tyres']);
+    else if (spread > 12) add('Tyres', 2, `Less negative camber on the ${axle(a)}`, `The inner edge of the ${axle(a)} tyres runs ${fmtC(spread)} hotter than the outer edge: too much camber wears and overheats the inside.`, ['tyres']);
     if (r.has.pressures) {
-      if (crown > 4) add('Tyres', 2, `Lower the ${axle(a)} tyre pressures a little (about 0.5 psi)`, `The middle of the ${axle(a)} tread is ${fmtC(crown)} hotter than its edges: the tyres are over-inflated and the contact patch is narrow.`);
-      else if (crown < -4) add('Tyres', 2, `Raise the ${axle(a)} tyre pressures a little (about 0.5 psi)`, `The edges of the ${axle(a)} tread are ${fmtC(-crown)} hotter than the middle: the tyres are under-inflated.`);
+      if (crown > 4) add('Tyres', 2, `Lower the ${axle(a)} tyre pressures a little (about 0.5 psi)`, `The middle of the ${axle(a)} tread is ${fmtC(crown)} hotter than its edges: the tyres are over-inflated and the contact patch is narrow.`, ['tyres']);
+      else if (crown < -4) add('Tyres', 2, `Raise the ${axle(a)} tyre pressures a little (about 0.5 psi)`, `The edges of the ${axle(a)} tread are ${fmtC(-crown)} hotter than the middle: the tyres are under-inflated.`, ['tyres']);
     }
   }
   if (r.has.window) for (const a of [0, 1]) {
     const [L, R] = pair(r.tyres, a);
     const p = mean([L.windowPressure, R.windowPressure].filter((v) => v != null)), c = mean([L.windowCore, R.windowCore].filter((v) => v != null));
-    if (p != null && p > 0 && p < 0.7) add('Tyres', 1, `${cap(axle(a))} hot pressures look low for the game's target`, `The game puts the ${axle(a)} pressures at ${pct(p)} of its target window (to be confirmed in game).`);
-    if (c != null && c > 0 && c < 0.7) add('Tyres', 1, `${cap(axle(a))} tyres run cold`, `The game puts the ${axle(a)} core temperature at ${pct(c)} of its optimal window (to be confirmed in game). Higher pressure or more camber warms them.`);
-    if (c != null && c > 1.3) add('Tyres', 1, `${cap(axle(a))} tyres run hot`, `The game puts the ${axle(a)} core temperature at ${pct(c)} of its optimal window (to be confirmed in game).`);
+    if (p != null && p > 0 && p < 0.7) add('Tyres', 1, `${cap(axle(a))} hot pressures look low for the game's target`, `The game puts the ${axle(a)} pressures at ${pct(p)} of its target window (to be confirmed in game).`, ['windows']);
+    if (c != null && c > 0 && c < 0.7) add('Tyres', 1, `${cap(axle(a))} tyres run cold`, `The game puts the ${axle(a)} core temperature at ${pct(c)} of its optimal window (to be confirmed in game). Higher pressure or more camber warms them.`, ['windows']);
+    if (c != null && c > 1.3) add('Tyres', 1, `${cap(axle(a))} tyres run hot`, `The game puts the ${axle(a)} core temperature at ${pct(c)} of its optimal window (to be confirmed in game).`, ['windows']);
   }
   if (r.has.tyres) {
     const f = mean([r.tyres[0].core, r.tyres[1].core]), b = mean([r.tyres[2].core, r.tyres[3].core]);
-    if (f != null && b != null && Math.abs(f - b) > 10) add('Tyres', 1, `The ${f > b ? 'front' : 'rear'} tyres work much harder than the ${f > b ? 'rear' : 'front'}`, `Core temperatures: front ${fmtT(f)}, rear ${fmtT(b)}. ${f > b ? 'Typical of understeer: the fronts slide.' : 'Typical of oversteer or wheelspin: the rears slide.'}`);
+    if (f != null && b != null && Math.abs(f - b) > 10) add('Tyres', 1, `The ${f > b ? 'front' : 'rear'} tyres work much harder than the ${f > b ? 'rear' : 'front'}`, `Core temperatures: front ${fmtT(f)}, rear ${fmtT(b)}. ${f > b ? 'This can point to understeer (the fronts sliding), but temperatures alone do not show it.' : 'This can point to oversteer or wheelspin (the rears sliding), but temperatures alone do not show it.'}`, ['tyres']);
   }
 
   // brakes
   const fl = r.brakes[0].locks + r.brakes[1].locks, rl = r.brakes[2].locks + r.brakes[3].locks;
   const lockCorners = topCorners(r.locks);
-  if (fl >= 3 && fl >= 2 * rl) add('Brakes', 2, 'Move the brake bias 1–2 % to the rear', `The fronts locked ${fl} times${list(lockCorners)}, the rears ${rl}. If it is only one corner, brake a touch softer there first.`);
-  else if (rl >= 3 && rl >= 2 * fl) add('Brakes', 3, 'Move the brake bias 1–2 % to the front', `The rears locked ${rl} times${list(lockCorners)}: rear lock-ups spin the car.`);
+  if (fl >= 3 && fl >= 2 * rl) add('Brakes', 2, 'Move the brake bias 1–2 % to the rear', `The fronts locked ${fl} times${list(lockCorners)}, the rears ${rl}. If it is only one corner, brake a touch softer there first.`, ['brakes']);
+  else if (rl >= 3 && rl >= 2 * fl) add('Brakes', 3, 'Move the brake bias 1–2 % to the front', `The rears locked ${rl} times${list(lockCorners)}: rear lock-ups spin the car.`, ['brakes']);
   if (r.has.brakes) for (const a of [0, 1]) {
     const [L, R] = pair(r.brakes, a);
     const n = mean([L.windowPeak, R.windowPeak].filter((v) => v != null && v > 0));
-    if (n != null && n > 1.15) add('Brakes', 1, `Open the ${axle(a)} brake ducts`, `The ${axle(a)} brakes peak at ${pct(n)} of their window (to be confirmed in game): hot brakes fade.`);
-    else if (n != null && n < 0.45) add('Brakes', 1, `Close the ${axle(a)} brake ducts a little`, `The ${axle(a)} brakes peak at only ${pct(n)} of their window (to be confirmed in game): cold brakes bite less.`);
+    if (n != null && n > 1.15) add('Brakes', 1, `Open the ${axle(a)} brake ducts`, `The ${axle(a)} brakes peak at ${pct(n)} of their window (to be confirmed in game): hot brakes fade.`, ['windows']);
+    else if (n != null && n < 0.45) add('Brakes', 1, `Close the ${axle(a)} brake ducts a little`, `The ${axle(a)} brakes peak at only ${pct(n)} of their window (to be confirmed in game): cold brakes bite less.`, ['windows']);
   }
 
   // suspension
@@ -209,11 +217,11 @@ function suggest(r) {
     if (hits >= 3) {
       const braking = L.hitsBraking + R.hitsBraking > (L.hitsPerLap + R.hitsPerLap) * r.laps * 0.5;
       add('Suspension', 2, `The ${axle(a)} suspension reaches the end of its travel ${Math.round(hits)} times a lap: stiffer ${axle(a)} springs or bump stops, or a little more ${axle(a)} ride height`,
-        `Mostly ${braking ? 'under braking' : 'in corners or over kerbs'}${list([...new Set([...L.hitCorners, ...R.hitCorners])].slice(0, 3))}. On the bump stop the spring rate jumps and the tyre loses grip.`);
+        `Mostly ${braking ? 'under braking' : 'in corners or over kerbs'}${list([...new Set([...L.hitCorners, ...R.hitCorners])].slice(0, 3))}. On the bump stop the spring rate jumps and the tyre loses grip.`, ['suspension']);
     }
   }
   if (r.rideHeightMin) r.rideHeightMin.forEach((h, a) => {
-    if (h != null && h < 5) add('Suspension', 2, `Raise the ${axle(a)} ride height a little`, `The ${axle(a)} ride height dropped to ${h} mm: the car may be bottoming out.`);
+    if (h != null && h < 5) add('Suspension', 2, `Raise the ${axle(a)} ride height a little`, `The ${axle(a)} ride height dropped to ${h} mm: the car may be bottoming out.`, ['suspension']);
   });
 
   // balance
@@ -231,11 +239,11 @@ function suggest(r) {
       const p = B[ph];
       if (!p || p.value == null || Math.abs(p.value) <= 0.08 || p.samples < 20) continue;
       const [text, why] = tips[`${ph}${p.value > 0 ? '+' : '-'}`];
-      add('Balance', Math.abs(p.value) > 0.18 ? 3 : 2, `${cap(ph === 'mid' ? 'mid-corner' : ph)} ${p.value > 0 ? 'understeer' : 'oversteer'}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`, `${why}${list(p.corners)}`);
+      add('Balance', Math.abs(p.value) > 0.18 ? 3 : 2, `${cap(ph === 'mid' ? 'mid-corner' : ph)} ${p.value > 0 ? 'understeer' : 'oversteer'}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`, `${why}${list(p.corners)}`, ['slip','gforce']);
     }
   }
   if (r.traction && r.traction.share > 0.15) add('Traction', 2, 'Wheelspin out of slow corners: softer rear, more traction control or a lower differential power lock (and a smoother throttle)',
-    `The rear wheels spun on ${pct(r.traction.share)} of the throttle samples on corner exits${list(r.traction.corners)}.`);
+    `The rear wheels spun on ${pct(r.traction.share)} of the throttle samples on corner exits${list(r.traction.corners)}.`, ['slip']);
   return out.sort((a, b) => b.level - a.level);
 }
 const fmtC = (v) => `${Math.round(v * 10) / 10} °C`;
@@ -254,6 +262,7 @@ export function forAi(r) {
     min_ride_height_mm: r.rideHeightMin ? { front: r.rideHeightMin[0], rear: r.rideHeightMin[1] } : undefined,
     balance_front_vs_rear_slip: r.balance ? Object.fromEntries(Object.entries(r.balance).map(([k, v]) => [k, { value: v.value, label: v.label, corners: v.corners }])) : 'not available',
     wheelspin_share_on_exits: r.traction?.share,
-    rule_based_hints: r.suggestions.map((s) => s.text),
+    rule_based_hints: r.suggestions.map((s) => (s.confirmed ? s.text : `${s.text} (rests on readings not confirmed in game)`)),
+    data_quality: channels.forAi(['tyres', 'brakes', 'suspension', 'slip', 'windows']),
   };
 }

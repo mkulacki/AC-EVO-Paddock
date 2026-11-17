@@ -1,5 +1,30 @@
 // Gemini-based driving coach. Sends a compact per-corner summary (not raw telemetry).
 import * as settings from './settings.js';
+import * as channels from './channels.js';
+
+// Every free-text answer ends with a confidence line, which splitConfidence takes off and the page shows as a badge.
+const CONFIDENCE_RULE = `- Separate what the numbers show from your interpretation of them. Never state car behaviour (understeer, oversteer,
+  tyre temperatures, grip) as fact from readings that data_quality marks as not confirmed; say that the reading is unconfirmed.
+- End with exactly one last line, with these words in English whatever the answer language:
+  Confidence: high|medium|low - <one sentence: what the conclusions rest on, and what is missing or uncertain>
+  high = clear differences in confirmed data; medium = some interpretation or a small sample; low = few laps, unconfirmed readings or guesswork.`;
+
+const LEVELS = ['high', 'medium', 'low'];
+const level = (v) => (LEVELS.includes(String(v ?? '').toLowerCase()) ? String(v).toLowerCase() : null);
+// "Confidence: medium - based on …", also with Markdown around it ("**Confidence:** Medium — …")
+const CONF_LINE = /^[\s>*_]*confidence[\s*_]*[:：][\s*_]*(high|medium|low)\b[\s*_]*[-–—:.]?\s*(.*)$/i;
+/** Takes the confidence line off an answer: {text, confidence: {level, basis} | null}; null = the model gave none. */
+export function splitConfidence(text) {
+  const lines = String(text || '').trimEnd().split('\n');
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 3); i--) {
+    const m = lines[i].match(CONF_LINE);
+    if (m) {
+      lines.splice(i, 1);
+      return { text: lines.join('\n').trimEnd(), confidence: { level: m[1].toLowerCase(), basis: m[2].replace(/[*_\s]+$/, '').trim() } };
+    }
+  }
+  return { text: String(text || ''), confidence: null };
+}
 
 const API = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -46,6 +71,7 @@ export function buildSummary(cmp, lap) {
     lap_stats: { you: lap.stats, reference: ref.stats },
     units: 'distances in metres from start/finish line, speeds km/h, brake/throttle 0-1 (maxBrakePct in %), times ms unless _s; positive time_lost = slower than reference',
     corners: rows,
+    data_quality: channels.forAi(['core', 'trackLimits']),
   };
 }
 
@@ -64,7 +90,8 @@ Rules:
 - Diagnose the cause (early braking, over-slowing, late/hesitant throttle, coasting, poor exit, too much steering) and give a concrete, actionable fix
   (e.g. "brake ~10 m later, at ~610 m", "carry 3 km/h more min speed", "get to full throttle 20 m earlier").
 - Mention where the driver is faster than the reference too, briefly.
-- Be concise, use Markdown headings and bullet points. No generic tips unrelated to the data.`;
+- Be concise, use Markdown headings and bullet points. No generic tips unrelated to the data.
+${CONFIDENCE_RULE}`;
 
 export async function coach(cmp, lap, question, previousAnswer) {
   const s = settings.get();
@@ -100,15 +127,20 @@ telemetry.car_behaviour_latest_session, when present, is what the car did in the
 tyre temperatures across the tread (inner/middle/outer) and core, hot pressures, brake temperatures and lock-ups,
 suspension travel and how often it reached the end of its travel, front-vs-rear slip balance per corner phase
 (+ = understeer, - = oversteer), wheelspin on exits, and rule-of-thumb hints. setup_driven says which setup that was.
-Use it as strong evidence when it was this setup; tyre temperature spreads and pressures matter most for camber and pressures.
+Use it as strong evidence only when it was this setup AND its data_quality says the readings are confirmed in game.
+Readings marked NOT confirmed are weak hints: say so, and do not base a change on them alone. Tyre temperature spreads and
+pressures matter most for camber and pressures.
 Rules:
 - Propose a small number of focused changes (usually 2-6) that address the driver's problem; do not change everything at once.
 - Only use names from the setup list, values inside min..max and on the step grid. Do not change fuel, tyre compound or telemetry laps.
 - Keep left/right symmetric unless there is a reason not to.
 - Explain each change in one or two sentences (what it does to the car's balance and why it helps here).
 - If the problem is more about driving than setup, say so in the summary and keep the changes minimal.
+- Rate confidence honestly: high = clear, confirmed evidence; medium = the driver's description plus some data;
+  low = guesswork, few laps or unconfirmed readings.
 Answer with JSON only:
-{"summary": "markdown: diagnosis and what to expect", "changes": [{"name": "...", "value": number, "reason": "..."}],
+{"summary": "markdown: diagnosis and what to expect", "changes": [{"name": "...", "value": number, "reason": "...", "confidence": "high|medium|low"}],
+ "confidence": "high|medium|low", "basis": "one sentence: what the proposal rests on, and what is uncertain",
  "test_plan": "markdown: what to try on track and what to report back", "name": "a short name for the new setup (max 30 chars)"}`;
 
 const NO_AI = new Set(['fuel', 'telemetry_laps_to_record']);
@@ -149,11 +181,12 @@ export async function setupEngineer({ setup, problem, telemetry }) {
     if (!v || !Number.isFinite(want)) { skipped.push(String(c?.name ?? '?')); continue; }
     const to = snap(v, want / v.scale);
     if (Math.abs(to - v.value) < 1e-9 || changes.some((x) => x.name === v.name)) continue;
-    changes.push({ name: v.name, from: v.value, to, reason: String(c.reason || '').slice(0, 600) });
+    changes.push({ name: v.name, from: v.value, to, reason: String(c.reason || '').slice(0, 600), confidence: level(c.confidence) });
   }
   return {
     model: s.geminiModel, summary: String(out.summary || ''), testPlan: String(out.test_plan || ''),
     name: String(out.name || '').slice(0, 40), changes, skipped, usedLaps: telemetry ? telemetry.laps : 0,
+    confidence: level(out.confidence) ? { level: level(out.confidence), basis: String(out.basis || '').slice(0, 400) } : null,
   };
 }
 
@@ -170,12 +203,14 @@ Rules:
 - Base every statement on the numbers; quote them (seconds, metres, km/h).
 - Structure (Markdown): one-paragraph summary; "What went well"; "Where the time is"; "Plan for next session" (refine the given targets, 3 bullets max).
 - If several setups were used, compare their best laps briefly but do not over-interpret small samples.
-- Be concise: under 250 words. No generic tips unrelated to the data.`;
+- data_quality says which readings are confirmed in game; the recognised setup and the temperatures may not be.
+- Be concise: under 250 words. No generic tips unrelated to the data.
+${CONFIDENCE_RULE}`;
 
 export async function debrief(report) {
   const s = settings.get();
   const { trend, ...rest } = report;
-  const input = { ...rest, lap_times: trend.map((l) => `${l.n}: ${fmt(l.ms)}${l.valid ? '' : ' (invalid)'}${l.setup ? ` [${l.setup}]` : ''}`) };
+  const input = { ...rest, data_quality: channels.forAi(['core', 'trackLimits', 'setupProbe', 'conditions']), lap_times: trend.map((l) => `${l.n}: ${fmt(l.ms)}${l.valid ? '' : ' (invalid)'}${l.setup ? ` [${l.setup}]` : ''}`) };
   const json = await call(`models/${encodeURIComponent(s.geminiModel)}:generateContent`, {
     systemInstruction: { parts: [{ text: DEBRIEF_SYSTEM }] },
     contents: [{ role: 'user', parts: [{ text: `Respond in ${s.language || 'English'}.\n\nSession report (JSON):\n${JSON.stringify(input)}` }] }],
