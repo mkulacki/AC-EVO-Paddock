@@ -80,9 +80,9 @@ Earlier product decisions (Race tab, Mods, setups, spotter, brake marks, reports
 
 ## 2026-11-17: P7, setup history and comparison
 
-- **A history entry = what was driven:** laps are grouped by the snapshot of values stored when they were driven (`setup_info.snap`), not by file name. A saved file edited between sessions shows as "version 1 of 2", "version 2 of 2", so lap times are never credited to values that were not on the car. Laps without a snapshot fall back to the file (`file:<rel>`), "Standard" (no match) or "Not recorded" (before setup tracking).
+- **A history entry = what was driven:** laps are grouped by the snapshot of values stored when they were driven (`setup_info.snap`) together with the file (`snap:<hash>@<rel>`), not by file name alone: two files saved with the same values stay two setups. A saved file edited between sessions shows as "version 1 of 2", "version 2 of 2", so lap times are never credited to values that were not on the car. Laps without a snapshot fall back to the file (`file:<rel>`), "Standard" (no match) or "Not recorded" (before setup tracking).
   - **Rejected:** grouping by file name only (it would mix two different setups under one name).
 - **Comparison values** come from the snapshot; only when there is none, from the saved file as it is now, labelled "file as it is now". Standard and Not recorded entries have no values: the page says so instead of comparing.
 - **Typical lap = median of clean laps** (valid, within 7 % of that setup's best), the same rule as the report and Progress, so the numbers agree across pages.
 - **Its own page** (`#/setuphistory?combo=`), reached from the Sessions combo, the palette ("history …") and the Setups tab (*Your laps here*), because laps are keyed by game track/car names and setups by catalogue ids; `/api/setuphistory/combos` maps one to the other.
-- **AI engineer** gets `by_setup` (compact rows, the engineered setup marked `this_setup`) plus a note on whether setup recognition is checked in game.
+- **AI engineer** gets `by_setup` (compact rows; `this_setup` only on the entry driven with the file's current values, `this_setup_other_values` on its older or unknown versions, so old lap times are not credited to new values) plus a note on whether setup recognition is checked in game.

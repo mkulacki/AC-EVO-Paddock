@@ -85,11 +85,21 @@ function startGame(order) { if ((mockIdx < 0 || process.env.ACE_BRIDGE) && !game
  * valid lap, the corner-by-corner comparison with the ideal lap (null when there are no laps), and the laps split by
  * the setup they were driven on (by_setup, P7; this_setup marks the setup being engineered).
  */
-function setupTelemetry(setup, trackId, layout) {
-  const laps = db.listLaps().filter((l) => l.source === 'local' && cars.match(l.car)?.id === setup.carId).filter((l) => {
-    const h = trackdata.find(l.track, l.layout);
-    return h && h.track.id === trackId && (!layout || h.layout.key === layout);
+/** Own laps whose game car and track names map to a catalogue car and track (each distinct combo matched once). */
+function lapsForCatalogue(carId, trackId, layout = null) {
+  const hit = new Map();
+  return db.listLaps().filter((l) => {
+    if (l.source !== 'local') return false;
+    const k = `${l.track}|${l.layout}|${l.car}`;
+    if (!hit.has(k)) {
+      const h = cars.match(l.car)?.id === carId ? trackdata.find(l.track, l.layout) : null;
+      hit.set(k, !!h && h.track.id === trackId && (!layout || h.layout.key === layout));
+    }
+    return hit.get(k);
   });
+}
+function setupTelemetry(setup, trackId, layout) {
+  const laps = lapsForCatalogue(setup.carId, trackId, layout);
   if (!laps.length) return null;
   const valid = laps.filter((l) => l.valid);
   const best = valid.reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
@@ -98,7 +108,7 @@ function setupTelemetry(setup, trackId, layout) {
   const combos = [...new Map(laps.map((l) => [`${l.track}|${l.layout}|${l.car}`, { track: l.track, layout: l.layout, car: l.car }])).values()];
   try {
     out.by_setup = setuphistory.forAi(combos, setup.rel ?? null);
-    out.by_setup_note = `Setups are recognised from pit-box readings (${channels.trusted('setupProbe') ? 'checked against the game' : 'not checked against the game yet'}). "Standard" = no saved setup matched; "Not recorded" = laps from before setups were tracked.`;
+    out.by_setup_note = `Setups are recognised from pit-box readings (${channels.trusted('setupProbe') ? 'checked against the game' : 'not checked against the game yet'}). this_setup = the laps driven with this setup's current values; this_setup_other_values = the same file with other (older) or unknown values. "Standard" = no saved setup matched; "Not recorded" = no setup recorded for those laps.`;
   } catch (e) { out.by_setup_note = `not available: ${e.message}`; }
   // what the car did in the latest session with car data (tyres, brakes, suspension, balance)
   for (const sid of [...new Set(laps.map((l) => l.session_id).filter(Boolean))].slice(0, 5)) {
@@ -607,8 +617,7 @@ async function route(req, res) {
   if (p === '/api/setuphistory/combos') {
     const q = url.searchParams, carId = q.get('carId'), trackId = q.get('trackId');
     const out = new Map();
-    for (const l of db.listLaps()) {
-      if (l.source !== 'local' || cars.match(l.car)?.id !== carId || trackdata.find(l.track, l.layout)?.track.id !== trackId) continue;
+    for (const l of lapsForCatalogue(carId, trackId)) {
       const k = `${l.track}|${l.layout}|${l.car}`;
       if (!out.has(k)) out.set(k, { key: k, track: l.track, layout: l.layout, car: l.car, laps: 0 });
       out.get(k).laps++;

@@ -68,6 +68,14 @@ test('read-only API routes answer', async () => {
   for (const p of ['/api/status', '/api/settings', '/api/reports', '/api/game', '/api/race/status', '/api/hud', '/api/setups/meta',
     `/api/consistency?${q}`, `/api/progress?${q}`, `/api/setuphistory?${q}`, `/api/compare?laps=${c.bestLapId}&ref=ideal`, `/api/report?session=${sid}`,
     `/api/carreport?session=${sid}`, `/api/ai/summary?lap=${c.bestLapId}&ref=ideal`]) await json(p);
+  // setup history: the mock laps have no setup recorded, a diff of one entry with itself compares nothing,
+  // and the mock car/track are not in the game's catalogue (no combos)
+  const h = await json(`/api/setuphistory?${q}`);
+  assert.ok(h.entries.length >= 1);
+  const k = h.entries[0].key;
+  const d = await json(`/api/setuphistory/diff?${q}&a=${encodeURIComponent(k)}&b=${encodeURIComponent(k)}`);
+  assert.equal(d.a.key, k);
+  assert.deepEqual((await json('/api/setuphistory/combos?carId=nope&trackId=nope')).combos, []);
 });
 
 test('home dashboard: data and what needs attention', async () => {

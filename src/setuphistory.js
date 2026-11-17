@@ -2,7 +2,9 @@
 // a value-by-value comparison of two of them. A "setup" here is what the lap remembers (laps.setup_info): the saved
 // file it was recognised as (rel) and the snapshot of that file's values when it was driven (snap). The same file
 // edited between sessions is two entries (two snapshots), so a change of values is never hidden.
-// Laps recorded before setups were tracked have no setup_info: they form one "Not recorded" entry.
+// Laps with no setup_info (recorded before setups were tracked, or the setup was never detected in that session) form
+// one "Not recorded" entry.
+import crypto from 'node:crypto';
 import * as db from './db.js';
 import { describeName, GROUPS } from './carsetup.js';
 import { valuesOfRel, STANDARD } from './setupmatch.js';
@@ -14,11 +16,17 @@ const r0 = (v) => (v == null ? null : Math.round(v));
 const r1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
 const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 
-/** The key of the setup a lap was driven on: 'snap:<hash>', 'file:<rel>', 'standard' or 'none'. */
+/** Hash of a values object, the same recipe as the snapshots (src/setupmatch.js pick). */
+export const snapOf = (values) => crypto.createHash('sha1').update(JSON.stringify(values)).digest('hex').slice(0, 16);
+
+/**
+ * The key of the setup a lap was driven on: 'snap:<hash>@<rel>', 'file:<rel>', 'standard' or 'none'. The file is part
+ * of a snapshot key: two saved files with the same values are still two setups.
+ */
 export function keyOf(lap) {
   const info = parse(lap.setup_info);
   if (!info && lap.setup_name == null) return 'none';
-  if (info?.snap) return `snap:${info.snap}`;
+  if (info?.snap) return `snap:${info.snap}@${info.rel ?? ''}`;
   if (info?.rel) return `file:${info.rel}`;
   return 'standard';
 }
@@ -35,15 +43,16 @@ export function history({ track, layout, car }) {
     const key = keyOf(l), info = parse(l.setup_info);
     if (!groups.has(key)) {
       groups.set(key, { key, name: key === 'none' ? NOT_RECORDED : key === 'standard' ? STANDARD : l.setup_name ?? STANDARD, rel: info?.rel ?? null,
-        snapshot: key.startsWith('snap:') ? key.slice(5) : null, match: new Set(), rows: [] });
+        snapshot: info?.snap ?? null, match: new Set(), rows: [] });
     }
     const g = groups.get(key);
     g.rows.push(l);
     if (info?.match) g.match.add(info.match);
   }
-  // versions: the same saved file driven with different values, numbered in the order they were first driven
+  // versions: the same saved file driven with different recorded values, numbered in the order they were first driven
+  // (only entries with recorded values: a file-only entry has unknown values)
   const byRel = new Map();
-  for (const g of groups.values()) if (g.rel) { if (!byRel.has(g.rel)) byRel.set(g.rel, []); byRel.get(g.rel).push(g); }
+  for (const g of groups.values()) if (g.rel && g.snapshot) { if (!byRel.has(g.rel)) byRel.set(g.rel, []); byRel.get(g.rel).push(g); }
   for (const list of byRel.values()) list.forEach((g, i) => { g.version = i + 1; g.versions = list.length; });
 
   const sessionsCache = new Map();
@@ -115,7 +124,9 @@ export function diff(combo, keyA, keyB) {
   const strip = (g, v) => ({ key: g.key, name: g.name, version: g.version, versions: g.versions, source: v.source, bestMs: g.bestMs, medianMs: g.medianMs, laps: g.laps, validLaps: g.validLaps });
   const out = { a: strip(A, va), b: strip(B, vb), changed: null, same: null, onlyA: [], onlyB: [] };
   if (!va.values || !vb.values) {
-    out.reason = `${!va.values ? A.name : B.name} has no recorded values (${(!va.values ? A : B).key === 'standard' ? 'no saved setup matched: the game\'s default or an unsaved change' : 'laps from before setups were tracked, or the file is gone'})`;
+    const why = (g) => `${g.name} has no recorded values (${g.key === 'standard' ? 'no saved setup matched: the game\'s default or an unsaved change'
+      : g.key === 'none' ? 'the setup was not recorded for these laps' : 'the saved file is gone or unreadable'})`;
+    out.reason = [!va.values && why(A), !vb.values && why(B)].filter(Boolean).join('; ');
     return out;
   }
   return { ...out, ...compareValues(va.values, vb.values) };
@@ -124,10 +135,15 @@ export function diff(combo, keyA, keyB) {
 /** For the AI setup engineer: the laps split by setup (compact). current = rel of the setup being engineered. */
 export function forAi(combos, currentRel = null) {
   const rows = [];
+  // the setup being engineered = the entry driven with the file's current values; other entries of that file are
+  // marked apart (older values, or values unknown), so their lap times are not credited to the current values
+  const cur = currentRel ? valuesOfRel(currentRel) : null;
+  const curSnap = cur ? snapOf(cur) : null;
   for (const c of combos) {
     for (const g of history(c)) {
+      const mine = currentRel != null && g.rel === currentRel, exact = mine && g.snapshot != null && g.snapshot === curSnap;
       rows.push({ setup: g.version && g.versions > 1 ? `${g.name} (version ${g.version} of ${g.versions})` : g.name,
-        this_setup: currentRel != null && g.rel === currentRel ? true : undefined,
+        this_setup: exact ? true : undefined, this_setup_other_values: mine && !exact ? true : undefined,
         layout: combos.length > 1 ? c.layout : undefined, laps: g.laps, valid_laps: g.validLaps, best_ms: g.bestMs,
         median_clean_ms: g.medianMs, spread_ms: g.sdMs ?? undefined, last_driven: new Date(g.lastAt).toISOString().slice(0, 10),
         air_c: g.conditions.airC ?? undefined, track_c: g.conditions.roadC ?? undefined });

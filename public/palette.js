@@ -82,8 +82,11 @@ const KINDS = ['Page', 'Settings', 'Progress', 'Consistency', 'Compare', 'Sessio
 export function filterItems(items, q) {
   const words = String(q || '').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return items.filter((it) => it.kind === 'Page' || it.kind === 'Session').slice(0, 14);
-  const kind = words.length > 1 && words[0].length >= 3 ? KINDS.find((k) => k.toLowerCase().split(' ').some((w) => w.startsWith(words[0].toLowerCase()))) : null;
-  const text = kind ? words.slice(1).join(' ') : words.join(' ');
+  // a kind of several words typed in full ("setup history monza") wins; else the first word starts a word of a kind
+  const lower = words.join(' ').toLowerCase();
+  const full = KINDS.find((k) => k.includes(' ') && lower.startsWith(`${k.toLowerCase()} `));
+  const kind = full || (words.length > 1 && words[0].length >= 3 ? KINDS.find((k) => k.toLowerCase().split(' ').some((w) => w.startsWith(words[0].toLowerCase()))) : null);
+  const text = full ? words.slice(full.split(' ').length).join(' ') : kind ? words.slice(1).join(' ') : words.join(' ');
   const pool = kind ? items.filter((it) => it.kind === kind) : items;
   return pool.map((it) => ({ it, s: score(text, it.label) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s).slice(0, 40).map((x) => x.it);
 }

@@ -29,8 +29,9 @@ export async function viewSetupHistory(view, params, cleanup) {
   const fastestMed = withMed.length ? Math.min(...withMed.map((g) => g.medianMs)) : null;
   const comparable = E.filter((g) => g.snapshot || g.rel);
   const keyParam = (k) => (E.some((g) => g.key === k) ? k : null);
-  let A = keyParam(params.get('a')) || comparable[1]?.key || E[1]?.key || E[0].key;
+  // defaults: the two most recent setups with values; A never the same as B
   let B = keyParam(params.get('b')) || comparable[0]?.key || E[0].key;
+  let A = keyParam(params.get('a')) || [...comparable, ...E].find((g) => g.key !== B)?.key || B;
 
   view.innerHTML = `${head}
     <div class="card plain note-warn" style="margin-bottom:12px">${prov(data.probe || 'unverified', 'Setups are recognised from the tyre pressures, camber, brake bias and fuel read in the pit box.')}
@@ -41,7 +42,7 @@ export async function viewSetupHistory(view, params, cleanup) {
         <th title="Median of the clean laps: valid laps within 7 % of this setup's best">Typical lap</th><th title="Spread of the clean laps (with 3 or more)">Spread</th>
         <th title="Average air and track temperature of the sessions that recorded them">Air / track</th><th></th></tr></thead>
       <tbody>${E.map((g) => `<tr>
-        <td><b>${label(g)}</b><div class="muted" style="font-size:12px">${esc(g.match.map((m) => MATCH[m] || m).join(', ') || (g.key === 'none' ? 'laps from before setups were tracked' : ''))}</div></td>
+        <td><b>${label(g)}</b><div class="muted" style="font-size:12px">${esc(g.match.map((m) => MATCH[m] || m).join(', ') || (g.key === 'none' ? 'no setup recorded: laps from before setups were tracked, or the setup was not detected' : ''))}</div></td>
         <td class="muted" style="white-space:nowrap">${day(g.firstAt)}${day(g.firstAt) !== day(g.lastAt) ? ` – ${day(g.lastAt)}` : ''}</td>
         <td>${g.sessions}</td><td>${g.validLaps}<span class="muted"> / ${g.laps}</span></td>
         <td>${g.bestMs != null ? `<b class="${g.bestMs === fastest ? 'best' : ''}">${fmt(g.bestMs)}</b> ${g.bestMs !== fastest ? `<span class="pos">${fmtGap(g.bestMs - fastest)}</span>` : ''}` : '<span class="muted">no valid lap</span>'}</td>
@@ -70,10 +71,13 @@ export async function viewSetupHistory(view, params, cleanup) {
       <tr><td>Typical lap</td><td>${fmt(d.a.medianMs)}</td><td>${fmt(d.b.medianMs)}</td><td class="${d.a.medianMs != null && d.b.medianMs != null ? (d.b.medianMs < d.a.medianMs ? 'neg' : 'pos') : ''}">${d.a.medianMs != null && d.b.medianMs != null ? fmtGap(d.b.medianMs - d.a.medianMs) : '–'}</td></tr>
       <tr><td>Laps (valid)</td><td>${d.a.validLaps} / ${d.a.laps}</td><td>${d.b.validLaps} / ${d.b.laps}</td><td></td></tr></tbody></table></div>`;
     const src = (s) => (s === 'file' ? ' <span class="muted" title="No values were recorded when it was driven: these are the saved file\'s values now, which may have changed since">(file as it is now)</span>' : '');
+    // where the values come from: recorded when driven, or (no record) the saved file as it is now
+    const fileNote = [d.a, d.b].filter((x) => x.source === 'file').map((x) => esc(x.name));
+    const srcNote = fileNote.length ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${src('file')} for ${fileNote.join(' and ')}: no values were recorded when it was driven, so these are the saved file's values now, which may have changed since.</p>` : '';
     let values;
     if (!d.changed) values = `<p class="muted" style="margin:10px 0 0">No value comparison: ${esc(d.reason)}.</p>`;
-    else if (!d.changed.length) values = `<p style="margin:10px 0 0">The values are the same (${d.same} values compared).${d.onlyA.length || d.onlyB.length ? ' Some values exist in only one of them.' : ''}</p>`;
-    else values = `<h3 style="margin:14px 0 6px">${d.changed.length} value${d.changed.length === 1 ? '' : 's'} differ <span class="muted" style="font-weight:400;font-size:12px">· ${d.same} the same${src(d.a.source)}${d.a.source !== d.b.source ? src(d.b.source) : ''}</span></h3>
+    else if (!d.changed.length) values = `<p style="margin:10px 0 0">The values are the same (${d.same} values compared).${d.onlyA.length || d.onlyB.length ? ' Some values exist in only one of them.' : ''}</p>${srcNote}`;
+    else values = `<h3 style="margin:14px 0 6px">${d.changed.length} value${d.changed.length === 1 ? '' : 's'} differ <span class="muted" style="font-weight:400;font-size:12px">· ${d.same} the same</span></h3>${srcNote}
       <div class="tablewrap"><table><thead><tr><th>Setting</th><th>A</th><th>B</th><th>Change</th></tr></thead><tbody>
       ${d.changed.map((c) => `<tr><td>${esc(c.label)}${c.corner ? ` <span class="muted">${esc(c.corner)}</span>` : ''}</td><td>${num(c.a)} ${esc(c.unit)}</td><td><b>${num(c.b)}</b> ${esc(c.unit)}</td>
         <td>${c.delta > 0 ? '+' : ''}${num(c.delta)} ${esc(c.unit)}</td></tr>`).join('')}</tbody></table></div>`;
