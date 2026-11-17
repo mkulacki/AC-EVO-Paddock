@@ -2,17 +2,17 @@
 
 _Last updated: 2026-11-17_
 
-**Status:** roadmap approved; **P1 complete, waiting for user approval**.
-**Current phase:** P1, Test foundation and baseline (done, awaiting approval).
-**Branch:** `phase/p1-tests` (committed locally, not pushed). Local `main` has the merged audit docs (not pushed).
+**Status:** P0 and P1 approved; **P2 complete, waiting for user approval**.
+**Current phase:** P2, Data provenance and AI confidence (done, awaiting approval).
+**Branch:** `phase/p2-provenance` (committed locally, not pushed; deployed to the installed app). Local `main` = P0 + P1 (not pushed).
 
 ## Phases
 
 | Phase | Name | Status |
 | --- | --- | --- |
 | P0 | Repository audit + roadmap | Done, approved 2026-11-17 |
-| P1 | Test foundation and baseline | Done, awaiting approval |
-| P2 | Data provenance and AI confidence | Pending |
+| P1 | Test foundation and baseline | Done, approved 2026-11-17 |
+| P2 | Data provenance and AI confidence | Done, awaiting approval |
 | P3 | Application management | Pending (D2) |
 | P4 | App shell: navigation, command palette, states | Pending (D1) |
 | P5 | Driver home dashboard | Pending |
@@ -24,24 +24,25 @@ _Last updated: 2026-11-17_
 
 ## Current task
 
-None. Waiting for the P1 decision (APPROVE / APPROVE WITH NOTES / REVISE / REJECT / PAUSE).
+None. Waiting for the P2 decision (APPROVE / APPROVE WITH NOTES / REVISE / REJECT / PAUSE).
 
 ## Known problems
 
-- Shared-memory channels for the tyre block, suspension, slip, setup fingerprint and temperatures are unverified in game (see ARCHITECTURE.md). P2 addresses the labelling.
+- Shared-memory groups (pit-box readings, temperatures, tyres, brakes, suspension) are unverified until the user checks them in game (Setups → Setup recognition). Slip can't be checked.
 
 ## Test results
 
-- `npm run check` 64/64; `npm test` 38/38 (about 1.8 s, deterministic). Packaged exe smoke test OK. Details in PHASE_LOG.md.
+- `npm run check` 66/66; `npm test` 51/51 (about 2 s). UI checked by headless-Edge screenshots, with 0 JS errors. Details in PHASE_LOG.md.
 
 ## Pending user decisions
 
-- P1 approval.
+- P2 approval.
+- D2 (update mechanism) is asked at the start of P3.
 - D1 accent/navigation (before P4), D2 update mechanism (before P3), D3 gamification (before P9).
 
 ## Next action
 
-On APPROVE: merge `phase/p1-tests` into local `main`, create `phase/p2-provenance`, start P2 (data provenance and AI confidence).
+On APPROVE: merge `phase/p2-provenance` into local `main`, ask D2 (update mechanism), create `phase/p3-app-management`, start P3.
 
 ## How to resume
 
