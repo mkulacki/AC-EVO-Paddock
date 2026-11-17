@@ -285,4 +285,4 @@
     - the "Not recorded" wording;
     - per-lap catalogue matching (now per combo).
   - Lows fixed: the palette full kind name, versions only for recorded values, both reasons named, A ≠ B by default, thin tests.
-- **User approval:** pending.
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.

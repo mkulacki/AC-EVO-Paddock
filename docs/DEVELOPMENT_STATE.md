@@ -2,9 +2,9 @@
 
 _Last updated: 2026-11-17_
 
-**Status:** P0–P6 approved and merged into local `main`. **P7 done on `phase/p7-setups`, waiting for approval.**
-**Current phase:** P7, Setup history and comparison (approval gate).
-**Branch:** `phase/p7-setups` (local, not pushed; the installed app runs the P7 build).
+**Status:** P0–P7 approved and merged into local `main`. **P8 in progress on `phase/p8-coach`.**
+**Current phase:** P8, AI coach upgrade.
+**Branch:** `phase/p8-coach` (local, not pushed; the installed app runs the P7 build).
 
 ## Phases
 
@@ -17,14 +17,14 @@ _Last updated: 2026-11-17_
 | P4 | App shell: navigation, command palette, states | Done, approved 2026-11-17 (D1: lime + sidebar) |
 | P5 | Driver home dashboard | Done, approved 2026-11-17 |
 | P6 | Driving technique analysis | Done, approved 2026-11-17 |
-| P7 | Setup history and comparison | Done, waiting for approval |
-| P8 | AI coach upgrade | Pending |
+| P7 | Setup history and comparison | Done, approved 2026-11-17 |
+| P8 | AI coach upgrade | In progress |
 | P9 | Driver development | Pending (D3) |
 | P10 | Final regression and release prep | Pending |
 
 ## Current task
 
-P7 approval gate: the user reviews Setup history (Sessions → a combo → Setup history; Setups tab → Your laps here).
+P8: AI coach upgrade (combo-level chat, training plan with automatic target checks, AI braking-point suggestions applied after review).
 
 ## Known problems
 
@@ -41,7 +41,7 @@ P7 approval gate: the user reviews Setup history (Sessions → a combo → Setup
 
 ## Next action
 
-On APPROVE: merge `phase/p7-setups` into local `main` (no push), mark P7 approved, then create `phase/p8-coach` and start P8 (AI coach upgrade). On changes requested: fix on the P7 branch, redeploy, report again.
+Implement P8 on `phase/p8-coach`, then tests, review, deploy and the approval gate.
 
 ## How to resume
 
