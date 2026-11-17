@@ -5,11 +5,11 @@
 // were set; "regenerate" builds it again from the laps.
 import * as db from './db.js';
 import * as svc from './service.js';
-import { cornerMetrics, lateralOffsets, turnSign } from './analysis.js';
+import { cornerMetrics, lateralOffsets, turnSign, techniqueMetrics } from './analysis.js';
 
 export const MIN_LAPS = 3;               // saved laps a session needs for an automatic report
 const CLEAN_WITHIN = 1.07;               // same "clean lap" rule as the Progress page
-const VERSION = 1;
+const VERSION = 2;                       // 2: driving style section (P6)
 
 const fmt = (ms) => (ms == null ? '-' : `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, '0')}`);
 const secs = (ms, d = 2) => `${(ms / 1000).toFixed(d)} s`;
@@ -66,6 +66,39 @@ function cornerReasons(t, b) {
   }
   return out.sort((x, y) => y.w - x.w);
 }
+
+// ---- driving style (P6): this session's typical technique per corner against the corner's fastest pass ever.
+// Every rule compares with that reference pass, so the thresholds suit any car. Only shown with enough data.
+export const STYLE_MIN_LAPS = 3;
+const STYLE_KEYS = ['brakeRampMs', 'trailM', 'releaseMs', 'releaseBumps', 'pickupMs', 'reLifts', 'steerReversals', 'steerSaw', 'coastM'];
+function styleNotes(t, b) {
+  const out = [], has = (k) => t[k] != null && b[k] != null;
+  if (has('brakeRampMs') && t.brakeRampMs - b.brakeRampMs >= 100 && t.brakeRampMs >= 1.5 * b.brakeRampMs)
+    out.push({ key: 'brakeRampMs', w: (t.brakeRampMs - b.brakeRampMs) / 100, text: `slower on the brake: ${t.brakeRampMs} ms to full pressure (best pass ${b.brakeRampMs} ms)` });
+  if (has('trailM') && b.trailM >= 10 && t.trailM <= 0.5 * b.trailM)
+    out.push({ key: 'trailM', w: (b.trailM - t.trailM) / 10, text: `less trail braking: ${t.trailM} m braking while turning (best pass ${b.trailM} m)` });
+  if (has('releaseBumps') && t.releaseBumps >= 1 && b.releaseBumps === 0)
+    out.push({ key: 'releaseBumps', w: t.releaseBumps, text: `pressing the brake again while releasing it (${t.releaseBumps}×; best pass: a smooth release)` });
+  if (has('pickupMs') && t.pickupMs - b.pickupMs >= Math.max(150, 0.25 * b.pickupMs))
+    out.push({ key: 'pickupMs', w: (t.pickupMs - b.pickupMs) / 150, text: `full throttle ${secs(t.pickupMs - b.pickupMs)} later after the apex (${secs(t.pickupMs)} vs ${secs(b.pickupMs)})` });
+  if (has('reLifts') && t.reLifts - b.reLifts >= 1)
+    out.push({ key: 'reLifts', w: t.reLifts - b.reLifts, text: `lifting again on the exit (${t.reLifts}×, best pass ${b.reLifts}×)` });
+  if (has('steerReversals') && t.steerReversals - b.steerReversals >= 1)
+    out.push({ key: 'steerReversals', w: 1.5 * (t.steerReversals - b.steerReversals), text: `an extra big steering correction (${t.steerReversals} direction changes, best pass ${b.steerReversals})` });
+  if (has('steerSaw') && t.steerSaw - b.steerSaw >= 3 && t.steerSaw >= 1.5 * b.steerSaw)
+    out.push({ key: 'steerSaw', w: (t.steerSaw - b.steerSaw) / 3, text: `more small steering corrections (${t.steerSaw}, best pass ${b.steerSaw})` });
+  if (has('coastM') && t.coastM - b.coastM >= 10)
+    out.push({ key: 'coastM', w: (t.coastM - b.coastM) / 15, text: `${t.coastM - b.coastM} m more coasting (${t.coastM} m vs ${b.coastM} m)` });
+  return out.sort((x, y) => y.w - x.w);
+}
+/** typical values: the median of each metric over the passes (times and distances rounded; counts keep a .5) */
+const COUNTS = new Set(['releaseBumps', 'reLifts', 'steerReversals', 'steerSaw']);
+function typicalOf(list) {
+  const o = {};
+  for (const k of STYLE_KEYS) { const v = list.map((m) => m[k]).filter((x) => x != null); o[k] = v.length >= Math.ceil(list.length / 2) ? (COUNTS.has(k) ? r1(median(v)) : r0(median(v))) : null; }
+  return o;
+}
+const pick = (m) => Object.fromEntries(STYLE_KEYS.map((k) => [k, m[k] ?? null]));
 
 const SNAP_KEYS = /^(pressure_|camber_|brakesfront_bias$|fuel$|front_wing_angle$|rear_wing_angle$|front_target_height$|rear_target_height$|tc|abs|arbs)/;
 
@@ -201,6 +234,25 @@ export function build(sessionId, { withPrevTargets = true } = {}) {
     return { name: c.name, gapMs: c.gapMs, reasons: reasons.slice(0, 2).map((x) => x.text), target: reasons[0]?.target ?? null, bestLapId: bestEver[k].lapId };
   });
 
+  // ---- driving style: only with enough valid laps through the corners
+  let style;
+  if (sess.length < STYLE_MIN_LAPS) style = { sufficient: false, reason: `needs ${STYLE_MIN_LAPS} valid laps (this session: ${sess.length})`, laps: sess.length };
+  else {
+    const rows = corners.map((c, k) => {
+      const ref = lapTimes.get(bestEver[k].lapId);
+      if (!ref) return null;
+      const typical = typicalOf(sess.map((l) => techniqueMetrics(lapTimes.get(l.id).R, c)));
+      const best = pick(techniqueMetrics(ref.R, c));
+      const gap = cornerRows[k].gapMs;
+      return { name: c.name, gapMs: gap, bestLapId: bestEver[k].lapId, typical, best, notes: styleNotes(typical, best).map(({ key, text }) => ({ key, text })) };
+    }).filter(Boolean);
+    // the habits that come back in most corners (counted per metric)
+    const count = new Map();
+    for (const r of rows) for (const n of r.notes) count.set(n.key, (count.get(n.key) || 0) + 1);
+    style = { sufficient: true, laps: sess.length, corners: rows,
+      habits: [...count.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).map(([key, n]) => ({ key, corners: n })) };
+  }
+
   // ---- theoretical best of the session: the session's best pass of every corner put together
   const theo = sess.length && corners.length ? corners.reduce((a, _, k) => a + Math.min(...sess.map((l) => lapTimes.get(l.id).t[k])), 0) : null;
 
@@ -229,6 +281,7 @@ export function build(sessionId, { withPrevTargets = true } = {}) {
     theoretical: theo != null ? { ms: r0(theo), gapMs: r0(S.best.lap_time_ms - theo) } : null,
     consistency,
     corners: { source: info.cornersSource, all: cornerRows, best: bestCorners, weakest },
+    style,
     setups: setupSegments(laps),
     conditions,
     trackLimits: limits,

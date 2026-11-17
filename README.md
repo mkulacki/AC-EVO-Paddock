@@ -127,6 +127,10 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Racing line analysis:** for each corner, how much wider (+) or tighter (−) you were than the reference at turn-in, apex and exit. The AI coach gets these numbers too.
 - **Progress** (button on each track/car): one point per day you drove it. It plots the day's best lap, plus the all-time best and ideal lap as they stood that day. It also shows how repeatable the day's clean laps were (valid laps within 7 % of the day's best).
 - **Consistency** (button on each track/car): a lap-time trend and the lap-to-lap spread, per corner, of time, brake point, min speed, throttle-on, exit speed and line (one dot per lap). It also lists your "focus corners", where you lose the most time against your own fastest pass through that corner. Filter by session and include invalid laps if you want.
+  - **Performance score** (0–100, *calculated*): 50 % pace (median clean lap against the ideal lap), 30 % consistency and 20 % valid laps. The formula is printed under the score. Home shows the score of your last 10 laps per track and car.
+  - **Corner rankings:** for every corner, your fastest, middle and slowest pass, each a link to that lap.
+  - **Driving technique** per corner, from your pedals and steering: brake application time, trail braking (braking while turning), brake release time and re-presses, apex to full throttle, throttle re-lifts, big steering reversals and small corrections ("saw"), coasting. Each shows your typical value and your fastest pass; hover a heading for how it is measured. The limits are relative to each pass (its own peak brake and steering lock), so they suit any car. Each metric can also be plotted lap by lap under *Spread per corner*.
+- **Inputs on the track map:** the map in Telemetry can be coloured by time (gaining / losing) or by **inputs** (braking, coasting, part and full throttle).
 - **Export/import:** share `.lap.gz` files with friends and compare against their laps.
 
 ## Session reports
@@ -136,6 +140,7 @@ When you leave a session with at least 3 laps (one of them valid), Paddock write
 - **Best lap and session average** (clean laps: valid and within 7 % of the session's best), and the change against your previous session and your all-time best.
 - **Three best and three weakest corners:** your typical time through each corner against your fastest pass ever, with what differs on the weak ones (braking earlier, less apex speed, later throttle, running wide…).
 - **Consistency:** spread of your clean laps, a 0–100 score and the least consistent corner.
+- **Driving style** (with 3 or more valid laps): per corner, how your typical pass was driven against your fastest pass ever: slower on the brake, less trail braking, re-pressing the brake, later full throttle, re-lifting, extra steering corrections, more coasting. Habits that come back in several corners are listed on top. Reports written before this version get it with *Regenerate*.
 - **Setup used:** every lap is stored with the setup it was driven on (see below). Several setups in one session are listed with their best laps; a wrong one can be corrected in the report.
 - **Conditions:** weather, grip and time of day for sessions started from the Race tab; air and track temperature from shared memory.
 - **Lap-time trend, theoretical best** (your best corners of the session put together) and **where laps went invalid**.

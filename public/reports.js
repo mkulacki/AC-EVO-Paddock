@@ -110,6 +110,8 @@ export async function viewReport(view, params, cleanup) {
     <div class="grid-2">${cornerCard('Best corners', r.corners.best, false)}${cornerCard('Weakest corners', r.corners.weakest, true)}</div>
     <p class="muted" style="font-size:12px;margin:-6px 0 16px">${prov('calculated', 'From your lap times, speed and inputs.')} Corner times: your typical time today (the middle of your valid laps) against your fastest pass of that corner ever.${cons.worstCorner ? ` Least consistent corner: <b>${esc(cons.worstCorner.name)}</b> (${pm(cons.worstCorner.sdMs)}).` : ''}</p>
 
+    ${styleCard(r.style, res.technique || {})}
+
     <div class="card"><div class="row" style="margin-bottom:6px"><h2 style="margin:0">Lap times</h2><span class="spacer"></span><div class="legend" id="rLegend"></div></div><div id="rTrend"></div></div>
 
     <div class="grid-2">${setupCard()}<div>${conditionsCard}${limitsCard}</div></div>
@@ -299,4 +301,23 @@ async function viewBasic(view, res, reload, params, cleanup) {
     <p class="muted" style="margin:0 0 16px">A session report needs 3 laps or more, one of them valid.</p>
     ${sessionTabs(laps, best?.id, best?.lap_time_ms, false)}`;
   await bindSession(view, params, cleanup, { id: s?.id ?? c.session_id, laps, bestLapId: best?.id ?? null, hasKey: res.hasKey, reload, onReport: null });
+}
+
+// Driving style (P6, src/report.js): how today's typical pass of each corner was driven, against your fastest pass of
+// that corner. Shown only with enough valid laps; a report saved before P6 has no style section until regenerated.
+function styleCard(st, T) {
+  const head = `<h2 style="margin:0 0 6px">Driving style ${prov('calculated', 'From your pedals and steering, which are checked against the game.')}</h2>`;
+  if (!st) return `<div class="card">${head}<p class="muted" style="margin:0">This report was made before Paddock measured driving style. Use <b>Regenerate</b> to add it.</p></div>`;
+  if (!st.sufficient) return `<div class="card">${head}<p class="muted" style="margin:0">Not enough data: the style section ${esc(st.reason)}.</p></div>`;
+  const lbl = (k) => T[k]?.label || k;
+  const tip = (k) => esc(T[k]?.def || '');
+  const noted = st.corners.filter((c) => c.notes.length).sort((a, b) => (b.gapMs ?? 0) - (a.gapMs ?? 0));
+  return `<div class="card">${head}
+    <p class="muted" style="margin:0 0 8px;font-size:12px">Your typical pass of each corner today (the middle value of ${st.laps} valid laps) against your fastest pass of that corner ever. Hover a habit for how it is measured.</p>
+    ${st.habits.length ? `<p style="margin:0 0 8px"><b>Habits today:</b> ${st.habits.map((h) => `<span class="badge" title="${tip(h.key)}">${esc(lbl(h.key))} · ${h.corners} corners</span>`).join(' ')}</p>` : ''}
+    ${noted.length ? `<ul style="margin:0;padding-left:18px">${noted.map((c) => `<li style="margin:4px 0"><b>${esc(c.name)}</b>${c.gapMs != null ? ` <span class="${c.gapMs > 0 ? 'pos' : 'neg'}">${fmtGap(c.gapMs)}</span>` : ''}:
+      ${c.notes.map((n) => `<span title="${tip(n.key)}">${esc(n.text)}</span>`).join('; ')}
+      <a href="#/compare?laps=${c.bestLapId}&ref=best" class="muted" style="font-size:12px">fastest pass</a></li>`).join('')}</ul>`
+      : '<p class="neg" style="margin:0">Your typical passes are driven like your fastest ones: no technique differences stand out.</p>'}
+  </div>`;
 }

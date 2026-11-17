@@ -189,7 +189,119 @@ export function cornerMetrics(R, c, wide) {
     maxBrakePct: Math.round(maxBrake * 100), brakeRelease: d(brakeEnd),
     minSpeed: r1(R.spd[apex]), apexAt: d(apex), throttlePickup: d(pickup), fullThrottle: d(full),
     exitSpeed: r1(R.spd[exitIdx]), coastM: Math.round(coast), minGear: R.gear[apex], maxSteer: r1(maxSteer),
+    ...techniqueMetrics(R, c),
   };
+}
+
+// ---------------------------------------------------------------- driving technique (P6)
+// How a corner was driven, from the pedals and the steering (core telemetry, checked against the game).
+// Thresholds are relative to the pass itself (peak brake, peak steering lock), so they suit any car; comparisons
+// against the corner's reference pass are made by the callers (report, Consistency page).
+// The definitions are shown as tooltips (TECHNIQUE below); keep them in step with the code.
+export const TECHNIQUE = {
+  brakeRampMs: { label: 'Brake application', unit: 'ms', lowerBetter: true, def: 'Time from first touching the brake (over 10 %) to 90 % of the peak pressure of this corner. Shorter = a firmer, quicker hit.' },
+  trailM: { label: 'Trail braking', unit: 'm', def: 'Distance with the brake still on (over 5 %) while the wheel is turned more than 20 % of the corner\'s peak lock: braking into the turn.' },
+  releaseMs: { label: 'Brake release', unit: 'ms', def: 'Time from the last moment at 90 % of the peak pressure until the brake is off (under 5 %).' },
+  releaseBumps: { label: 'Release bumps', unit: '', lowerBetter: true, def: 'Times the brake was pressed again by 5 % or more while releasing it. 0 = a smooth release.' },
+  pickupMs: { label: 'Apex to full throttle', unit: 'ms', lowerBetter: true, def: 'Time from the slowest point of the corner to full throttle (over 95 %). Empty when full throttle is not reached before the next corner.' },
+  reLifts: { label: 'Throttle re-lifts', unit: '', lowerBetter: true, def: 'Times the throttle went down again by 20 % or more after the exit had started (over 50 %).' },
+  steerReversals: { label: 'Steering reversals', unit: '', lowerBetter: true, def: 'Big changes of steering direction (a swing of 25 % of the corner\'s peak lock or more). 1 for a simple corner: turn in, then unwind.' },
+  steerSaw: { label: 'Steering saw', unit: '', lowerBetter: true, def: 'Small steering corrections: changes of direction between 2 % and 25 % of the corner\'s peak lock.' },
+  coastM: { label: 'Coasting', unit: 'm', lowerBetter: true, def: 'Distance with neither pedal pressed (both under 10 %) above 30 km/h.' },
+};
+
+// Direction changes of a signal with hysteresis: a change counts when the value moves back by `th` from its extreme.
+function reversals(a, s, e, th) {
+  let dir = 0, hi = a[s], lo = a[s], n = 0;
+  for (let i = s + 1; i <= e; i++) {
+    const v = a[i];
+    if (dir === 0) {
+      hi = Math.max(hi, v); lo = Math.min(lo, v);
+      if (v - lo >= th) { dir = 1; hi = v; } else if (hi - v >= th) { dir = -1; lo = v; }
+    } else if (dir === 1) { if (v > hi) hi = v; else if (hi - v >= th) { n++; dir = -1; lo = v; } }
+    else if (v < lo) lo = v; else if (v - lo >= th) { n++; dir = 1; hi = v; }
+  }
+  return n;
+}
+
+/** Technique metrics of one corner segment `c` ({a, b, apexIdx}) of a resampled lap. See TECHNIQUE. */
+export function techniqueMetrics(R, c) {
+  const { step } = R;
+  const win = Math.round(100 / step);
+  const apex = argmin(R.spd, Math.max(c.a, c.apexIdx - win), Math.min(c.b, c.apexIdx + win));
+  const ms = (i, j) => (i == null || j == null ? null : Math.round(R.t[j] - R.t[i]));
+  let peakLock = 0;
+  for (let i = c.a; i <= c.b; i++) peakLock = Math.max(peakLock, Math.abs(R.str[i]));
+  // brakes: the braking zone is the application holding the segment's peak pressure (up to just after the apex), from
+  // its onset (over 10 %) to the brake coming off (under 5 %); an earlier short tap on the straight is not the zone
+  const zEnd = Math.min(c.b, apex + win);
+  let peak = c.a;
+  for (let i = c.a; i <= zEnd; i++) if (R.brk[i] > R.brk[peak]) peak = i;
+  let on = R.brk[peak] > 0.1 ? peak : null;
+  if (on != null) while (on > c.a && R.brk[on - 1] > 0.1) on--;
+  let brakeRampMs = null, releaseMs = null, releaseBumps = null, trail = 0;
+  if (on != null) {
+    let off = c.b;
+    for (let i = peak; i <= c.b; i++) { if (R.brk[i] < 0.05) { off = i; break; } if (R.brk[i] > R.brk[peak]) peak = i; }
+    const pk = R.brk[peak];
+    let reach = peak; for (let i = on; i <= peak; i++) if (R.brk[i] >= 0.9 * pk) { reach = i; break; }
+    let last = peak; for (let i = peak; i <= off; i++) if (R.brk[i] >= 0.9 * pk) last = i;
+    brakeRampMs = ms(on, reach); releaseMs = ms(last, off);
+    // re-applications while releasing: the brake rising again by 5 % from its lowest point so far
+    // (falling: track the low, a rise of 5 % counts; rising: track the high, a fall of 5 % arms the next count)
+    releaseBumps = 0; let rising = false, ext = R.brk[last];
+    for (let i = last + 1; i <= off; i++) {
+      const v = R.brk[i];
+      if (!rising) { if (v < ext) ext = v; else if (v - ext >= 0.05) { releaseBumps++; rising = true; ext = v; } }
+      else if (v > ext) ext = v; else if (ext - v >= 0.05) { rising = false; ext = v; }
+    }
+    if (peakLock >= 0.02) for (let i = on; i <= off; i++) if (R.brk[i] > 0.05 && Math.abs(R.str[i]) > 0.2 * peakLock) trail += step;
+  }
+  // throttle: apex to full throttle; re-lifts once the exit has started
+  let full = null; for (let i = apex; i <= c.b; i++) if (R.thr[i] > 0.95) { full = i; break; }
+  // (rising: track the high, a fall of 20 % counts; falling: track the low, a rise of 20 % arms the next count,
+  // so one gradual lift counts once however far it goes)
+  let reLifts = 0, started = false, falling = false, ext = 0;
+  for (let i = apex; i <= c.b; i++) {
+    const v = R.thr[i];
+    if (!started) { if (v > 0.5) { started = true; ext = v; } continue; }
+    if (!falling) { if (v > ext) ext = v; else if (ext - v >= 0.2) { reLifts++; falling = true; ext = v; } }
+    else if (v < ext) ext = v; else if (v - ext >= 0.2) { falling = false; ext = v; }
+  }
+  let coast = 0;
+  for (let i = c.a; i <= c.b; i++) if (R.thr[i] < 0.1 && R.brk[i] < 0.1 && R.spd[i] > 30) coast += step;
+  // steering: big direction changes and small corrections, relative to this pass's peak lock
+  const straight = peakLock < 0.02;
+  const big = straight ? 0 : reversals(R.str, c.a, c.b, 0.25 * peakLock);
+  const small = straight ? 0 : reversals(R.str, c.a, c.b, Math.max(0.004, 0.02 * peakLock));
+  return {
+    brakeRampMs, trailM: on != null ? Math.round(trail) : null, releaseMs, releaseBumps,
+    pickupMs: ms(apex, full), reLifts: started ? reLifts : null,
+    steerReversals: big, steerSaw: Math.max(0, small - big), coastM: Math.round(coast),
+  };
+}
+
+// Performance score of a set of laps against the ideal lap (P6). The formula is shown on the page as written here.
+// pace = 100 − 2000 × (median clean lap − ideal) / ideal (5 % slower than the ideal lap = 0)
+// consistency = 100 − 4000 × σ / mean of the clean laps (as the session report)
+// validity = valid laps / all laps × 100; score = 0.5 pace + 0.3 consistency + 0.2 validity (each 0..100).
+// Clean = valid and within 7 % of the best of the set. Needs 3 clean laps; else null with the reason.
+export const SCORE_FORMULA = 'Score = 0.5 × pace + 0.3 × consistency + 0.2 × validity. Pace = 100 − 2000 × (median clean lap − ideal lap) / ideal lap. Consistency = 100 − 4000 × σ / mean of the clean laps. Validity = valid laps / all laps × 100. Each part is kept between 0 and 100; clean laps are valid laps within 7 % of the best one.';
+export function performanceScore(laps /* [{ms, valid}] */, idealMs) {
+  const clamp = (v) => Math.max(0, Math.min(100, v));
+  const valid = laps.filter((l) => l.valid && l.ms > 0).map((l) => l.ms);
+  if (!laps.length || !idealMs) return { score: null, reason: idealMs ? 'no laps' : 'no ideal lap yet', laps: laps.length };
+  const best = valid.length ? Math.min(...valid) : null;
+  const clean = valid.filter((t) => t <= best * 1.07).sort((a, b) => a - b);
+  if (clean.length < 3) return { score: null, reason: 'fewer than 3 clean laps', laps: laps.length, clean: clean.length };
+  const m = clean.length >> 1, median = clean.length % 2 ? clean[m] : (clean[m - 1] + clean[m]) / 2;
+  const mean = clean.reduce((a, b) => a + b, 0) / clean.length;
+  const sd = Math.sqrt(clean.reduce((a, b) => a + (b - mean) ** 2, 0) / clean.length);
+  const pace = clamp(100 - 2000 * (median - idealMs) / idealMs);
+  const consistency = clamp(100 - 4000 * sd / mean);
+  const validity = (valid.length / laps.length) * 100;
+  return { score: Math.round(0.5 * pace + 0.3 * consistency + 0.2 * validity), pace: Math.round(pace), consistency: Math.round(consistency),
+    validity: Math.round(validity), medianMs: Math.round(median), sdMs: Math.round(sd), idealMs, laps: laps.length, clean: clean.length };
 }
 
 export function lapStats(R) {

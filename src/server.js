@@ -15,7 +15,7 @@ import { createSpotter } from './spotter.js';
 import * as marks from './brakemarks.js';
 import { createMarker } from './brakemarks.js';
 import * as wheel from './wheel.js';
-import { cornerMetrics } from './analysis.js';
+import { cornerMetrics, TECHNIQUE } from './analysis.js';
 import * as game from './game.js';
 import * as race from './race.js';
 import * as cars from './cars.js';
@@ -448,7 +448,7 @@ async function route(req, res) {
     const c = r.data.combo;
     return send(res, 200, { ...r, setupChoices: setupmatch.candidates(c.car, c.track, c.layout).map((x) => ({ name: x.file.name, rel: x.file.rel })),
       probeConfirmed: channels.trusted('setupProbe'), channels: channels.summary(), hasKey: !!settings.get().geminiApiKey,
-      ai: r.ai ? { ...r.ai, ...ai.splitConfidence(r.ai.text) } : null, laps });
+      ai: r.ai ? { ...r.ai, ...ai.splitConfidence(r.ai.text) } : null, laps, technique: TECHNIQUE });
   }
   if (p === '/api/report/regenerate' && m === 'POST') {
     const { session } = await readJson(req);

@@ -67,3 +67,13 @@ Earlier product decisions (Race tab, Mods, setups, spotter, brake marks, reports
 - **Trend = best lap per driving day** from the existing `progress()`, for the 3 combos driven most in the last 60 days. It is drawn the same way up as the Progress page (higher = slower), with new personal bests marked in the timing purple.
   - **Rejected:** a composite "performance score" on Home. It is planned for P6 with its formula shown, not before.
 - **Fixed layout** rather than customisable widgets (as planned in the roadmap).
+
+## 2026-11-17: P6, driving technique
+
+- **Technique metrics live in `cornerMetrics`** (src/analysis.js `techniqueMetrics`), so Compare, Consistency and the report get them without a second pass over the laps. They use only core telemetry (pedals, steering, speed), which is verified, so they are labelled *Calculated*.
+- **Relative limits:** every threshold is a share of the pass's own peak (90 % of peak brake, 20 % / 25 % / 2 % of peak steering lock), and the report compares each corner with that corner's fastest pass. Absolute steering units differ by car and wheel; this keeps the counts comparable.
+  - **Rejected:** fixed thresholds per metric (they would suit only some cars, the roadmap risk).
+- **Performance score** = 0.5 pace + 0.3 consistency + 0.2 validity, each 0–100. Pace = 100 − 2000 × (median clean lap − ideal) / ideal (5 % off the ideal = 0); consistency uses the session report's formula, so the two never disagree. Needs 3 clean laps; otherwise the reason is shown, not a number. Home uses the last 10 laps per combo; Consistency uses the laps in view.
+  - **Rejected:** best lap instead of the median (one lucky lap would carry the score); a hidden or learned weighting (not explainable on the page).
+- **Report style section** only with 3+ valid laps in the session; report format version 2. Stored v1 reports are not rebuilt automatically (their targets must stay as set); the page offers *Regenerate*.
+- **Inputs heatmap** is drawn in the browser from the trace the Compare payload already carries (no new endpoint); the choice Time / Inputs is remembered per viewer.

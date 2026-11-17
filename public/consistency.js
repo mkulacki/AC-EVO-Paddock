@@ -1,5 +1,5 @@
 // Consistency view: lap-to-lap spread per corner for one track + car.
-import { $, css, esc, api, fmt, fmtGap, prettyName, SESSION_TYPES, stats, emptyHtml } from './util.js';
+import { $, css, esc, api, fmt, fmtGap, prettyName, SESSION_TYPES, stats, emptyHtml, prov } from './util.js';
 
 const METRICS = [
   { k: 'timeMs', label: 'Corner time', unit: 'ms', hint: 'time through the corner segment; left = faster', lowerBetter: true },
@@ -26,6 +26,9 @@ export async function viewConsistency(view, params, cleanup) {
     return;
   }
   const laps = data.laps;
+  // the technique metrics (src/analysis.js TECHNIQUE) join the spread chart; coasting is there once
+  for (const [k, t] of Object.entries(data.technique || {})) if (!METRICS.some((m) => m.k === k)) METRICS.push({ k, label: t.label, unit: t.unit, hint: t.def.replace(/\.$/, '') });
+  if (!METRICS.some((m) => m.k === metric)) metric = 'timeMs';
   const nav = (patch) => {
     const p = new URLSearchParams({ combo: params.get('combo'), session, invalid: invalid ? '1' : '0', metric, ...patch });
     location.hash = `#/consistency?${p}`;
@@ -63,6 +66,9 @@ export async function viewConsistency(view, params, cleanup) {
     ${focus.length ? `<div class="card"><h2>Focus corners</h2><p class="secondary" style="margin:0">On average you lose the most time compared with your own fastest pass in
       ${focus.map((n) => { const c = corners.find((x) => x.n === n); return `<b>${c.name}</b> (${(c.opp / 1000).toFixed(3)}s)`; }).join(', ')}.
       Make these corners repeatable before chasing a faster line elsewhere.</p></div>` : ''}
+    ${scoreCard(data)}
+    ${rankingsCard(data, laps)}
+    ${techniqueCard(data, laps)}
     <div class="card"><h2>Lap time trend</h2><div id="trend"></div></div>
     <div class="card"><div class="row" style="margin-bottom:8px"><h2 style="margin:0">Spread per corner</h2><span class="spacer"></span>
       <label class="row">Metric <select id="metric">${METRICS.map((m) => `<option value="${m.k}" ${m.k === metric ? 'selected' : ''}>${m.label}</option>`).join('')}</select></label></div>
@@ -152,4 +158,63 @@ export async function viewConsistency(view, params, cleanup) {
     $('#strip').querySelectorAll('circle[data-lap]').forEach((el) => el.onclick = () => { location.hash = `#/compare?laps=${el.dataset.lap}&ref=best`; });
   }
   drawStrip();
+}
+
+const tipOf = (def) => esc(def);
+// the true median (the middle two averaged), the same as the session report's "typical" value
+const median = (vals) => {
+  const v = vals.filter((x) => x != null && isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+const valTxt = (v, unit) => (v == null ? '–' : unit === 'ms' ? (v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toFixed(2)} s`) : `${Math.round(v * 10) / 10}${unit ? ` ${unit}` : ''}`);
+
+// Performance score of the laps in view, with its formula (src/analysis.js performanceScore)
+function scoreCard(data) {
+  const s = data.score;
+  if (!s) return '';
+  const part = (k, v, tip) => `<div class="card stat" title="${esc(tip)}"><span class="k">${k}</span><span class="v">${v ?? '–'}</span></div>`;
+  return `<div class="card"><div class="row"><h2 style="margin:0">Performance score ${prov('calculated', 'From your lap times and the ideal lap.')}</h2><span class="spacer"></span>
+      <span class="muted" style="font-size:12px">${s.laps} lap${s.laps === 1 ? '' : 's'} in view${s.clean != null ? `, ${s.clean} clean` : ''}</span></div>
+    ${s.score == null ? `<p class="muted" style="margin:8px 0 0">No score yet: ${esc(s.reason)}.</p>` : `<div class="tiles" style="margin:10px 0 0">
+      ${part('Score', `${s.score}<span class="muted" style="font-size:13px"> / 100</span>`, 'The weighted sum of the three parts.')}
+      ${part('Pace · 50 %', s.pace, `Median clean lap ${fmt(s.medianMs)} against the ideal lap ${fmt(s.idealMs)}.`)}
+      ${part('Consistency · 30 %', s.consistency, `Spread of the clean laps: ±${(s.sdMs / 1000).toFixed(3)} s.`)}
+      ${part('Validity · 20 %', s.validity, 'Share of valid laps.')}</div>`}
+    <p class="muted" style="font-size:12px;margin:8px 0 0">${esc(data.scoreFormula)}</p></div>`;
+}
+
+// Corner rankings: per corner the fastest, the middle and the slowest of your passes, each a link to that lap
+function rankingsCard(data, laps) {
+  if (laps.length < 2) return '';
+  const link = (p) => (p ? `<a href="#/compare?laps=${p.l.id}&ref=best" title="Open lap #${p.l.id} against your best lap">${(p.v / 1000).toFixed(3)} s</a> <span class="muted">#${p.l.id}</span>` : '–');
+  const rows = data.corners.map((c, i) => {
+    const passes = laps.map((l) => ({ l, v: l.corners[i].timeMs })).filter((p) => p.v != null).sort((a, b) => a.v - b.v);
+    return { c, passes, best: passes[0], mid: passes[(passes.length - 1) >> 1], worst: passes[passes.length - 1] };
+  });
+  return `<details class="card" open><summary><b>Corner rankings</b> <span class="muted" style="font-size:12px">all your passes of each corner, fastest to slowest · click a time to open that lap</span></summary>
+    <div class="tablewrap" style="margin-top:8px"><table>
+    <thead><tr><th>Corner</th><th>Passes</th><th>Fastest</th><th>Middle</th><th>Slowest</th><th title="Slowest minus fastest pass">Range</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr><td><b>${esc(r.c.name)}</b></td><td>${r.passes.length}</td><td>${link(r.best)}</td><td>${link(r.mid)}</td><td>${link(r.worst)}</td>
+      <td class="${r.best && r.worst.v - r.best.v > 100 ? 'pos' : ''}">${r.best ? fmtGap(r.worst.v - r.best.v) : '–'}</td></tr>`).join('')}</tbody></table></div></details>`;
+}
+
+// Technique per corner: your typical (median) value, and in brackets the value of your fastest pass of that corner
+function techniqueCard(data, laps) {
+  const T = Object.entries(data.technique || {});
+  if (laps.length < 2 || !T.length) return '';
+  const rows = data.corners.map((c, i) => {
+    const fastest = laps.reduce((a, l) => (l.corners[i].timeMs != null && (!a || l.corners[i].timeMs < a.corners[i].timeMs) ? l : a), null);
+    return { c, i, fastest, vals: Object.fromEntries(T.map(([k]) => [k, median(laps.map((l) => l.corners[i][k]))])) };
+  });
+  return `<details class="card"><summary><b>Driving technique</b> ${prov('calculated', 'From your pedals and steering, which are checked against the game.')}
+    <span class="muted" style="font-size:12px">your typical value · (your fastest pass of that corner) · hover a heading for how it is measured</span></summary>
+    <div class="tablewrap" style="margin-top:8px"><table class="technique">
+    <thead><tr><th>Corner</th>${T.map(([, t]) => `<th title="${tipOf(t.def)}">${esc(t.label)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r) => `<tr><td><b>${esc(r.c.name)}</b></td>${T.map(([k, t]) => {
+      const s = r.vals[k], f = r.fastest?.corners[r.i][k];
+      return `<td title="${tipOf(t.def)}">${valTxt(s, t.unit)} <span class="muted">(${valTxt(f, t.unit)})</span></td>`;
+    }).join('')}</tr>`).join('')}</tbody></table></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">The limits are relative to each pass (its own peak brake pressure and steering lock), so they suit any car. Choose a technique metric under “Spread per corner” to see every lap.</p></details>`;
 }

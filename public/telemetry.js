@@ -9,6 +9,17 @@ const color = (i) => css(SERIES[i]); // 0 = reference, 1.. = laps
 const EXTRA = { gear: 'Gear', line: 'Racing line', rpm: 'RPM' };
 let extra = new Set();
 try { extra = new Set(JSON.parse(localStorage.getItem('tele.extra') || '[]')); } catch { /* none */ }
+// what colours the map: 'time' (gaining / losing against the reference) or 'inputs' (brake / throttle / coasting)
+let mapLayer = 'time';
+try { mapLayer = localStorage.getItem('tele.mapLayer') === 'inputs' ? 'inputs' : 'time'; } catch { /* default */ }
+// one input state per grid point, the same limits as the technique metrics (src/analysis.js)
+const INPUTS = [
+  { k: 'brake', label: 'Braking', v: '--critical', is: (L, i) => L.brk[i] > 0.1 },
+  { k: 'coast', label: 'Coasting', v: '--warning', is: (L, i) => L.thr[i] < 0.1 && L.spd[i] > 30 },
+  { k: 'full', label: 'Full throttle', v: '--good', is: (L, i) => L.thr[i] > 0.95 },
+  { k: 'part', label: 'Part throttle', v: '--faster', is: () => true },
+];
+export const inputState = (L, i) => INPUTS.findIndex((s) => s.is(L, i));
 const dataCache = new Map(); // "laps|ref" -> compare payload (small: last few)
 let choicesCache = null; // { at, laps }
 
@@ -52,6 +63,7 @@ export async function mountTelemetry(root, opts, cleanup) {
     const sel = ci >= 0 ? corners[ci] : null;
     if (!sel) st.corner = null;
     const lap0 = laps[0];
+    const layer = lap0 ? mapLayer : 'inputs'; // without a lap to compare there is no time to colour
     const lossOf = (lap, a, b) => lap.delta[idxAt(lap.trace.d, b)] - lap.delta[idxAt(lap.trace.d, a)];
     const sessOf = (id) => choices.find((l) => l.id === id)?.session_id;
     const homeSession = opts.sessionId ?? sessOf(st.laps[0]);
@@ -87,8 +99,14 @@ export async function mountTelemetry(root, opts, cleanup) {
         <div class="cbar"></div></div>` : ''}
       <div class="tele-grid">
         <div class="tele-side">
-          <div class="card tele-map"><div class="row"><b>Track</b><span class="spacer"></span>
-            ${sel ? '<button class="small ghost" data-whole>Whole lap</button>' : `<span class="hint">${lap0 ? '<i class="sw" style="background:var(--slower)"></i>losing <i class="sw" style="background:var(--faster)"></i>gaining' : ''}</span>`}</div>
+          <div class="card tele-map"><div class="row"><b>Track</b>
+            <span class="seg" role="group" aria-label="Colour the map by" style="margin-left:8px">
+              <button class="small${layer === 'time' ? ' on' : ''}" data-layer="time" ${lap0 ? 'title="Where your lap gains or loses time against the reference"' : 'disabled title="Add a lap to compare with the reference"'}>Time</button>
+              <button class="small${layer === 'inputs' ? ' on' : ''}" data-layer="inputs" title="Where ${lap0 ? 'your lap' : 'the reference'} brakes, coasts and is on the throttle">Inputs</button></span>
+            <span class="spacer"></span>
+            ${sel ? '<button class="small ghost" data-whole>Whole lap</button>' : ''}</div>
+            <div class="hint map-legend">${layer === 'inputs' ? INPUTS.map((s) => `<i class="sw" style="background:var(${s.v})"></i>${s.label}`).join(' ')
+              : lap0 ? '<i class="sw" style="background:var(--slower)"></i>losing <i class="sw" style="background:var(--faster)"></i>gaining' : ''}</div>
             <canvas></canvas></div>
           <div class="card tele-corner"></div>
         </div>
@@ -162,6 +180,11 @@ export async function mountTelemetry(root, opts, cleanup) {
 
     const select = (name) => { st.corner = name; changed(); };
     q('[data-whole]')?.addEventListener('click', () => select(null));
+    root.querySelectorAll('[data-layer]').forEach((b) => b.addEventListener('click', () => {
+      mapLayer = b.dataset.layer;
+      try { localStorage.setItem('tele.mapLayer', mapLayer); } catch { /* not remembered */ }
+      draw();
+    }));
 
     // ---------------- where the time went: corners and the straights between them
     if (lap0) {
@@ -241,7 +264,19 @@ export async function mountTelemetry(root, opts, cleanup) {
       // gaining / losing along the lap
       const step = d[1] - d[0];
       const k = Math.max(1, Math.round(10 / step));
-      if (lap0) {
+      if (layer === 'inputs') {
+        // brake / coast / throttle of your lap (or the reference), one run of the same state at a time
+        const L = (lap0 || data.ref).trace, cols = INPUTS.map((s) => css(s.v));
+        ctx.lineWidth = 5 * zoomK; ctx.globalAlpha = view ? 0.55 : 1;
+        for (let i = 0; i < x.length - 1;) {
+          const s = inputState(L, i);
+          let j = i + 1; while (j < x.length - 1 && inputState(L, j) === s) j++;
+          ctx.strokeStyle = cols[s];
+          ctx.beginPath(); for (let qq = i; qq <= j; qq++) { const [px, py] = P(L.x[qq], L.z[qq]); qq === i ? ctx.moveTo(px, py) : ctx.lineTo(px, py); } ctx.stroke();
+          i = j;
+        }
+        ctx.globalAlpha = 1;
+      } else if (lap0) {
         const raw = []; for (let i = 0; i + k < x.length; i += k) raw.push(lap0.delta[i + k] - lap0.delta[i]);
         const slopes = raw.map((_, j) => { let s = 0, c = 0; for (let qq = Math.max(0, j - 4); qq <= Math.min(raw.length - 1, j + 4); qq++) { s += raw[qq]; c++; } return s / c; });
         const sorted = slopes.map(Math.abs).sort((a, b) => a - b);

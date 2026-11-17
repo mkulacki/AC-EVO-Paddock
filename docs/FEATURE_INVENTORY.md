@@ -61,7 +61,7 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | --- | --- | --- |
 | Post-session engineer report | Done | AI debrief button on the report |
 | Personalised training plans | Partial | the debrief contains a plan, but it isn't saved as structured data or tracked |
-| Technique analysis | Partial | per-lap coach on corner summaries |
+| Technique analysis | Done (P6) | per-corner brake/trail/release/throttle/steering metrics, corner rankings, inputs map layer, report style section, performance score |
 | Braking-point recommendations | Partial | coach + brake marks "fill from best lap"; no AI-proposed marks |
 | Corner entry/exit analysis | Done | corner card entry/apex/exit + coach |
 | Setup vs driving issue analysis | Partial | setup engineer + Car & setup rules, but on **unverified** channels, and the engineer does not split laps by setup (README limitation) |

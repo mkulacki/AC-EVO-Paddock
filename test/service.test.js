@@ -78,6 +78,44 @@ test('session report: matches the stored laps', () => {
   assert.equal(typeof report.headline(data), 'string');
 });
 
+test('consistency: technique metrics per corner, definitions and the performance score', () => {
+  const r = svc.consistency(combo);
+  const keys = Object.keys(r.technique);
+  assert.ok(keys.includes('trailM') && keys.includes('steerSaw'));
+  for (const l of r.laps) for (const c of l.corners) for (const k of keys) assert.ok(k in c, `${k} on lap ${l.id}`);
+  // score of all laps of the combo, recomputed from the stored laps with the same formula
+  const s = r.score;
+  assert.match(r.scoreFormula, /0\.5 × pace/);
+  assert.equal(s.laps, N);
+  assert.equal(s.validity, Math.round((valid.length / N) * 100));
+  assert.notEqual(s.score, null, `seeded laps give a score (${s.reason})`);
+  {
+    assert.ok(s.score >= 0 && s.score <= 100);
+    assert.ok(Math.abs(s.score - (0.5 * s.pace + 0.3 * s.consistency + 0.2 * s.validity)) <= 1, "score = weighted parts");
+    assert.ok(s.medianMs >= r.idealMs, 'median clean lap is not faster than the ideal lap');
+  }
+});
+
+test('dashboard: each record has the score of its last laps', () => {
+  const d = svc.dashboard();
+  const rec = d.records[0];
+  assert.equal(rec.score.laps, Math.min(N, svc.SCORE_LAPS));
+  assert.match(d.scoreFormula, /validity/);
+});
+
+test('session report: driving style section with notes against the best pass', () => {
+  const data = report.build(laps[0].session_id);
+  const st = data.style;
+  assert.equal(st.sufficient, true);
+  assert.ok(st.corners.length > 0);
+  for (const c of st.corners) {
+    assert.ok('trailM' in c.typical && 'trailM' in c.best);
+    assert.ok(Array.isArray(c.notes));
+    for (const n of c.notes) assert.ok(n.key && typeof n.text === 'string');
+  }
+  for (const h of st.habits) assert.ok(h.corners >= 2);
+});
+
 test('deleting a lap drops its session report and updates the best', () => {
   const sid = laps[0].session_id;
   const best = valid.find((l) => l.lap_time_ms === bestMs);
@@ -85,4 +123,17 @@ test('deleting a lap drops its session report and updates the best', () => {
   svc.invalidate();
   assert.equal(db.getReport(sid), null);
   assert.ok(svc.overview().combos[0].bestMs > bestMs || valid.filter((l) => l.lap_time_ms === bestMs).length > 1);
+});
+
+test('session report: no style section with fewer than 3 valid laps (the reason is given instead)', async () => {
+  const before = new Set(db.listSessions().map((s) => s.id));
+  await seedLaps(2);
+  const sid = db.listSessions().map((s) => s.id).find((id) => !before.has(id));
+  svc.invalidate();
+  const own = db.lapsOfSession(sid);
+  assert.ok(own.some((l) => l.valid), 'seeded run has a valid lap (seeded random)');
+  const st = report.build(sid).style;
+  assert.equal(st.sufficient, false);
+  assert.match(st.reason, /needs 3 valid laps/);
+  assert.equal(st.corners, undefined);
 });
