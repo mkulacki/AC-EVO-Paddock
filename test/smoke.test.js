@@ -16,7 +16,7 @@ const env = isolate('smoke');
 const childEnv = { ...process.env, ...env, PADDOCK_TEST_SEED: '7' };
 delete childEnv.ELECTRON_RUN_AS_NODE;
 const node = (...args) => ['--no-warnings', '--import', pathToFileURL(path.join(ROOT, 'test/preload-seed.js')).href, ...args];
-const FAKE_KEY = 'AIzaFAKEkeyFORtestsONLY0123456789abcdef';
+const FAKE_KEY = 'test-only-not-a-real-gemini-key-0123456789'; // must not match the release secret scan (CLAUDE.md step 3)
 
 const freePort = () => new Promise((resolve) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
 let server, base, port, log = '';
