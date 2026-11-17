@@ -29,6 +29,11 @@ test('filterItems: empty shows pages and sessions; "kind words" filters; a singl
   assert.deepEqual(pal.filterItems(items, 'track monza').map((x) => x.kind), ['Track']);
   assert.deepEqual(pal.filterItems(items, 'session   monza').map((x) => x.kind), ['Session'], 'several spaces');
   assert.equal(pal.filterItems(items, 'con monza')[0].kind, 'Consistency');
+  // a later word of a kind works too: "history monza" = Setup history
+  assert.deepEqual(pal.filterItems([...items, { kind: 'Setup history', label: 'Monza GP · Ferrari' }], 'history monza').map((x) => x.kind), ['Setup history']);
+  const withSetups = [...items, { kind: 'Setup history', label: 'Monza GP · Ferrari' }, { kind: 'Setups', label: 'Monza GP · Ferrari' }];
+  assert.deepEqual(pal.filterItems(withSetups, 'setup history monza').map((x) => x.kind), ['Setup history'], 'the full kind name');
+  assert.deepEqual(pal.filterItems(withSetups, 'setup monza').map((x) => x.kind), ['Setups'], 'unchanged: setup = Setups');
   assert.equal(pal.filterItems(items, 'zzz').length, 0);
 });
 

@@ -6,6 +6,12 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### New: setup history
+
+- **Setup history** for each track and car: every setup you drove, each version of an edited setup apart, with its best and typical lap, spread, sessions and conditions.
+- **Compare two setups:** lap times side by side, and exactly which values differ.
+- The **AI setup engineer** now gets your laps split by setup, with the one it is working on marked.
+
 ### New: driving technique
 
 - **Consistency** shows a **performance score** (pace, consistency and valid laps, with its formula), **corner rankings** (fastest, middle and slowest pass of every corner, with links) and a **driving technique** table: brake application, trail braking, brake release, apex to full throttle, throttle re-lifts, steering reversals and corrections, coasting. Each metric has its definition on hover.

@@ -2,9 +2,9 @@
 
 _Last updated: 2026-11-17_
 
-**Status:** P0–P6 approved and merged into local `main`. **P7 in progress.**
-**Current phase:** P7, Setup history and comparison.
-**Branch:** `phase/p7-setups` (local, not pushed; the installed app runs the P6 build).
+**Status:** P0–P7 approved and merged into local `main`. **P8 in progress on `phase/p8-coach`.**
+**Current phase:** P8, AI coach upgrade.
+**Branch:** `phase/p8-coach` (local, not pushed; the installed app runs the P7 build).
 
 ## Phases
 
@@ -17,14 +17,14 @@ _Last updated: 2026-11-17_
 | P4 | App shell: navigation, command palette, states | Done, approved 2026-11-17 (D1: lime + sidebar) |
 | P5 | Driver home dashboard | Done, approved 2026-11-17 |
 | P6 | Driving technique analysis | Done, approved 2026-11-17 |
-| P7 | Setup history and comparison | In progress |
-| P8 | AI coach upgrade | Pending |
+| P7 | Setup history and comparison | Done, approved 2026-11-17 |
+| P8 | AI coach upgrade | In progress |
 | P9 | Driver development | Pending (D3) |
 | P10 | Final regression and release prep | Pending |
 
 ## Current task
 
-P7 started on `phase/p7-setups`: reading the existing setup code (src/setups.js, setupmatch.js, db snapshots, public/setups.js).
+P8: AI coach upgrade (combo-level chat, training plan with automatic target checks, AI braking-point suggestions applied after review).
 
 ## Known problems
 
@@ -32,7 +32,7 @@ P7 started on `phase/p7-setups`: reading the existing setup code (src/setups.js,
 
 ## Test results
 
-- `npm run check` 82/82; `npm test` 103/103. P6 pages checked in headless Edge (0 JS errors); Consistency 35 ms on the user's data.
+- `npm run check` 85/85; `npm test` 111/111. Setup history checked in headless Edge (0 JS errors); 1–12 ms on the user's data.
 
 ## Pending user decisions
 
@@ -41,7 +41,7 @@ P7 started on `phase/p7-setups`: reading the existing setup code (src/setups.js,
 
 ## Next action
 
-Implement P7 (docs/IMPLEMENTATION_ROADMAP.md): setup history per car + track, compare two setups, performance by setup, laps split by setup for the setup engineer. Then the usual workflow: tests, headless-Edge check, review subagent, deploy, report and approval gate.
+Implement P8 on `phase/p8-coach`, then tests, review, deploy and the approval gate.
 
 ## How to resume
 

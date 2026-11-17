@@ -77,7 +77,7 @@ export const byId = (id) => scan().find((f) => f.id === id) || null;
 
 function describeFile(f, track) {
   const m = meta.files[f.rel] || {};
-  return { id: f.id, name: f.name, carId: f.carId, carName: f.carName, carFolder: f.carFolder, track: { id: f.trackId, name: f.trackName, folder: f.trackFolder },
+  return { id: f.id, rel: f.rel, name: f.name, carId: f.carId, carName: f.carName, carFolder: f.carFolder, track: { id: f.trackId, name: f.trackName, folder: f.trackFolder },
     notes: m.notes || '', from: m.from || null, basedOn: m.basedOn || null, updatedAt: f.mtime, forTrack: !!(track?.id && f.trackId === track.id) };
 }
 

@@ -243,3 +243,46 @@
   - Lows, fixed: the score test could skip its checks; the Consistency median differed from the report's.
   - Low, accepted: v1 reports have no style section until regenerated.
 - **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
+
+## P7: Setup history and comparison
+
+- **Started / finished:** 2026-11-17 · branch `phase/p7-setups`
+- **Implemented:**
+  - **Setup history** (`src/setuphistory.js`, page `#/setuphistory?combo=`) per track + car:
+    - every setup driven, grouped by the snapshot of values recorded when it was driven, plus its file;
+    - an edited file shows as "version n of m";
+    - per setup: dates, sessions, laps (valid / all), best lap, typical lap (median of clean laps), spread, air / track temperature;
+    - gaps against the fastest setup.
+  - **Compare two setups:** best and typical lap side by side, plus exactly the values that differ (label, corner, unit, change).
+    - Values come from the snapshot; else from the saved file as it is now, labelled so.
+    - Standard and Not recorded entries have no values, and the page says why.
+  - **AI setup engineer:**
+    - gets `by_setup` (laps split by setup);
+    - `this_setup` is set only on the entry driven with the file's current values, `this_setup_other_values` on its other versions;
+    - plus a note on whether setup recognition is checked. This removes the old README limitation.
+  - **Links:** a *Setup history* button on each Sessions combo, the palette ("history …" or "setup history …"), and *Your laps here* in the Setups tab when a car and track are chosen (`/api/setuphistory/combos`).
+- **Files:** `src/setuphistory.js` (new), `src/server.js`, `src/setupmatch.js`, `src/carsetup.js`, `src/setups.js`, `public/setuphistory.js` (new), `public/app.js`, `public/sessions.js`, `public/palette.js`, `public/setups.js`, `test/setuphistory.test.js` (new), `test/shell.test.js`, `test/smoke.test.js`, README, CHANGELOG, DECISIONS, FEATURE_INVENTORY.
+- **Tests performed:**
+  - `npm run check` 85/85; `npm test` 111/111.
+  - Setup history tests (8):
+    - stats per setup, including the clean-lap median and spread;
+    - versions; an exact diff (only the changed values); a missing-values reason;
+    - two files with the same values; engineer marking; both reasons named.
+  - Smoke test: the history, diff and combos routes.
+  - Palette: "history" and full kind names; "setup" still means Setups.
+  - Headless Edge, 0 JS errors: Setup history in light and dark, a 4-setup scratch history with versions, a value diff, and the Standard-against-setup reason.
+  - Deployed and started; on the user's data the history answers in 1–12 ms.
+- **Known limitations:**
+  - On the user's data, every lap so far is Standard or Not recorded (no recognised saved setup driven yet), so Compare has nothing to diff until a saved setup is driven.
+  - Recognition is still unconfirmed in game (P2); laps can be corrected in the report.
+  - Manual corrections take the file's values at correction time.
+- **Review findings (code-review subagent):**
+  - No critical or high findings.
+  - All 5 medium fixed:
+    - two files with the same values merged (keys now include the file);
+    - the engineer marked every version of a file;
+    - the "file as it is now" note was missing when values matched;
+    - the "Not recorded" wording;
+    - per-lap catalogue matching (now per combo).
+  - Lows fixed: the palette full kind name, versions only for recorded values, both reasons named, A ≠ B by default, thin tests.
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.

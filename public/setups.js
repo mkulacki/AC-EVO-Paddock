@@ -63,6 +63,16 @@ export async function viewSetups(view, params, cleanup) {
     $('#sSide').querySelectorAll('[data-car]').forEach((b) => { b.onclick = () => pickCar(b.dataset.car); });
     $('#sSide').querySelector('[data-ptrack]').onclick = () => openTrackPicker({ tracks: cat.tracks, selected: st.track, onPick: (t) => { st.track = t; remember(); load(); } });
     $('#sSide').querySelector('[data-notrack]')?.addEventListener('click', () => { st.track = null; remember(); load(); });
+    // laps with this car on this track: a link to their setup history (which setup was faster)
+    if (st.car && tl) {
+      const want = `${st.car}|${tl.t.id}`;
+      api(`/api/setuphistory/combos?${new URLSearchParams({ carId: st.car, trackId: tl.t.id })}`).then(({ combos }) => {
+        if (!combos.length || want !== `${st.car}|${trackOf(st.track)?.t.id}` || !$('#sSide') || $('#sSide .setup-hist')) return;
+        const box = document.createElement('div'); box.className = 'setup-hist';
+        box.innerHTML = `<h3 style="margin-top:14px">Your laps here</h3>${combos.map((c) => `<a href="#/setuphistory?combo=${encodeURIComponent(c.key)}" class="setup-hist-link">Setup history${combos.length > 1 ? ` · ${esc(c.layout.replace(/_/g, ' '))}` : ''} <span class="muted">${c.laps} laps</span></a>`).join('<br>')}`;
+        $('#sSide .card')?.insertBefore(box, $('#sSide .card p.muted:last-child'));
+      }).catch(() => { /* no link */ });
+    }
   }
 
   // ---------------------------------------------------------------- list
