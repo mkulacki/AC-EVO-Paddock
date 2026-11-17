@@ -62,6 +62,8 @@ AC EVO shared memory ──(koffi, 60 Hz loop in server.js)──> src/shm.js �
 4. **EVO-native data only:** track data comes from AC EVO itself, never AC1 files.
 5. **Bundle only:** no runtime downloads (loader, assets) without a user decision.
 6. **Secrets:** `data/` is never committed or packaged.
+7. **Local API only for Paddock's pages:** `src/server.js` `foreignRequest` refuses other host names and cross-site/foreign-origin writes. New pages must be served from the same origin.
+8. **Data swaps happen before the database opens:** restores are applied by `src/restore-apply.js`, called at the top of `src/db.js`. Nothing replaces `telemetry.db` while it is open.
 
 ## Known architectural weaknesses
 

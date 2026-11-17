@@ -29,6 +29,10 @@ import * as setupmatch from './setupmatch.js';
 import * as report from './report.js';
 import * as carreport from './carreport.js';
 import * as channels from './channels.js';
+import * as backup from './backup.js';
+import * as dataexport from './dataexport.js';
+import * as diagnostics from './diagnostics.js';
+import * as updates from './updates.js';
 import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -68,6 +72,11 @@ if (mockIdx < 0 || process.env.ACE_BRIDGE) {
   new GameBridge({ snapshot: () => ({ ...hudSnapshot(), order: game.currentOrder() }), onCommand: runCommand,
     onLaunchEvent: game.onLaunchEvent, onCatalogue: race.onCatalogue }).start();
 }
+// this Paddock's version, and the daily update check (never in mock runs or tests, unless PADDOCK_UPDATE_CHECK is set)
+const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+updates.setCurrent(VERSION);
+if (mockIdx < 0 || process.env.PADDOCK_UPDATE_CHECK) updates.schedule(VERSION);
+if (db.restoreResult) console.log(`[backup] restore at start: ${db.restoreResult.ok ? `done (${db.restoreResult.files.join(', ')})` : `FAILED: ${db.restoreResult.error}`}`);
 // every start of the game goes through here: the HUD is brought up to date first (the game is still closed)
 function startGame(order) { if ((mockIdx < 0 || process.env.ACE_BRIDGE) && !game.isRunningNow()) hudInstall.autoUpdate('before starting the game'); return game.start(order); }
 /**
@@ -194,10 +203,29 @@ function serveStatic(res, file) {
 const safeName = (s) => String(s).replace(/[^a-z0-9_.-]+/gi, '_');
 
 // ---------------------------------------------------------------- routes
+// Only Paddock's own pages may use the API. The server listens on 127.0.0.1 only, but a web page open in the
+// browser could still send requests to it (cross-site requests, DNS rebinding): those are refused here.
+const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+function foreignRequest(req) {
+  const host = String(req.headers.host || '').toLowerCase();
+  const name = host.replace(/:\d+$/, '');
+  if (!OWN_HOSTS.has(name)) return 'unknown host';
+  if (req.method === 'GET' || req.method === 'HEAD') return null;
+  if (req.headers['sec-fetch-site'] === 'cross-site') return 'cross-site request';
+  const origin = req.headers.origin;
+  if (origin && origin !== 'null') {
+    let o; try { o = new URL(origin); } catch { return 'bad origin'; }
+    if (!OWN_HOSTS.has(o.hostname === '::1' ? '[::1]' : o.hostname) || o.port !== (host.match(/:(\d+)$/)?.[1] ?? '')) return 'foreign origin';
+  } else if (origin === 'null') return 'opaque origin';
+  return null;
+}
+
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const m = req.method;
+  const foreign = foreignRequest(req);
+  if (foreign) { console.warn(`[http] refused ${m} ${p}: ${foreign} (host ${req.headers.host}, origin ${req.headers.origin ?? '-'})`); return send(res, 403, { error: 'Forbidden' }); }
 
   if (p === '/api/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -469,6 +497,62 @@ async function route(req, res) {
   }
   // what each telemetry reading is worth: checked against the game or not (src/channels.js)
   if (p === '/api/channels') return send(res, 200, channels.list());
+  // ---- application management (Settings): backups, export, diagnostics, updates
+  if (p.startsWith('/api/backup')) {
+    const busy = () => (inSession() ? send(res, 409, { error: 'You are on track: back up or restore when you are in the menus or AC EVO is closed (it would stall the lap recording).' }) : null);
+    try {
+      if (p === '/api/backup' && m === 'GET') return send(res, 200, { backups: backup.listBackups(), pending: backup.pending(), restored: db.restoreResult, folder: backup.BACKUP_DIR });
+      if (p === '/api/backup' && m === 'POST') {
+        if (busy()) return;
+        const { includeSecrets = false } = await readJson(req);
+        return send(res, 200, await backup.create({ includeSecrets: includeSecrets === true, appVersion: VERSION }));
+      }
+      if (p === '/api/backup/file' && m === 'GET') {
+        const name = url.searchParams.get('name');
+        const file = backup.fileOf(name);
+        if (!fs.existsSync(file)) return send(res, 404, { error: 'Backup not found' });
+        res.writeHead(200, { 'content-type': 'application/zip', 'content-length': fs.statSync(file).size, 'content-disposition': `attachment; filename="${name}"` });
+        return fs.createReadStream(file).pipe(res);
+      }
+      if (p === '/api/backup/file' && m === 'DELETE') { backup.remove(url.searchParams.get('name')); return send(res, 200, { ok: true }); }
+      if (p === '/api/backup/upload' && m === 'POST') { // streamed: a backup can be big
+        fs.mkdirSync(backup.BACKUP_DIR, { recursive: true });
+        const tmp = path.join(backup.BACKUP_DIR, `.upload-${Date.now()}-${process.pid}`);
+        try { await pipeline(req, fs.createWriteStream(tmp)); return send(res, 200, backup.importUpload(tmp)); } finally { fs.rmSync(tmp, { force: true }); }
+      }
+      if (p === '/api/backup/restore' && m === 'POST') {
+        if (busy()) return;
+        const { name } = await readJson(req);
+        const out = await backup.stageRestore(name, { appVersion: VERSION, stillIdle: () => !inSession() });
+        send(res, 200, { ...out, restarting: true });
+        setTimeout(restartApp, 300); // the files are swapped at the next start, before the database is opened
+        return;
+      }
+      if (p === '/api/backup/restore' && m === 'DELETE') { backup.cancelRestore(); return send(res, 200, { ok: true }); }
+    } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
+  }
+  if (p === '/api/export/laps.csv' || p === '/api/export/sessions.csv') {
+    const laps = p.endsWith('laps.csv');
+    const body = '﻿' + (laps ? dataexport.lapsCsv() : dataexport.sessionsCsv()); // BOM: Excel reads UTF-8 track names right
+    const day = new Date().toISOString().slice(0, 10);
+    res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="paddock-${laps ? 'laps' : 'sessions'}-${day}.csv"` });
+    return res.end(body);
+  }
+  if (p === '/api/diagnostics') {
+    const d = diagnostics.build({
+      version: VERSION, source: source.name, recorder: recorder.state,
+      game: (() => { try { const g = game.status(); return { running: g.running, version: g.version ?? g.gameVersion ?? null, hudVersion: g.hudVersion ?? null }; } catch (e) { return { error: e.message }; } })(),
+      loader: (() => { try { return loaderInstall.status(); } catch (e) { return { error: e.message }; } })(),
+      hud: (() => { try { return hudInstall.status(); } catch (e) { return { error: e.message }; } })(),
+      paths: { gameFiles: ACE, gameFilesExists: fs.existsSync(ACE), contentArchive: (() => { try { return trackdata.archive()?.file ?? 'not found'; } catch (e) { return `not found (${e.message})`; } })() },
+    });
+    return send(res, 200, url.searchParams.get('format') === 'text' ? { text: d.text } : d.data);
+  }
+  if (p === '/api/updates' && m === 'GET') return send(res, 200, updates.status());
+  if (p === '/api/updates/check' && m === 'POST') {
+    if (mockIdx >= 0 && !process.env.PADDOCK_UPDATE_CHECK) return send(res, 200, { ...updates.status(), error: 'Not checked in a mock run' });
+    return send(res, 200, await updates.check());
+  }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows
   if (p === '/api/overview') {

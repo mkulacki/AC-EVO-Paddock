@@ -2,9 +2,12 @@ import { DatabaseSync } from 'node:sqlite';
 import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
+import { applyPendingRestore } from './restore-apply.js';
 
 export const DATA_DIR = path.resolve(process.env.ACEVO_DATA || 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
+// a restore asked for in Settings is applied now, before the database is opened (src/backup.js)
+export const restoreResult = applyPendingRestore(DATA_DIR);
 
 const db = new DatabaseSync(path.join(DATA_DIR, 'telemetry.db'));
 db.exec(`
@@ -77,6 +80,19 @@ function normaliseDistance(data, L) {
 }
 
 const LAP_COLS = 'id, session_id, track, layout, car, lap_number, lap_time_ms, valid, driver, source, recorded_at, track_length, samples, setup_name, setup_info';
+
+/** A consistent copy of the whole database in a new file (backups): safe while Paddock keeps using it. */
+export function vacuumInto(file) {
+  fs.rmSync(file, { force: true });
+  db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+}
+export const counts = () => ({
+  laps: db.prepare('SELECT COUNT(*) AS n FROM laps').get().n,
+  sessions: db.prepare('SELECT COUNT(*) AS n FROM sessions').get().n,
+  reports: db.prepare('SELECT COUNT(*) AS n FROM reports').get().n,
+  brakeMarks: db.prepare('SELECT COUNT(*) AS n FROM brake_marks').get().n,
+  schema: db.prepare('PRAGMA user_version').get().user_version,
+});
 
 export const encodeData = (cols) => zlib.gzipSync(JSON.stringify(cols));
 export const decodeData = (blob) => JSON.parse(zlib.gunzipSync(blob).toString());

@@ -119,6 +119,39 @@ test('saved AI answers come back with their confidence split off (no Gemini call
   assert.deepEqual(a.confidence, { level: 'low', basis: 'one lap' });
 });
 
+test('application management routes: export, diagnostics without private data, updates without network, backups refused on track', async () => {
+  const csv = await get('/api/export/laps.csv');
+  assert.match(csv, /^﻿?lap_id,session_id/);
+  const diag = await json('/api/diagnostics?format=text');
+  assert.ok(!diag.text.includes(FAKE_KEY) && !diag.text.includes('Test Driver'), 'diagnostics leak private data');
+  assert.equal((await json('/api/diagnostics')).settings.geminiKey, 'set');
+  const u = await json('/api/updates');
+  assert.equal(typeof u.current, 'string');
+  const c = await (await fetch(base + '/api/updates/check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
+  assert.match(c.error, /mock/, 'no network call from a mock run');
+  assert.deepEqual((await json('/api/backup')).backups, []);
+  // the mock car is on track: a backup would stall the recording
+  const b = await fetch(base + '/api/backup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(b.status, 409);
+  assert.equal((await fetch(base + '/api/backup/file?name=..%2fsettings.json')).status, 400);
+});
+
+test('only Paddock pages may use the API: foreign origins, cross-site requests and other host names are refused', async () => {
+  const send = (headers, method = 'POST', p = '/api/backup/restore') => new Promise((resolve, reject) => {
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { 'content-type': 'text/plain', ...headers } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    r.on('error', reject); r.end(method === 'POST' ? '{"name":"x.zip"}' : undefined);
+  });
+  assert.equal(await send({ origin: 'https://evil.example' }), 403);
+  assert.equal(await send({ origin: `http://127.0.0.1:${port + 1}` }), 403, 'another local port is another site');
+  assert.equal(await send({ origin: 'null' }), 403);
+  assert.equal(await send({ 'sec-fetch-site': 'cross-site' }), 403);
+  assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/diagnostics'), 403, 'DNS rebinding');
+  assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/backup/file?name=x.zip'), 403);
+  // Paddock's own page: allowed (the restore itself then fails: on track / no such backup)
+  assert.notEqual(await send({ origin: `http://127.0.0.1:${port}` }), 403);
+  assert.notEqual(await send({ origin: `http://localhost:${port}`, host: `localhost:${port}` }), 403);
+});
+
 // raw request: fetch/URL would clean up "../" before sending it
 const raw = (p) => new Promise((resolve, reject) => {
   http.get({ host: '127.0.0.1', port, path: p }, (r) => { let b = ''; r.on('data', (c) => { b += c; }); r.on('end', () => resolve({ status: r.statusCode, body: b })); }).on('error', reject);

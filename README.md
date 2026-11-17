@@ -226,6 +226,15 @@ A voice or beeps count down to each braking point while you drive: "three, two, 
   - Points are stored as a share of the lap, in `telemetry.db`. Wheel buttons are read through Windows' joystick API (up to 32 buttons per device).
 - The voice clips are in `public/audio/spotter/<voice>/`. They were generated with Gemini text-to-speech and given a team-radio sound by `node src/tools/make-spotter-clips.js --voice Orus --radio` (and `--voice Algenib`). Only needed to remake them; it uses your Gemini key.
 
+## Backup, export, diagnostics and updates (Settings)
+
+- **Backup and restore:** *Back up now* writes one zip to `data\backups`: laps, sessions, reports, brake points, saved AI answers, Race tab presets and settings. Track and car caches (Paddock rebuilds them), logs and disabled mods are left out. Your Gemini key and saved server passwords are left out too, unless you tick *Include my Gemini key and server passwords*. *Save as…* copies a backup elsewhere, and *Add a backup file…* brings one in from another PC.
+  - *Restore* checks the backup, first makes a backup of your current data (listed as *made before a restore*), then restarts Paddock and swaps the files before the database is opened. If the backup has no key or passwords, your current ones are kept.
+  - Backing up and restoring are refused while you are on track, because they would stall the lap recording.
+- **Export:** laps and sessions as CSV files for a spreadsheet.
+- **Diagnostics:** *Copy for a bug report* gives the version, the data and game folders, HUD and loader state, which readings are checked, and the end of the log. Your Gemini key, server passwords, driver name and Windows user folder are taken out.
+- **Updates:** once a day Paddock asks GitHub whether a newer version is out, and shows *Update available* with a link (a dot on Settings). It never downloads or installs anything. Switch it off with *Check once a day*.
+
 ## Data
 
 Everything lives in `data\` (for the desktop app: next to the `.exe`; `ACEVO_DATA` overrides the location):
@@ -238,6 +247,8 @@ Everything lives in `data\` (for the desktop app: next to the `.exe`; `ACEVO_DAT
 | `setup-meta.json` | Setups tab notes and where each setup came from (the setups themselves are the game's files in `Saved Games\ACE\Car Setups`) |
 | `game-catalogue.json`, `game-applied.json` | what the HUD read in game: track lists per session type, AI cars, the last applied settings |
 | `mods.json`, `mods-disabled\`, `mod-uploads\` | Mods tab manifest, disabled mods' files, uploads in progress |
+| `backups\` | your backups (zip); `restore-pending\` exists only between asking for a restore and the restart |
+| `update-check.json` | when Paddock last asked GitHub for updates, and the answer |
 | `trackcache\`, `carcache\` | parsed track models, car catalogue and thumbnails (safe to delete) |
 | `logs\`, `window.json`, `electron\` | desktop app only: log, window position, browser cache |
 
@@ -274,6 +285,8 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/setups.js`, `src/carsetup.js` | Setups tab: the game's setup files, reading / writing `.carsetup` with the car's limits |
 | `src/report.js`, `src/setupmatch.js`, `public/reports.js` | session reports; recognising the setup of every lap |
 | `src/ai.js` | Gemini coach, setup engineer and session debrief |
+| `src/channels.js` | which telemetry readings are checked against the game (provenance) |
+| `src/backup.js`, `src/restore-apply.js`, `src/dataexport.js`, `src/diagnostics.js`, `src/updates.js`, `public/system.js` | Settings: backup and restore, CSV export, diagnostics, update check |
 | `public/` | browser app (no build step) |
 | `mod/trainerhud/` | the in-game HUD and launcher (ACE UI App Loader app) |
 | `mod/ACEUIAppLoader/` | the bundled ACE UI App Loader release (unmodified zips, MIT licence, `loader.json` = loader + game version) |
@@ -282,7 +295,10 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 
 ## Privacy
 
-Everything stays on your PC. The only data sent anywhere goes to Google Gemini, and only when you ask the AI coach or the AI setup engineer and have added your own API key: the compact per-corner summary of a lap, or a setup's values with your description of the car and a summary of your laps on that track. Your key is stored in `data\settings.json`, which is never part of the repository or the release.
+Everything stays on your PC. Paddock contacts two services:
+
+- **GitHub**, once a day, to see whether a newer Paddock is out: one request for the project's list of releases, with nothing about you in it. Switch it off in *Settings → Updates*.
+- **Google Gemini**, only when you ask the AI coach or the AI setup engineer and have added your own API key: the compact per-corner summary of a lap, or a setup's values with your description of the car and a summary of your laps on that track. Your key is stored in `data\settings.json`, which is never part of the repository or the release.
 
 ## Contributing
 
