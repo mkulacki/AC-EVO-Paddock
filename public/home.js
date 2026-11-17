@@ -55,6 +55,18 @@ export async function viewHome(view, cleanup) {
       ${g.lastCheck ? `<p class="muted s" style="margin:0">Last time you met ${g.lastCheck.met} of ${g.lastCheck.of} targets.</p>` : ''}</div>`).join('')
     : '<p class="muted" style="margin:0">Targets come with each session report (sessions of 3 laps or more). Drive a session and they show here.</p>'}</div>`;
 
+  // goals, challenges and achievements (P9, src/goals.js + src/achievements.js): the open ones and what was reached lately
+  const dev = d.development;
+  const left = (t) => { const n = Math.ceil((t - Date.now()) / 86400e3); return n <= 0 ? 'ends today' : n === 1 ? '1 day left' : `${n} days left`; };
+  const goals = dev ? `<div class="card"><div class="row"><h2 style="margin:0">Goals and challenges</h2><span class="spacer"></span><a href="#/development">Development ›</a></div>
+    ${dev.metRecently.length ? `<ul class="home-list">${dev.metRecently.map((g) => `<li><a href="#/development"><span class="hl-main"><b>${esc(g.text)}</b><span class="hl-sub muted">${combo(g.combo)} · ${esc(prettyName(g.combo.car))}</span></span>
+      <span class="hl-num"><span class="badge best">${g.challenge ? 'challenge done' : 'goal met'}</span><span class="hl-sub muted">${esc(ago(g.met.at))}</span></span></a></li>`).join('')}</ul>` : ''}
+    ${dev.goals.length ? `<ul class="home-list">${dev.goals.map((g) => `<li><a href="#/development"><span class="hl-main">${esc(g.text)}<span class="hl-sub muted">${combo(g.combo)} · ${esc(prettyName(g.combo.car))}</span></span>
+      <span class="hl-num">${g.challenge ? `<span class="badge chal">${esc(left(g.dueAt))}</span>` : ''}<span class="hl-sub muted">${esc(g.progressText)}</span></span></a></li>`).join('')}</ul>`
+      : '<p class="muted" style="margin:8px 0 0">No open goals. Set one, or take a challenge suggested from your laps, on the <a href="#/development">Development</a> page.</p>'}
+    <div class="row" style="margin-top:10px"><b>Achievements</b><span class="muted">${dev.achievements.unlocked} of ${dev.achievements.total}</span>${dev.achievements.fresh ? `<span class="badge best">${dev.achievements.fresh} new</span>` : ''}</div>
+    ${dev.achievements.recent.length ? `<div class="home-ach muted s">${dev.achievements.recent.map((a) => `<span title="${esc(a.text)}">★ <b>${esc(a.title)}</b> · ${esc(ago(a.unlockedAt))}</span>`).join('')}</div>` : ''}</div>` : '';
+
   const trends = d.trends.length ? `<h2 class="home-h">Best lap per day <span class="muted s">your most driven cars and tracks · lower is faster · <span class="dot-best" aria-hidden="true"></span> new personal best</span></h2>
     <div class="home-trends">${d.trends.map((t, i) => `<div class="card"><div class="row"><b>${combo(t)}</b><span class="spacer"></span><a href="#/progress?combo=${encodeURIComponent(t.key)}" class="s">Progress ›</a></div>
       <div class="muted s">${esc(prettyName(t.car))} · best <b class="best">${fmt(t.bestMs)}</b>${t.idealMs ? ` · ideal ${fmt(t.idealMs)}` : ''}</div>
@@ -68,7 +80,7 @@ export async function viewHome(view, cleanup) {
       <td style="white-space:nowrap"><a href="#/progress?combo=${encodeURIComponent(c.key)}">Progress</a>${c.bestLapId && c.idealMs ? ` · <a href="#/compare?laps=${c.bestLapId}&ref=ideal">Best against ideal</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
 
   view.innerHTML = `<div class="race-head"><div><h1>Home</h1><div class="sub">Your driving at a glance, from your own laps.</div></div><span class="spacer"></span><a href="#/race"><button class="primary">Set up a session</button></a></div>
-    ${warnings}${tiles}<div class="grid-2">${sessions}${targets}</div>${trends}${records}`;
+    ${warnings}${tiles}<div class="grid-2">${sessions}<div>${targets}${goals}</div></div>${trends}${records}`;
   bindSparks(view, d.trends, cleanup);
 }
 

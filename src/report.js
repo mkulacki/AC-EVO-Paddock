@@ -27,6 +27,11 @@ function lapStats(laps) {
   return { best, valid, clean, avgMs: r0(mean(clean)), medianMs: r0(median(clean)), sdMs: r0(sd(clean)), validAvgMs: r0(mean(valid.map((l) => l.lap_time_ms))) };
 }
 
+/** The report's consistency score (0-100) from a list of lap times' stats: 100 − 4000 × (spread / average) of the clean laps. */
+const scoreOfStats = (S) => { const cv = S.sdMs != null && S.avgMs ? S.sdMs / S.avgMs : null; return cv != null ? Math.max(0, Math.min(100, Math.round(100 - 4000 * cv))) : null; };
+/** Consistency of a session's laps (db rows), the same numbers as its report: {score, sdMs, cleanLaps}; score null under 3 clean laps. */
+export function consistencyOf(laps) { const S = lapStats(laps); return { score: scoreOfStats(S), sdMs: S.sdMs, cleanLaps: S.clean.length }; }
+
 // + = towards the outside of the corner (as the Consistency page)
 function wideOf(R, ref, corners, turns) {
   const off = lateralOffsets(R, ref);
@@ -257,9 +262,8 @@ export function build(sessionId, { withPrevTargets = true } = {}) {
   const theo = sess.length && corners.length ? corners.reduce((a, _, k) => a + Math.min(...sess.map((l) => lapTimes.get(l.id).t[k])), 0) : null;
 
   // ---- consistency
-  const cv = S.sdMs != null && S.avgMs ? S.sdMs / S.avgMs : null;
   const worst = cornerRows.filter((c) => c.sdMs != null).sort((a, b) => b.sdMs - a.sdMs)[0] || null;
-  const consistency = { sdMs: S.sdMs, cleanLaps: S.clean.length, score: cv != null ? Math.max(0, Math.min(100, Math.round(100 - 4000 * cv))) : null,
+  const consistency = { sdMs: S.sdMs, cleanLaps: S.clean.length, score: scoreOfStats(S),
     worstCorner: worst ? { name: worst.name, sdMs: worst.sdMs } : null };
 
   const limits = trackLimits(laps, ref, corners);

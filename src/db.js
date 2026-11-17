@@ -227,3 +227,44 @@ export function createPlan(c, p) {
 }
 export const setPlanTargets = (id, targets) => db.prepare('UPDATE training_plans SET targets = ? WHERE id = ?').run(JSON.stringify(targets), id);
 export const closePlan = (id) => db.prepare('UPDATE training_plans SET closed_at = ? WHERE id = ? AND closed_at IS NULL').run(Date.now(), id);
+
+// ---------------------------------------------------------------- driver development (P9): goals + challenges, launches, notes
+// goals: a target per track + car (the game's names, as in the laps), checked against laps driven after created_at.
+// kind lap (target = ms), consistency (target = score 0-100), streak (target = valid laps in a row in one session),
+// window (target = laps in one session within extra.windowMs of extra.refMs). due_at set = a challenge (a deadline).
+// met_* is stored the first time it is met, so later deleting laps does not take it back.
+// launches: sessions Paddock started in the game (Race tab, hotlap, planner), for the race weekend history.
+// meta: small values Paddock keeps for itself (e.g. when the achievements were last looked at).
+db.exec(`CREATE TABLE IF NOT EXISTS goals (
+  id INTEGER PRIMARY KEY, track TEXT, layout TEXT, car TEXT, kind TEXT, target REAL, extra TEXT, origin TEXT,
+  created_at INTEGER, due_at INTEGER, met_at INTEGER, met_session INTEGER, met_lap INTEGER, met_value REAL
+);
+CREATE INDEX IF NOT EXISTS goals_combo ON goals(track, layout, car);
+CREATE TABLE IF NOT EXISTS launches (
+  id INTEGER PRIMARY KEY, at INTEGER, mode TEXT, track_id TEXT, layout_key TEXT, car TEXT, summary TEXT, planned_min REAL, goal_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);`);
+const goalRow = (r) => (r ? { id: r.id, combo: { track: r.track, layout: r.layout, car: r.car }, kind: r.kind, target: r.target,
+  extra: r.extra ? JSON.parse(r.extra) : {}, origin: r.origin, createdAt: r.created_at, dueAt: r.due_at,
+  met: r.met_at ? { at: r.met_at, sessionId: r.met_session, lapId: r.met_lap, value: r.met_value } : null } : null);
+export const listGoals = () => db.prepare('SELECT * FROM goals ORDER BY id DESC').all().map(goalRow);
+export const getGoal = (id) => goalRow(db.prepare('SELECT * FROM goals WHERE id = ?').get(id));
+export function addGoal(g) {
+  const r = db.prepare('INSERT INTO goals (track, layout, car, kind, target, extra, origin, created_at, due_at) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(g.combo.track, g.combo.layout, g.combo.car, g.kind, g.target, JSON.stringify(g.extra || {}), g.origin || 'me', g.createdAt ?? Date.now(), g.dueAt ?? null);
+  return Number(r.lastInsertRowid);
+}
+export const setGoalMet = (id, m) => db.prepare('UPDATE goals SET met_at = ?, met_session = ?, met_lap = ?, met_value = ? WHERE id = ? AND met_at IS NULL')
+  .run(m.at, m.sessionId ?? null, m.lapId ?? null, m.value ?? null, id);
+export const deleteGoal = (id) => db.prepare('DELETE FROM goals WHERE id = ?').run(id);
+
+export function addLaunch(l) {
+  const r = db.prepare('INSERT INTO launches (at, mode, track_id, layout_key, car, summary, planned_min, goal_id) VALUES (?,?,?,?,?,?,?,?)')
+    .run(l.at ?? Date.now(), l.mode, l.trackId ?? null, l.layoutKey ?? null, l.car ?? null, l.summary ?? null, l.plannedMin ?? null, l.goalId ?? null);
+  return Number(r.lastInsertRowid);
+}
+export const listLaunches = () => db.prepare('SELECT * FROM launches ORDER BY at').all()
+  .map((r) => ({ id: r.id, at: r.at, mode: r.mode, trackId: r.track_id, layoutKey: r.layout_key, car: r.car, summary: r.summary, plannedMin: r.planned_min, goalId: r.goal_id }));
+
+export const getMeta = (key) => db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
+export const setMeta = (key, value) => db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));

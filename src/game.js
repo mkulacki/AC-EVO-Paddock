@@ -50,7 +50,15 @@ export function onLaunchEvent(e) {
   // finished: the order must not be carried out again (e.g. when the player is back on the menu)
   if (e.step === 'started' || e.step === 'scandone' || e.step === 'probed') launch.done = launch.order?.issued ?? null;
   if (e.step === 'started' && launch.order?.conditions) launch.started = { at: Date.now(), conditions: launch.order.conditions };
+  // once per order: the race weekend history keeps the sessions Paddock started (src/weekends.js)
+  if (e.step === 'started' && launch.order && launch.reported !== launch.order.issued) {
+    launch.reported = launch.order.issued;
+    for (const fn of startedListeners) { try { fn(launch.order); } catch (err) { console.log(`[launch] ${err.message}`); } }
+  }
 }
+const startedListeners = [];
+/** Called with the order each time the game confirms a session Paddock asked for has started. */
+export function onStarted(fn) { startedListeners.push(fn); }
 /** The weather / grip / time of day of a session Paddock just started (Race tab), once, for the session report. */
 export function launchConditions() {
   const s = launch.started;

@@ -38,7 +38,7 @@ test('filterItems: empty shows pages and sessions; "kind words" filters; a singl
   assert.equal(pal.filterItems(items, 'zzz').length, 0);
 });
 
-test('Alt+1…8 follow the sidebar order', () => {
+test('Alt+1…9 follow the sidebar order', () => {
   const nav = [...html.matchAll(/<a href="(#\/[^"]*)" data-nav="/g)].map((m) => m[1]);
   assert.deepEqual(nav, pal.NAV_ORDER);
   assert.ok(pal.SHORTCUTS.some(([k]) => k.startsWith('Alt 1')));

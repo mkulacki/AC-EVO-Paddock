@@ -30,6 +30,9 @@ import * as report from './report.js';
 import * as carreport from './carreport.js';
 import * as setuphistory from './setuphistory.js';
 import * as coach from './coach.js';
+import * as goals from './goals.js';
+import * as weekends from './weekends.js';
+import * as achievements from './achievements.js';
 import * as channels from './channels.js';
 import * as backup from './backup.js';
 import * as dataexport from './dataexport.js';
@@ -138,6 +141,7 @@ const spotter = createSpotter({ config: settings.spotterConfig,
 // own brake marks: marking them with a wheel button / keyboard shortcut, or from the brake pedal on one lap.
 // The confirmation sounds go through the spotter's channel (always beeps, also when the spotter is off).
 coach.setLiveSession(() => recorder.session?.id ?? null); // the session being driven is not checked against a plan yet
+goals.setLiveSession(() => recorder.session?.id ?? null); // a consistency goal waits for the end of the session being driven
 const marker = createMarker({ recorder,
   notify: (say) => broadcast('spotter', { say, sound: 'beep', volume: settings.spotterConfig().volume }),
   changed: (recording, combo) => broadcast('brakemarks', { recording, combo }) });
@@ -153,12 +157,46 @@ function bindMarkKey() {
 bindMarkKey();
 
 // a new lap: only its track + car is worked out again (service.js invalidate)
-recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
+recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); afterLap(l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
+// driver development (P9): goals met by this lap, achievements reached, sessions Paddock started (race weekends)
+game.onStarted((order) => { try { weekends.recordStart(order); } catch (e) { console.log(`[weekends] ${e.message}`); } });
+let knownAchievements = null; // ids unlocked so far (null until first worked out: nothing is announced at start)
+function development() {
+  const list = goals.list();
+  const all = achievements.compute({ laps: db.listLaps().filter((l) => l.source === 'local'), goals: list, weekends: weekends.history(), live: recorder.session?.id ?? null });
+  return { goals: list, achievements: all };
+}
+function announceAchievements() {
+  try {
+    const now = development().achievements.filter((a) => a.unlockedAt != null);
+    if (knownAchievements) for (const a of now.filter((x) => !knownAchievements.has(x.id))) {
+      console.log(`[achievement] ${a.title}`);
+      broadcast('achievement', { id: a.id, title: a.title, text: a.text });
+      globalThis.__paddockNotify?.({ title: `Achievement: ${a.title}`, body: a.text, hash: '#/development' });
+    }
+    knownAchievements = new Set(now.map((a) => a.id));
+  } catch (e) { console.log(`[achievement] ${e.message}`); }
+}
+// after a lap, and at the end of a session (consistency goals wait for it): goals met for the first time
+function checkGoals(c) {
+  try {
+    for (const g of goals.checkAfterLap({ track: c.track, layout: c.layout, car: c.car })) {
+      const what = g.challenge ? 'Challenge done' : 'Goal met';
+      console.log(`[goal] ${what}: ${g.text}`);
+      broadcast('goal', { id: g.id, text: g.text, challenge: g.challenge });
+      globalThis.__paddockNotify?.({ title: `${what}: ${c.track} · ${c.car}`, body: g.text, hash: '#/development' });
+    }
+  } catch (e) { console.log(`[goal] ${e.message}`); }
+  announceAchievements();
+}
+const afterLap = (l) => checkGoals(l);
+setTimeout(announceAchievements, 2000); // what is already unlocked at start is not announced
 recorder.on('session', (s) => console.log(`[session] ${s.track} ${s.layout} / ${s.car}`));
 recorder.on('discarded', (e) => console.log(`[lap discarded] ${e.reason}`));
 // end of a session: keep its conditions, then the session report (needs a few laps and a valid one)
 recorder.on('sessionEnd', (s) => {
   if (!s.id) return;
+  setTimeout(() => checkGoals(s), 400); // the session is no longer "being driven" by then
   try { const c = setupTracker.conditions(); if (c) db.setSessionConditions(s.id, c); } catch (e) { console.log(`[report] conditions not saved: ${e.message}`); }
   setTimeout(() => {
     try {
@@ -593,7 +631,14 @@ async function route(req, res) {
     const up = updates.status();
     if (up.enabled && up.latest) add('info', `AC EVO Paddock ${up.latest.version} is out.`, '#/settings', 'Settings → Updates');
     if (!settings.get().geminiApiKey) add('info', 'The AI coach, debrief and setup engineer need a free Gemini API key.', '#/settings', 'Settings');
-    return send(res, 200, { ...svc.dashboard(), warnings, recording: recorder.state.status === 'live' });
+    const dev = safe(() => {
+      const { goals: list, achievements: all } = development();
+      const a = achievements.withSeen(all);
+      return { goals: list.filter((g) => g.state === 'open').slice(0, 4), metRecently: list.filter((g) => g.state === 'met' && Date.now() - g.met.at < 7 * 86400e3).slice(0, 3),
+        achievements: { unlocked: a.unlocked, total: a.total, fresh: a.items.filter((x) => x.isNew).length,
+          recent: a.items.filter((x) => x.unlockedAt != null).sort((x, y) => y.unlockedAt - x.unlockedAt).slice(0, 3) } };
+    });
+    return send(res, 200, { ...svc.dashboard(), warnings, recording: recorder.state.status === 'live', development: dev });
   }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows
@@ -740,6 +785,43 @@ async function route(req, res) {
     return send(res, 200, ai.buildSummary(cmp, cmp.laps[0]));
   }
   // ---- AI coach per track + car (P8): chat, training plan, braking points
+  // ---- Development (P9): goals and challenges, achievements, race weekends, session planner
+  if (p === '/api/development' && m === 'GET') {
+    const { goals: list, achievements: all } = development();
+    const combos = race.recent().map((c) => ({ key: `${c.track}|${c.layout}|${c.carName}`, track: c.track, layout: c.layout, car: c.carName, laps: c.laps, bestMs: c.bestMs, idealMs: c.idealMs, lastAt: c.lastAt, canStart: !!c.trackRef }));
+    return send(res, 200, { goals: list, suggestions: goals.suggest(Date.now(), (c) => db.activePlan(c)), achievements: achievements.withSeen(all),
+      weekends: weekends.history(), combos, presets: race.lists().presets.filter((x) => x.spec?.kind !== 'mp').map((x) => ({ id: x.id, name: x.name, mode: x.spec?.mode ?? null })),
+      game: { ...game.status(), inSession: inSession() } });
+  }
+  if (p === '/api/goals' && m === 'POST') {
+    const q = await readJson(req);
+    try {
+      if (q.action === 'remove') { goals.remove(Number(q.id)); return send(res, 200, { ok: true }); }
+      const g = goals.create(q);
+      return send(res, 200, { goal: g });
+    } catch (e) { return send(res, e.status || 500, { error: e.message }); }
+  }
+  if (p === '/api/achievements/seen' && m === 'POST') { achievements.markSeen(); return send(res, 200, { ok: true }); }
+  // session planner: a driven car + track, a Race tab preset (or hotlap / practice), optionally for a goal
+  if (p === '/api/development/start' && m === 'POST') {
+    const q = await readJson(req);
+    try {
+      const [track, layout, car] = String(q.key || '').split('|');
+      const base = race.hotlapSpec(track, layout ?? '', car ?? '');
+      let spec;
+      if (!q.preset || q.preset === 'hotlap') spec = base;
+      else if (q.preset === 'practice') spec = { ...base, mode: 'practice', practiceMin: 30 };
+      else {
+        const pr = race.lists().presets.find((x) => x.id === q.preset);
+        if (!pr) return send(res, 400, { error: 'Preset not found' });
+        if (pr.spec?.kind === 'mp') return send(res, 400, { error: 'Online presets join a server: start them from the Race tab' });
+        spec = { ...pr.spec, kind: 'solo', car: base.car, track: base.track, noRemember: true };
+      }
+      const goal = q.goalId != null ? db.getGoal(Number(q.goalId)) : null;
+      if (q.goalId != null && !goal) return send(res, 400, { error: 'Goal not found' });
+      return send(res, 200, startGame(race.buildOrder({ ...spec, goalId: goal?.id ?? null, endSession: !!q.endSession })));
+    } catch (e) { return send(res, 400, { error: e.message }); }
+  }
   if (p.startsWith('/api/coach') || p === '/api/plan') {
     // AI errors: no key -> 400 (the page says what to do), Gemini unreachable or refusing -> 502
     const AI = ['network', 'http', 'empty', 'format'];
