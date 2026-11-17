@@ -62,8 +62,10 @@ export const summary = () => Object.fromEntries(Object.keys(GROUPS).map((id) => 
 /** The driver compared a group with the game: ok true = matches, false = does not, null = forget the check. */
 export function confirm(id, ok) {
   if (!GROUPS[id]?.confirmable) throw new Error(`"${id}" cannot be checked against the game`);
-  const c = { ...(settings.get().channelChecks || {}) };
-  if (ok == null) delete c[id]; else c[id] = !!ok;
+  if (ok !== true && ok !== false && ok !== null) throw new Error('ok must be true, false or null');
+  // write the old switch's meaning out first, so changing one of its two groups does not undo the other
+  const c = checks();
+  if (ok === null) delete c[id]; else c[id] = ok;
   const patch = { channelChecks: c };
   // keep the old switch in step, so going back to an older Paddock still shows the same state
   if (id === 'setupProbe') patch.probeConfirmed = ok === true;
@@ -71,7 +73,10 @@ export function confirm(id, ok) {
   return status(id);
 }
 
+/** Readings the driver found wrong are not sent to the AI at all (relying on the prompt to ignore them is weaker). */
+export const usable = (id) => status(id) !== 'mismatch';
+
 /** For AI prompts: what each group's readings are worth, in words the model can use. */
 export const forAi = (ids = Object.keys(GROUPS)) => Object.fromEntries(ids.map((id) => [id, {
-  verified: 'confirmed in game', unverified: 'NOT confirmed in game: treat as a weak hint', mismatch: 'known to be WRONG: ignore',
+  verified: 'confirmed in game', unverified: 'NOT confirmed in game: treat as a weak hint', mismatch: 'known to be WRONG: left out',
 }[status(id)]]));

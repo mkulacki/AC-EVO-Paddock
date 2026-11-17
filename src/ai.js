@@ -11,17 +11,33 @@ const CONFIDENCE_RULE = `- Separate what the numbers show from your interpretati
 
 const LEVELS = ['high', 'medium', 'low'];
 const level = (v) => (LEVELS.includes(String(v ?? '').toLowerCase()) ? String(v).toLowerCase() : null);
-// "Confidence: medium - based on …", also with Markdown around it ("**Confidence:** Medium — …")
-const CONF_LINE = /^[\s>*_]*confidence[\s*_]*[:：][\s*_]*(high|medium|low)\b[\s*_]*[-–—:.]?\s*(.*)$/i;
+// The rating line: "Confidence: medium - based on …", also with Markdown or list marks around it, "Confidence level: …",
+// and the label or level translated (the prompt asks for English, but answers in another language sometimes translate it).
+const LABELS = 'confidence(?:\\s+level)?|confiance|niveau de confiance|konfidenz|vertrauen|zuversicht|confianza|nivel de confianza|fiducia|livello di fiducia|confiança|pewność|poziom pewności|zaufanie|betrouwbaarheid|уверенность|достоверность';
+const WORDS = {
+  high: ['high', 'élevée', 'élevé', 'elevee', 'eleve', 'haute', 'hoch', 'alta', 'alto', 'elevata', 'elevato', 'wysoka', 'wysoki', 'hoog', 'высокая', 'высокий'],
+  medium: ['medium', 'moderate', 'moyenne', 'moyen', 'mittel', 'mittlere', 'media', 'medio', 'média', 'średnia', 'średni', 'gemiddeld', 'средняя', 'средний'],
+  low: ['low', 'faible', 'basse', 'niedrig', 'gering', 'baja', 'bajo', 'bassa', 'basso', 'baixa', 'baixo', 'niska', 'niski', 'laag', 'низкая', 'низкий'],
+};
+const LEVEL_OF = new Map(Object.entries(WORDS).flatMap(([lv, ws]) => ws.map((w) => [w, lv])));
+const CONF_LINE = new RegExp(`^[\\s>*_#\\-•]*(?:${LABELS})[\\s*_]*[:：][\\s*_]*([\\p{L}]+)(?:[-/ ]+(?:to[ ])?([\\p{L}]+))?[\\s*_]*[-–—:.,;)(]*\\s*(.*)$`, 'iu');
 /** Takes the confidence line off an answer: {text, confidence: {level, basis} | null}; null = the model gave none. */
 export function splitConfidence(text) {
   const lines = String(text || '').trimEnd().split('\n');
-  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 3); i--) {
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 4); i--) {
     const m = lines[i].match(CONF_LINE);
-    if (m) {
-      lines.splice(i, 1);
-      return { text: lines.join('\n').trimEnd(), confidence: { level: m[1].toLowerCase(), basis: m[2].replace(/[*_\s]+$/, '').trim() } };
-    }
+    const first = m && LEVEL_OF.get(m[1].toLowerCase());
+    if (!first) continue;
+    // "medium-high", "low to medium": the lower of the two (an honest reading of a range)
+    const second = m[2] && LEVEL_OF.get(m[2].toLowerCase());
+    const order = ['low', 'medium', 'high'];
+    const lv = second ? order[Math.min(order.indexOf(first), order.indexOf(second))] : first;
+    let basis = (second ? m[3] : `${m[2] && !second ? `${m[2]} ` : ''}${m[3]}`).replace(/[*_\s]+$/, '').trim();
+    let cut = 1;
+    // the reason on the next line ("Confidence: medium" then "Based on …"), if that line is the last one
+    if (!basis && i + 1 === lines.length - 1 && lines[i + 1].trim()) { basis = lines[i + 1].replace(/^[\s>*_\-•]+|[*_\s]+$/g, ''); cut = 2; }
+    lines.splice(i, cut);
+    return { text: lines.join('\n').trimEnd(), confidence: { level: lv, basis } };
   }
   return { text: String(text || ''), confidence: null };
 }
@@ -127,7 +143,8 @@ telemetry.car_behaviour_latest_session, when present, is what the car did in the
 tyre temperatures across the tread (inner/middle/outer) and core, hot pressures, brake temperatures and lock-ups,
 suspension travel and how often it reached the end of its travel, front-vs-rear slip balance per corner phase
 (+ = understeer, - = oversteer), wheelspin on exits, and rule-of-thumb hints. setup_driven says which setup that was.
-Use it as strong evidence only when it was this setup AND its data_quality says the readings are confirmed in game.
+Use it as strong evidence only when it was this setup AND its data_quality says the readings are confirmed in game
+(setup_driven comes from setup recognition: data_quality.setupProbe says whether that can be trusted).
 Readings marked NOT confirmed are weak hints: say so, and do not base a change on them alone. Tyre temperature spreads and
 pressures matter most for camber and pressures.
 Rules:

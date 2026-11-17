@@ -87,7 +87,7 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Names of a few settings are inferred** from the file layout, the game's own setting names and their ranges (Kunos does not document the format). Unusual settings show as *Setting x.y*. Values the game works out by itself (e.g. static ride heights) are left as they were in the file; Paddock does not recalculate them.
 - **The game's format may change** with a game update; Paddock checks every write by reading the file back, and refuses to edit setups of a car whose limits it cannot find.
 - **The AI engineer does not split laps by setup yet.** Each lap now remembers its setup (see Session reports), but the engineer still uses all your laps with that car on that track, and mainly relies on what you tell it about the car. It does see the tyre, brake and suspension data of the latest session on that track (see Car & setup).
-- **AI advice is a suggestion.** Check the proposed changes before saving, and try them on track; the engineer explains each change so you can judge it.
+- **AI advice is a suggestion.** Check the proposed changes before saving, and try them on track; the engineer explains each change so you can judge it. It rates its confidence (overall and per change) and says what the proposal rests on; it is told which readings are not checked in game and must not rely on them alone.
 
 ## Sessions tab
 
@@ -135,7 +135,7 @@ When you leave a session with at least 3 laps (one of them valid), Paddock write
 - **Next practice targets**, each with a number, and the next report ticks off whether you met them.
 - **AI debrief** (button, Gemini): a short debrief with a plan for the next session.
 
-**How the setup is recognised:** AC EVO does not say which setup is loaded, so Paddock takes a fingerprint while the car stands in the pit box (tyre pressures, camber, brake bias, fuel) and matches it with your saved setups for that car and track. No match = **Standard**. These shared-memory values are not confirmed in game yet: check them once in **Setups → Setup recognition** with a saved setup loaded, standing in the pit box.
+**How the setup is recognised:** AC EVO does not say which setup is loaded, so Paddock takes a fingerprint while the car stands in the pit box (tyre pressures, camber, brake bias, fuel) and matches it with your saved setups for that car and track. No match = **Standard**. These shared-memory values are not confirmed in game yet: check them once in **Setups → Setup recognition** with a saved setup loaded, standing in the pit box. Until then the report marks the setup *Unconfirmed*.
 
 ### Car & setup (session page)
 
@@ -149,6 +149,8 @@ What the car did in the session, from tyre, brake and suspension data Paddock no
 - **Setup suggestions** from these readings (rules of thumb, e.g. "mid-corner understeer: soften the front anti-roll bar"), ranked by importance. The **AI engineer** in Setups gets the same data for the latest session on that track, with the setup it was driven on.
 
 The tyre data comes from AC EVO's own tyre block; suspension travel and slip angles from the ACC-style physics block. None of it is confirmed in game yet: **Setups → Setup recognition → Tyres, brakes and suspension** shows the live values to compare with the game's tyre screen.
+
+**What the badges mean.** Every reading has a status: *Measured* (checked against the game), *Unconfirmed* (read from shared memory, not checked yet), *Wrong reading* (you found it doesn't match), *Not available* (the game left it empty), *Calculated* (worked out by Paddock from checked readings) and *AI* (written by Gemini, with its confidence). Under **Setups → Setup recognition → Checked against the game**, mark each group (pit-box readings, temperatures, tyres, brakes, suspension) as matching the game or not. Suggestions resting on readings that are not checked are listed apart, under *Unconfirmed hints*, and are never shown as facts. Slip angles (balance, wheelspin) can't be checked, because the game doesn't show them, so balance is always shown as unconfirmed.
 
 ## Tracks tab and track data
 
@@ -252,7 +254,7 @@ Open **Settings → Telemetry debug → Show live raw values** while driving, an
 - `probe`: tyre pressures (PSI), camber (°), brake bias and air / track temperature (°C), used for setup recognition and the report's conditions (ACC's physics layout; **Setups → Setup recognition** compares them with a saved setup)
 - `carData`: per wheel, AC EVO's tyre block (tread and core temperatures, pressure, brake temperature, lock-up, and the game's window values) and, from the physics block, suspension travel, slip angle and slip ratio. Used by the Car & setup report; **Setups → Setup recognition → Tyres, brakes and suspension** shows them live
 
-If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src/shm.js`.
+If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src/shm.js`. Which groups count as checked is defined in `src/channels.js`; the driver's own checks are stored in `settings.json` (`channelChecks`).
 `npm run check-limits [laps]` prints the track-limit channels (tyres out, wheel positions, kerbs) of the most recent laps, to check those offsets.
 
 ## Project layout

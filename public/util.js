@@ -85,7 +85,7 @@ export function prov(kind, more = '') {
 }
 /** The line under an AI answer: AI badge, confidence and what it rests on. c = {level, basis} or null. */
 export function aiConfidence(c) {
-  if (!c) return `<div class="ai-conf">${prov('ai')}<span class="conf conf-none" title="The answer did not rate its own confidence">Confidence not given</span></div>`;
+  if (!c) return `<div class="ai-conf">${prov('ai')}<span class="conf conf-none" title="The answer does not rate its own confidence: it was saved before Paddock asked for a rating, or the model left it out. Judge it by the data it quotes.">Confidence not rated</span></div>`;
   return `<div class="ai-conf">${prov('ai')}<span class="conf conf-${esc(c.level)}">Confidence: ${esc(c.level)}</span>${c.basis ? `<span class="hint">${esc(c.basis)}</span>` : ''}</div>`;
 }
 

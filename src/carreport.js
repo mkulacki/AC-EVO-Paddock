@@ -254,15 +254,18 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /** The compact version the AI engineer gets */
 export function forAi(r) {
   if (!r?.available) return null;
+  // groups the driver found wrong are left out entirely, with the hints built on them
+  const ok = channels.usable, WRONG = 'left out: known to be wrong';
   return {
     laps_with_car_data: r.laps,
-    tyres: r.has.tyres ? r.tyres.map((t) => ({ wheel: t.wheel, inner_c: t.inner, middle_c: t.middle, outer_c: t.outer, core_c: t.core, hot_pressure_psi: t.pressure })) : 'not available',
-    brakes: r.brakes.map((b) => ({ wheel: b.wheel, peak_c: b.peak, lock_ups: b.locks })),
-    suspension: r.has.susp ? r.suspension.map((s) => ({ wheel: s.wheel, travel_mm: [s.min, s.max], end_of_travel_hits_per_lap: s.hitsPerLap, where: s.hitCorners })) : 'not available',
-    min_ride_height_mm: r.rideHeightMin ? { front: r.rideHeightMin[0], rear: r.rideHeightMin[1] } : undefined,
+    tyres: !ok('tyres') ? WRONG : r.has.tyres ? r.tyres.map((t) => ({ wheel: t.wheel, inner_c: t.inner, middle_c: t.middle, outer_c: t.outer, core_c: t.core, hot_pressure_psi: t.pressure })) : 'not available',
+    brakes: !ok('brakes') ? WRONG : r.brakes.map((b) => ({ wheel: b.wheel, peak_c: b.peak, lock_ups: b.locks })),
+    suspension: !ok('suspension') ? WRONG : r.has.susp ? r.suspension.map((s) => ({ wheel: s.wheel, travel_mm: [s.min, s.max], end_of_travel_hits_per_lap: s.hitsPerLap, where: s.hitCorners })) : 'not available',
+    min_ride_height_mm: r.rideHeightMin && ok('suspension') ? { front: r.rideHeightMin[0], rear: r.rideHeightMin[1] } : undefined,
     balance_front_vs_rear_slip: r.balance ? Object.fromEntries(Object.entries(r.balance).map(([k, v]) => [k, { value: v.value, label: v.label, corners: v.corners }])) : 'not available',
     wheelspin_share_on_exits: r.traction?.share,
-    rule_based_hints: r.suggestions.map((s) => (s.confirmed ? s.text : `${s.text} (rests on readings not confirmed in game)`)),
-    data_quality: channels.forAi(['tyres', 'brakes', 'suspension', 'slip', 'windows']),
+    rule_based_hints: r.suggestions.filter((s) => s.basis.every(ok)).map((s) => (s.confirmed ? s.text : `${s.text} (rests on readings not confirmed in game)`)),
+    // setupProbe: setup_driven (which setup this session was on) comes from setup recognition
+    data_quality: channels.forAi(['tyres', 'brakes', 'suspension', 'slip', 'windows', 'setupProbe']),
   };
 }

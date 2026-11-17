@@ -37,10 +37,15 @@ test('confirm: match, mismatch, undo; only checkable groups', () => {
   assert.equal(channels.confirm('brakes', null), 'unverified');
   assert.equal(channels.confirm('setupProbe', false), 'mismatch');
   assert.equal(settings.get().probeConfirmed, false, 'the old switch follows');
+  assert.equal(channels.status('conditions'), 'verified', 'the old switch still counts for the temperatures');
+  assert.equal(channels.confirm('setupProbe', null), 'unverified');
+  assert.equal(channels.status('conditions'), 'verified', 'undo on one group keeps the other');
+  assert.equal(channels.confirm('setupProbe', false), 'mismatch');
+  assert.throws(() => channels.confirm('tyres', '0'), /true, false or null/);
   assert.throws(() => channels.confirm('slip', true), /cannot be checked/);
   assert.throws(() => channels.confirm('core', true), /cannot be checked/);
   const saved = JSON.parse(fs.readFileSync(path.join(ACEVO_DATA, 'settings.json'), 'utf8'));
-  assert.deepEqual(saved.channelChecks, { tyres: true, setupProbe: false });
+  assert.deepEqual(saved.channelChecks, { tyres: true, setupProbe: false, conditions: true });
   channels.confirm('tyres', null); channels.confirm('setupProbe', true);
 });
 
@@ -81,7 +86,20 @@ test('car report: checking tyres confirms the tyre hints, never the balance ones
   const forAi = carreport.forAi(r);
   assert.match(forAi.data_quality.slip, /NOT confirmed/);
   assert.ok(forAi.rule_based_hints.filter((h) => h.includes('not confirmed in game')).length === r.suggestions.filter((s) => !s.confirmed).length);
+  assert.ok('setupProbe' in forAi.data_quality, 'the AI learns whether setup_driven can be trusted');
   channels.confirm('tyres', null);
+});
+
+test('car report for the AI: readings found wrong are left out, with their hints', () => {
+  channels.confirm('brakes', false);
+  const r = carreport.build(sid);
+  const forAi = carreport.forAi(r);
+  assert.match(forAi.brakes, /left out/);
+  const brakeHints = r.suggestions.filter((s) => s.basis.includes('brakes')).map((s) => s.text);
+  assert.ok(brakeHints.length, 'the mock car locks its fronts');
+  assert.ok(brakeHints.every((t) => !forAi.rule_based_hints.some((h) => h.startsWith(t))));
+  assert.ok(Array.isArray(forAi.tyres), 'other groups are still sent');
+  channels.confirm('brakes', null);
 });
 
 // ---------------------------------------------------------------- AI confidence
@@ -93,6 +111,22 @@ test('splitConfidence: plain, Markdown, other dashes; missing line', () => {
   assert.deepEqual(ai.splitConfidence('No rating here.'), { text: 'No rating here.', confidence: null });
   // a "confidence" word in the middle of the answer is not the rating
   assert.equal(ai.splitConfidence('Confidence: high - x\nmore\ntext\nlines\nhere').confidence, null);
+  assert.equal(ai.splitConfidence('Mid-corner speed is the issue.\nConfidence: the data is clear').confidence, null, 'no level word');
+});
+
+test('splitConfidence: list and heading marks, "level", ranges, reason on the next line, translations', () => {
+  const c = (t) => ai.splitConfidence(t).confidence;
+  assert.deepEqual(c('x\n- Confidence: high - 8 laps'), { level: 'high', basis: '8 laps' });
+  assert.equal(c('x\n### Confidence: medium').level, 'medium');
+  assert.deepEqual(c('x\nConfidence level: low (2 laps only)'), { level: 'low', basis: '2 laps only)' });
+  assert.equal(c('x\nConfidence: Medium-high - fine').level, 'medium', 'a range counts as its lower end');
+  assert.equal(c('x\nConfidence: low to medium').level, 'low');
+  const two = ai.splitConfidence('Advice.\nConfidence: medium\nBased on 5 laps.');
+  assert.deepEqual(two, { text: 'Advice.', confidence: { level: 'medium', basis: 'Based on 5 laps.' } });
+  assert.deepEqual(c('Texte.\nConfiance : élevée – différences nettes'), { level: 'high', basis: 'différences nettes' });
+  assert.equal(c('Text.\nKonfidenz: mittel - wenige Runden').level, 'medium');
+  assert.equal(c('Tekst.\n**Pewność:** niska — mało okrążeń').level, 'low');
+  assert.equal(ai.splitConfidence('Texte.\nConfiance : élevée').text, 'Texte.', 'the translated line is taken out of the body');
 });
 
 // Gemini stub: records the request, answers with the given text

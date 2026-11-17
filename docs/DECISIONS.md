@@ -26,3 +26,12 @@ Earlier product decisions (Race tab, Mods, setups, spotter, brake marks, reports
 ## 2026-11-17: Open product decisions
 
 - D1 accent/navigation, D2 update mechanism, D3 gamification. See IMPLEMENTATION_ROADMAP.md. Each is asked when its phase starts.
+
+## 2026-11-17: P2, how provenance works
+
+- **Decision:** one registry, `src/channels.js`, with a status per telemetry *group*, not per value. Built-in `verified`: core telemetry (speed, pedals, steering, gear, RPM, lap timing, position) and track limits, both checked in game during development. The driver can confirm five groups against what the game shows: pit-box readings, temperatures, tyres, brakes, suspension. Slip angles/ratios, G forces and the game's "window" values can't be checked on any game screen, so they stay unconfirmed.
+- **Decision:** conclusions carry a `basis` (the groups they rest on). A conclusion counts as confirmed only if every group in its basis is verified. Unconfirmed conclusions stay visible but separate ("Unconfirmed hints"); they are not deleted, because they can still be useful and the user wanted the data.
+- **Decision:** AI answers end with `Confidence: high|medium|low - <basis>` (free text), or have JSON fields (setup engineer). Paddock parses that and shows a badge; "Confidence not given" when the model leaves it out. The prompts get `data_quality` with each group's status.
+- **Why:** this follows the data-integrity rules (measured, calculated, interpreted and missing are shown apart) without hiding features the user built.
+- **Rejected:** hiding unconfirmed data entirely (it would lose the Car & setup tab until verified, and slip can never be verified); a numeric confidence score for rule-based hints (it would suggest a precision the rules don't have).
+- **Backward compatibility:** `settings.probeConfirmed` (≤ 0.5) still counts as checking the pit-box readings and the temperatures; the confirm endpoint without `group` keeps its old meaning.
