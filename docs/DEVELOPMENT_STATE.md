@@ -2,9 +2,9 @@
 
 _Last updated: 2026-11-17_
 
-**Status:** P0–P5 approved and merged into local `main`. **P6 not started.**
-**Current phase:** none in progress. Next: P6, Driving technique analysis.
-**Branch:** `main` (local, not pushed since v0.5.0-beta.1; the installed app runs the P5 build).
+**Status:** P0–P5 approved and merged into local `main`. **P6 done on `phase/p6-technique`, waiting for approval.**
+**Current phase:** P6, Driving technique analysis (approval gate).
+**Branch:** `phase/p6-technique` (local, not pushed; the installed app runs the P6 build).
 
 ## Phases
 
@@ -16,7 +16,7 @@ _Last updated: 2026-11-17_
 | P3 | Application management | Done, approved 2026-11-17 (D2: check and notify) |
 | P4 | App shell: navigation, command palette, states | Done, approved 2026-11-17 (D1: lime + sidebar) |
 | P5 | Driver home dashboard | Done, approved 2026-11-17 |
-| P6 | Driving technique analysis | Pending |
+| P6 | Driving technique analysis | Done, waiting for approval |
 | P7 | Setup history and comparison | Pending |
 | P8 | AI coach upgrade | Pending |
 | P9 | Driver development | Pending (D3) |
@@ -24,7 +24,7 @@ _Last updated: 2026-11-17_
 
 ## Current task
 
-None. P6 is ready to start (the user continues in a new chat).
+P6 approval gate: the user reviews the installed app (Consistency, session report → Report & targets, Telemetry map → Inputs, Home records).
 
 ## Known problems
 
@@ -32,7 +32,7 @@ None. P6 is ready to start (the user continues in a new chat).
 
 ## Test results
 
-- `npm run check` 81/81; `npm test` 84/84. Home checked in headless Edge; dashboard 17 ms then 4 ms on the user's data.
+- `npm run check` 82/82; `npm test` 103/103. P6 pages checked in headless Edge (0 JS errors); Consistency 35 ms on the user's data.
 
 ## Pending user decisions
 
@@ -41,7 +41,7 @@ None. P6 is ready to start (the user continues in a new chat).
 
 ## Next action
 
-Create `phase/p6-technique` from `main` and start P6 (driving technique analysis): Step A in docs/IMPLEMENTATION_ROADMAP.md, then the usual workflow: tests, headless-Edge check, review subagent, deploy, report and approval gate.
+On APPROVE: merge `phase/p6-technique` into local `main` (no push), mark P6 approved here and in PHASE_LOG, then create `phase/p7-setups` and start P7 (setup history and comparison). On changes requested: fix on the P6 branch, redeploy, report again.
 
 ## How to resume
 

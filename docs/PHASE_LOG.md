@@ -199,3 +199,47 @@
   - Both mediums fixed: a full recompute after every lap; no refresh when a report arrives.
   - All 6 lows fixed: calendar days, the first-day PB marker, the target count, touch handling, the HUD error text, the "time" label. Tests extended as suggested.
 - **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
+
+## P6: Driving technique analysis
+
+- **Started / finished:** 2026-11-17 · branch `phase/p6-technique`
+- **Implemented:**
+  - **Technique metrics per corner** (`src/analysis.js` `techniqueMetrics`, part of `cornerMetrics`):
+    - brake: application time, trail braking (m), release time, release re-presses;
+    - throttle: apex to full throttle, re-lifts on the exit;
+    - steering: big reversals and small corrections ("saw");
+    - coasting.
+    Every limit is relative to the pass's own peak brake or steering lock. The definitions (`TECHNIQUE`) are the tooltips.
+  - **Performance score** (`performanceScore`, formula on the page):
+    - 0.5 × pace + 0.3 × consistency + 0.2 × validity;
+    - missing (with the reason) below 3 clean laps.
+  - **Consistency page:**
+    - the score card with its formula;
+    - corner rankings (fastest, middle and slowest pass, with lap links);
+    - a technique table (typical value and the fastest pass);
+    - every technique metric available in *Spread per corner*.
+  - **Session report:**
+    - a *Driving style* section: typical pass against the fastest pass ever, per corner, plus habits found in 2 or more corners;
+    - only with 3 or more valid laps; report format v2.
+    - Old reports offer *Regenerate*.
+  - **Telemetry map:** Time / Inputs layer (braking, coasting, part and full throttle), remembered per viewer.
+  - **Home records:** the score of the last 10 laps per combo.
+- **Files:** `src/analysis.js`, `src/service.js`, `src/report.js`, `src/server.js`, `public/consistency.js`, `public/reports.js`, `public/telemetry.js`, `public/home.js`, `public/style.css`, `test/technique.test.js` (new), `test/service.test.js`, README, CHANGELOG, DECISIONS, FEATURE_INVENTORY.
+- **Tests performed:**
+  - `npm run check` 82/82; `npm test` 103/103.
+    - 15 new unit tests on synthetic traces with known answers: ramp and release times, bumps, trail metres, empty instead of zero, pickup, re-lifts (stepped and gradual), steering reversals and saw, relative thresholds, coasting, score formula and missing score.
+    - New service tests: technique fields, score, dashboard score, style section, no style with 2 laps.
+    - Both review-fix tests were checked to fail on the old code.
+  - Headless Edge, 0 JS errors: Consistency (light and dark, steering-saw metric), report tab, Compare with the Inputs layer, Home dark.
+  - Deployed to `E:\AC EVO Paddock` and started. On the user's data: Consistency 35 ms for 10 laps; the metrics look plausible.
+- **Known limitations:**
+  - Technique comes from pedals and steering only (no slip or tyre data, which are unverified).
+  - Stored reports get the style section only on *Regenerate*.
+  - The score windows differ by design (Home: the last 10 laps; Consistency: the laps in view).
+- **Review findings (code-review subagent):**
+  - No critical findings.
+  - High, fixed: a gradual throttle lift was counted several times (now a two-state hysteresis).
+  - Mediums, fixed: an early brake tap was taken as the braking zone (now the application holding the peak); report count medians were rounded up from .5.
+  - Lows, fixed: the score test could skip its checks; the Consistency median differed from the report's.
+  - Low, accepted: v1 reports have no style section until regenerated.
+- **User approval:** pending.
