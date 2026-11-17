@@ -1,0 +1,40 @@
+// The browser shell: command palette matching, shortcuts against the sidebar, routes the palette links to.
+// public/palette.js has no DOM access at load, so it can be imported here.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { ROOT } from './helpers.js';
+
+const pal = await import('../public/palette.js');
+const html = fs.readFileSync(path.join(ROOT, 'public/index.html'), 'utf8');
+const app = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
+
+test('score: subsequence match, word starts and prefixes rank higher, no match = -1', () => {
+  assert.equal(pal.score('xyz', 'Brands Hatch Indy'), -1);
+  assert.ok(pal.score('bh', 'Brands Hatch') > pal.score('bh', 'Bathurst Mount Panorama'), 'initials of words win');
+  assert.ok(pal.score('brands', 'Brands Hatch GP') > pal.score('brands', 'Session at Brands Hatch'), 'prefix wins');
+  assert.ok(pal.score('indy', 'Brands Hatch Indy') > 0);
+  assert.equal(pal.score('', 'anything'), 0);
+  assert.ok(pal.score('BRANDS', 'brands hatch') > 0, 'case does not matter');
+});
+
+test('Alt+1…7 follow the sidebar order', () => {
+  const nav = [...html.matchAll(/<a href="(#\/[^"]*)" data-nav="/g)].map((m) => m[1]);
+  assert.deepEqual(nav, pal.NAV_ORDER);
+  assert.ok(pal.SHORTCUTS.some(([k]) => k.startsWith('Alt 1')));
+});
+
+test('every page the palette links to is a route of the shell', () => {
+  const routes = new Set([...app.matchAll(/'(\/[a-z]+)': '/g)].map((m) => m[1]));
+  const src = fs.readFileSync(path.join(ROOT, 'public/palette.js'), 'utf8');
+  const hrefs = [...src.matchAll(/'(#\/[a-z]*)[?']/g)].map((m) => m[1].slice(1)).concat([...src.matchAll(/`(#\/[a-z]+)\?/g)].map((m) => m[1].slice(1)));
+  assert.ok(hrefs.length > 8);
+  for (const h of hrefs) assert.ok(h === '/' || routes.has(h), `${h} is not routed`);
+});
+
+test('the sidebar keeps the ids and hooks the shell uses', () => {
+  for (const id of ['status', 'openPalette', 'openShortcuts', 'sideToggle', 'view']) assert.match(html, new RegExp(`id="${id}"`));
+  for (const key of ['race', 'laps', 'tracks', 'setups', 'game', 'mods', 'settings']) assert.match(html, new RegExp(`data-nav="${key}"`));
+  assert.match(html, /<span class="dot"><\/span><span class="txt">/, 'the status line keeps its parts');
+});

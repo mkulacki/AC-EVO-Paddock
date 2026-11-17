@@ -54,7 +54,7 @@ const json = async (p) => JSON.parse(await get(p));
 
 test('the page loads with its title', async () => {
   assert.match(await get('/'), /<title>AC EVO Paddock<\/title>/);
-  await get('/app.js');
+  for (const m of ['app', 'palette', 'sessions', 'compare', 'game', 'settingspage', 'system', 'util']) await get(`/${m}.js`);
   await get('/style.css');
   await get('/vendor/uplot/uPlot.iife.min.js');
 });
