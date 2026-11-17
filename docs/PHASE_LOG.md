@@ -323,3 +323,30 @@
   - Lows fixed: the `parseJson` regex, error status mapping, older sessions labelled "other plan", session-less laps counted as sessions, the 60-mark limit, the unconditional 15 m test.
   - Accepted: corners matched by name; the 90 s timeout (documented).
 - **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
+
+## P9: Driver development
+
+- **Started / finished:** 2026-11-17 · branch `phase/p9-development` · D3 answered: achievements and challenges **yes**.
+- **Implemented:**
+  - **Goals and challenges** (`src/goals.js`, table `goals`): lap time, laps within a window of a time in one session, valid laps in a row, session consistency score (`report.consistencyOf`), per track + car. Checked against laps driven after setting (before the deadline for a challenge); the first time met is stored and announced once (page event + desktop notification), wherever it is noticed. Consistency goals wait for the end of the live session.
+  - **Suggested challenges** for the 3 most driven combos of the last 30 days, plus the active training plan's lap target as a goal.
+  - **Achievements** (`src/achievements.js`): 28 in ladders, recomputed from laps, goals and weekends with the time each was reached; "new" since last viewed (`meta`); the first run does not mark old ones new.
+  - **Race weekends** (`src/weekends.js`, table `launches`): sessions Paddock started are recorded from the order's `meta` once the HUD reports "started"; sessions are grouped under weekend launches by time window, next launch, track layout and car.
+  - **Session planner:** a driven combo + goal + Race tab preset / hotlap / practice, built with `race.buildOrder` and started like the Race tab.
+  - **UI:** Development page (sidebar after Sessions; Alt+1…9), Home goals + achievements card, palette entry, nav dot on new events.
+- **Files:** `src/goals.js`, `src/achievements.js`, `src/weekends.js`, `public/development.js` (new); `src/db.js`, `src/report.js`, `src/race.js`, `src/game.js`, `src/server.js`, `public/app.js`, `public/home.js`, `public/index.html`, `public/palette.js`, `public/style.css`; `test/development.test.js` (new), `test/smoke.test.js`, `test/shell.test.js`; README, CHANGELOG, DECISIONS, FEATURE_INVENTORY, IMPLEMENTATION_ROADMAP.
+- **Tests performed:**
+  - `npm run check` 93/93; `npm test` 137/137.
+  - Development tests (12): goal kinds and windows, deadlines, a goal flipping to met from a real (mock recorder) lap and announced once, announce on page load, validation, duplicates, suggestions (incl. plan target), weekend grouping (time window, next launch, other car/track, the minute before a launch), launch record, achievement unlock times and live-session exclusion, seen state.
+  - Smoke test: `/api/development`, goal create/duplicate/remove, seen, planner refusals, dashboard `development`.
+  - Headless Edge, 0 JS errors: Development (light, dark), Home with goals.
+  - Benchmark (reviewer's, 10.5k laps): post-lap goal check 3 ms; development data ≈ 150 ms warm, run 3 s after the lap (debounced) and cached for Home.
+- **Known limitations:**
+  - The game does not say which part of a race weekend a session is; the history lists sessions in order.
+  - Race weekend grouping and the planner were checked with unit tests and refusals only, not with a real launch in game.
+  - Planner goal is shown only on race weekends (hotlap/practice launches have no history view).
+- **Review findings (code-review subagent):**
+  - No critical or high findings.
+  - Mediums, both fixed: post-lap work blocked the telemetry loop (now debounced 3 s after the lap, met goals not re-measured, report ids without parsing reports, laps read once, result cached); a consistency goal could be met silently when a page load noticed it first (now announced wherever it is stored).
+  - Lows fixed: planner text vs. stored goal (weekends now show their goal), unreachable "met late", 500 on malformed goal bodies, weekend achievement time = first lap, a session in two weekends, imported-only combos offered, page re-rendering on every event (debounced, not while the form is open); nits: "days left" rounding, first run marking all achievements new.
+- **User approval:** pending.

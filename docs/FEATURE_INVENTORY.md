@@ -85,12 +85,12 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 
 | Capability | Status | Note |
 | --- | --- | --- |
-| Personal goals | Missing | |
-| Achievements | Missing | needs a product yes (gamification) |
-| Challenges | Missing | needs a product yes |
-| Training plans | Done (P8) | see AI coach |
-| Session planner | Partial | Race tab presets; no plan with goals |
-| Race weekend history | Partial | sessions store `session_type`; no weekend grouping view |
+| Personal goals | Done (P9) | lap, window, streak, consistency per track + car, checked against later laps |
+| Achievements | Done (P9) | 28 milestones recomputed from the data (D3 = yes) |
+| Challenges | Done (P9) | goals with a deadline; suggested from the last 30 days |
+| Training plans | Done (P8) | see AI coach; the plan's lap target is offered as a goal |
+| Session planner | Done (P9) | combo + goal + Race tab preset / hotlap / practice, started in game |
+| Race weekend history | Done (P9) | weekends started from Paddock, sessions grouped by time, car and track |
 | Progress tracking | Done | Progress + report target checks |
 
 ## Application management

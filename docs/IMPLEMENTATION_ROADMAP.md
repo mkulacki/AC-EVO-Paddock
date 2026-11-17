@@ -18,7 +18,7 @@ Phase workflow (every phase): prepare → architecture check → implement → Q
 | --- | --- | --- | --- |
 | D1 | Accent colour and navigation: keep the lime accent and top nav from the 0.5.0 design pass, or move to an orange accent and sidebar? | keep lime + top nav, add the command palette | P4 |
 | D2 | Update mechanism: none / check GitHub releases and notify (one network call, opt-out) / auto-download | check-and-notify, opt-out in Settings | P3 |
-| D3 | Gamification: achievements and challenges, yes or no? | no; goals only | P9 |
+| D3 | Gamification: achievements and challenges, yes or no? | no; goals only (**answered: yes**, 2026-11-17) | P9 |
 
 ---
 

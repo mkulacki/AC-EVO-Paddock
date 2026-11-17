@@ -57,7 +57,7 @@ export async function viewHome(view, cleanup) {
 
   // goals, challenges and achievements (P9, src/goals.js + src/achievements.js): the open ones and what was reached lately
   const dev = d.development;
-  const left = (t) => { const n = Math.ceil((t - Date.now()) / 86400e3); return n <= 0 ? 'ends today' : n === 1 ? '1 day left' : `${n} days left`; };
+  const left = (t) => { const h = (t - Date.now()) / 3600e3; return h < 24 ? 'ends within a day' : `${Math.round(h / 24)} days left`; };
   const goals = dev ? `<div class="card"><div class="row"><h2 style="margin:0">Goals and challenges</h2><span class="spacer"></span><a href="#/development">Development ›</a></div>
     ${dev.metRecently.length ? `<ul class="home-list">${dev.metRecently.map((g) => `<li><a href="#/development"><span class="hl-main"><b>${esc(g.text)}</b><span class="hl-sub muted">${combo(g.combo)} · ${esc(prettyName(g.combo.car))}</span></span>
       <span class="hl-num"><span class="badge best">${g.challenge ? 'challenge done' : 'goal met'}</span><span class="hl-sub muted">${esc(ago(g.met.at))}</span></span></a></li>`).join('')}</ul>` : ''}

@@ -8,7 +8,7 @@ const day = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', m
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const comboTxt = (c) => `${esc(prettyName(c.track))} <span class="muted">${esc(prettyName(c.layout))}</span> · ${esc(prettyName(c.car))}`;
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
-const left = (t) => { const d = Math.ceil((t - Date.now()) / 86400e3); return d <= 0 ? 'ends today' : d === 1 ? '1 day left' : `${d} days left`; };
+const left = (t) => { const h = (t - Date.now()) / 3600e3; return h < 24 ? 'ends within a day' : `${Math.round(h / 24)} days left`; };
 /** "1:42.3", "102.3", "1:42" -> ms, or null */
 export function parseLap(s) {
   const m = /^\s*(?:(\d+):)?(\d{1,2}(?:[.,]\d{1,3})?)\s*$/.exec(String(s || ''));
@@ -63,13 +63,16 @@ export async function viewDevelopment(view, cleanup) {
   drawWeekends(view.querySelector('#dvWeekends'), d.weekends);
   if (d.achievements.items.some((a) => a.isNew)) post('/api/achievements/seen', {}).catch(() => {}); // seen now: "new" until the next visit
   // a goal met or an achievement reached while this page is open
-  const onEv = () => rerender();
+  // debounced (one lap can bring several), and not while you are writing a new goal
+  let evT = null;
+  const onEv = () => { clearTimeout(evT); evT = setTimeout(() => { if (form.hidden) rerender(); }, 800); };
+  cleanup.push(() => clearTimeout(evT));
   window.addEventListener('paddock:development', onEv);
   cleanup.push(() => window.removeEventListener('paddock:development', onEv));
 }
 
 function goalHtml(g) {
-  const st = g.state === 'met' ? `<span class="badge best">${g.challenge && !g.metInTime ? 'met late' : 'met'}</span><span class="muted s">${esc(day(g.met.at))}</span>`
+  const st = g.state === 'met' ? `<span class="badge best">met</span><span class="muted s">${esc(day(g.met.at))}</span>`
     : g.state === 'missed' ? '<span class="badge">missed</span><span class="muted s">deadline passed</span>'
       : g.challenge ? `<span class="badge chal">challenge</span><span class="muted s">${esc(left(g.dueAt))}</span>` : '<span class="muted s">open</span>';
   const link = g.met?.sessionId ? `<a class="s" href="#/report?session=${g.met.sessionId}">session</a>` : '';
@@ -110,7 +113,7 @@ function drawForm(box, d, done) {
 function drawPlanner(box, d) {
   const startable = d.combos.filter((c) => c.canStart);
   if (!startable.length) { box.innerHTML = '<h2>Plan a session</h2><p class="muted" style="margin:0">None of your cars and tracks is in the game\'s track list, so Paddock cannot start them.</p>'; return; }
-  box.innerHTML = `<h2>Plan a session</h2><p class="muted s" style="margin:-4px 0 10px">Paddock sets up the session in AC EVO for you, as the Race tab does. The goal you pick shows with the session in your history.</p>
+  box.innerHTML = `<h2>Plan a session</h2><p class="muted s" style="margin:-4px 0 10px">Paddock sets up the session in AC EVO for you, as the Race tab does. A race weekend shows the goal it was for in its history.</p>
     <div class="goal-form">
       <label>Car and track<select id="spCombo">${startable.map((c) => `<option value="${esc(c.key)}">${esc(prettyName(c.track))} ${esc(prettyName(c.layout))} · ${esc(prettyName(c.car))}</option>`).join('')}</select></label>
       <label>For goal<select id="spGoal"></select></label>
@@ -162,6 +165,7 @@ function drawAchievements(box, a, all = false) {
 function drawWeekends(box, ws) {
   box.innerHTML = `<h2>Race weekends</h2>${ws.length ? `<p class="muted s" style="margin:-4px 0 10px">Race weekends started from Paddock, with the sessions you drove in them (by time, car and track: the game does not say which part of the weekend a session was).</p>
     <ul class="wk-list">${ws.map((w) => `<li><div class="row"><b>${esc(w.summary || 'Race weekend')}</b><span class="spacer"></span><span class="muted s">${esc(when(w.at))}</span></div>
+      ${w.goal ? `<div class="muted s">for the goal: ${esc(w.goal)}</div>` : ''}
       ${w.sessions.length ? `<table class="wk-table"><thead><tr><th>Session</th><th>Started</th><th>Laps</th><th>Best lap</th><th></th></tr></thead><tbody>${w.sessions.map((s, i) => `<tr>
         <td>${i + 1}. ${esc(SESSION_TYPES[s.type] || 'Session')}</td><td class="muted">${esc(new Date(s.startedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}</td>
         <td>${s.validLaps}<span class="muted"> / ${s.laps}</span></td><td>${s.bestMs != null ? `<b class="${s.id === w.bestSession ? 'best' : ''}">${fmt(s.bestMs)}</b>` : '<span class="muted">–</span>'}</td>

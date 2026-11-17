@@ -187,6 +187,7 @@ export function getReport(sessionId) {
 }
 export const listReports = () => db.prepare('SELECT session_id, created_at, data FROM reports ORDER BY created_at DESC').all()
   .map((r) => ({ sessionId: r.session_id, createdAt: r.created_at, data: JSON.parse(r.data) }));
+export const reportSessionIds = () => db.prepare('SELECT session_id FROM reports').all().map((r) => r.session_id);
 export function saveReportAi(sessionId, text, model) { db.prepare('UPDATE reports SET ai_text = ?, ai_model = ?, ai_at = ? WHERE session_id = ?').run(text, model, Date.now(), sessionId); }
 
 // ---------------------------------------------------------------- AI coach (P8): chat per track + car, training plans

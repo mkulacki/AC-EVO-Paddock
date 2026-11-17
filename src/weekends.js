@@ -7,6 +7,7 @@
 import * as db from './db.js';
 import * as trackdata from './trackdata.js';
 import * as carsDb from './cars.js';
+import { describe as describeGoal } from './goals.js';
 
 export const WEEKEND_SLACK_MIN = 90;
 const norm = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -36,7 +37,7 @@ export function group(launches, sessions, match = matches) {
   sorted.forEach((l, i) => {
     if (l.mode !== 'weekend') return;
     const next = sorted[i + 1]?.at ?? Infinity;
-    const end = Math.min(next, l.at + ((l.plannedMin || 0) + WEEKEND_SLACK_MIN) * 60e3);
+    const end = Math.min(next - 60e3, l.at + ((l.plannedMin || 0) + WEEKEND_SLACK_MIN) * 60e3);
     const mine = sessions.filter((s) => s.started_at >= l.at - 60e3 && s.started_at < end && match(s, l)).sort((a, b) => a.started_at - b.started_at);
     out.push({ launch: l, sessions: mine });
   });
@@ -44,11 +45,11 @@ export function group(launches, sessions, match = matches) {
 }
 
 /** The race weekends with their sessions' laps and best laps, newest first. */
-export function history() {
-  const laps = db.listLaps().filter((l) => l.source === 'local');
+export function history(laps = db.listLaps().filter((l) => l.source === 'local')) {
   const bySes = new Map();
   for (const l of laps) if (l.session_id != null) { if (!bySes.has(l.session_id)) bySes.set(l.session_id, []); bySes.get(l.session_id).push(l); }
-  const reports = new Set(db.listReports().map((r) => r.sessionId));
+  const reports = new Set(db.reportSessionIds());
+  const goalText = (id) => { const g = id != null ? db.getGoal(id) : null; return g ? describeGoal(g) : null; };
   return group(db.listLaunches(), db.listSessions().filter((s) => bySes.has(s.id))).map(({ launch, sessions }) => {
     const rows = sessions.map((s) => {
       const ls = bySes.get(s.id), v = ls.filter((l) => l.valid);
@@ -57,6 +58,7 @@ export function history() {
     });
     const best = rows.filter((r) => r.bestMs != null).sort((a, b) => a.bestMs - b.bestMs)[0] || null;
     return { id: launch.id, at: launch.at, summary: launch.summary, plannedMin: launch.plannedMin, sessions: rows,
-      laps: rows.reduce((a, r) => a + r.laps, 0), bestMs: best?.bestMs ?? null, bestSession: best?.id ?? null };
+      laps: rows.reduce((a, r) => a + r.laps, 0), goal: goalText(launch.goalId),
+      firstLapAt: rows.length ? Math.min(...sessions.map((s) => Math.min(...bySes.get(s.id).map((l) => l.recorded_at)))) : null, bestMs: best?.bestMs ?? null, bestSession: best?.id ?? null };
   });
 }

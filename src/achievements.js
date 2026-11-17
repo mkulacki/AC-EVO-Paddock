@@ -71,8 +71,8 @@ export function state({ laps, goals = [], weekends = [], live = null }) {
   for (const x of scores) while (x.score > top) { top++; s.scoreTimes.push(x.at); }
   s.scoreTimes.sort((a, b) => a - b);
   s.goalTimes = goals.filter((g) => g.met && !g.challenge).map((g) => g.met.at).sort((a, b) => a - b);
-  s.challengeTimes = goals.filter((g) => g.met && g.challenge && g.metInTime).map((g) => g.met.at).sort((a, b) => a - b);
-  s.weekendTimes = weekends.filter((w) => w.laps > 0).map((w) => w.at).sort((a, b) => a - b);
+  s.challengeTimes = goals.filter((g) => g.met && g.challenge).map((g) => g.met.at).sort((a, b) => a - b);
+  s.weekendTimes = weekends.filter((w) => w.laps > 0).map((w) => w.firstLapAt ?? w.at).sort((a, b) => a - b);
   return s;
 }
 
@@ -91,7 +91,8 @@ export function compute(input) {
 
 /** The achievements plus which are new since you last looked (meta achievementsSeenAt). */
 export function withSeen(list) {
-  const seen = Number(db.getMeta('achievementsSeenAt')) || 0;
+  let seen = Number(db.getMeta('achievementsSeenAt'));
+  if (!seen) { seen = Date.now(); db.setMeta('achievementsSeenAt', seen); } // first run: what was reached before is not "new"
   return { items: list.map((a) => ({ ...a, isNew: a.unlockedAt != null && a.unlockedAt > seen })), seenAt: seen, unlocked: list.filter((a) => a.unlockedAt != null).length, total: list.length };
 }
 export function markSeen(now = Date.now()) { db.setMeta('achievementsSeenAt', now); }

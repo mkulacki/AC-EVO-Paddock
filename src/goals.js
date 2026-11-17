@@ -20,6 +20,9 @@ const RECENT_MS = 30 * 86400e3;         // "recently driven" for suggestions
 const DAY_MS = 86400e3;
 
 let liveSession = () => null;
+let onMet = () => {};
+/** The server announces a goal met for the first time (whoever noticed it: a lap, the end of a session, a page load). */
+export function setOnMet(fn) { onMet = fn; }
 /** The server says which session is being driven: a consistency goal waits until that session is over. */
 export function setLiveSession(fn) { liveSession = fn; }
 
@@ -40,8 +43,10 @@ export function describe(g) {
 
 /** Check and normalise a new goal (body of POST /api/goals). -> the row to store. */
 export function validate(b, now = Date.now()) {
-  const combo = b.combo || comboOfKey(b.key);
-  if (!combo?.track || !combo.car) throw bad('Pick a track and car');
+  const raw = b.combo || comboOfKey(b.key);
+  const str = (v) => (typeof v === 'string' ? v : null);
+  const combo = raw ? { track: str(raw.track), layout: str(raw.layout ?? ''), car: str(raw.car) } : null;
+  if (!combo?.track || !combo.car || combo.layout == null) throw bad('Pick a track and car');
   if (!KINDS.includes(b.kind)) throw bad('Unknown kind of goal');
   if (!db.lapsForCombo(combo.track, combo.layout, combo.car).length) throw bad('No laps with this car on this track yet');
   const n = Number(b.target);
@@ -52,7 +57,8 @@ export function validate(b, now = Date.now()) {
   else if (b.kind === 'streak') target = int(2, 200, 'The number of laps');
   else {
     target = int(2, 100, 'The number of laps');
-    const w = Number(b.extra?.windowMs), ref = Number(b.extra?.refMs ?? svc.comboInfo(combo).best?.lap_time_ms);
+    let best = null; try { best = svc.comboInfo(combo).best?.lap_time_ms ?? null; } catch { /* lap data unreadable */ }
+    const w = Number(b.extra?.windowMs), ref = Number(b.extra?.refMs ?? best);
     if (!(w >= 50 && w <= 5000)) throw bad('The window must be between 0.05 and 5 s');
     if (!(ref >= 10e3 && ref <= 30 * 60e3)) throw bad('No valid lap to measure the window from');
     extra = { windowMs: Math.round(w), refMs: Math.round(ref) };
@@ -121,14 +127,16 @@ export function measure(g) {
 }
 
 /** A goal with its state: 'met' | 'open' | 'missed' (a challenge past its deadline). Stores a newly met goal. */
+// A met goal stays met and is not measured again (laps after the deadline never count, so a challenge is only ever met in time).
 export function status(g, now = Date.now()) {
-  const m = measure(g);
+  const m = g.met ? null : measure(g);
   let met = g.met;
   let fresh = false;
   if (!met && m.met) { db.setGoalMet(g.id, m.met); met = m.met; fresh = true; }
   const state = met ? 'met' : g.dueAt != null && now > g.dueAt ? 'missed' : 'open';
-  return { ...g, text: describe(g), challenge: g.dueAt != null, state, met, fresh, progress: m.best, progressText: m.bestText,
-    metInTime: met ? g.dueAt == null || met.at <= g.dueAt : null };
+  const out = { ...g, text: describe(g), challenge: g.dueAt != null, state, met, fresh, progress: m?.best ?? null, progressText: m?.bestText ?? '' };
+  if (fresh) { try { onMet(out); } catch (e) { console.log(`[goal] ${e.message}`); } }
+  return out;
 }
 
 /** All goals and challenges with their state, open first. */

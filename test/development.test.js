@@ -47,7 +47,6 @@ test('challenge: laps after the deadline do not count; past the deadline it is m
   assert.equal(goals.status(c, T0 + 2 * 86400e3).state, 'missed');
   const ok = goals.status(mk('lap', 100400, {}, T0, T0 + 3600e3), T0 + 2 * 86400e3);
   assert.equal(ok.state, 'met');
-  assert.equal(ok.metInTime, true);
   assert.equal(ok.challenge, true);
 });
 
@@ -73,12 +72,26 @@ test('streak, window and consistency goals use one session at a time', () => {
   assert.ok(done.met.value >= 90);
 });
 
+test('a goal met on a page load (not after a lap) is still announced once', () => {
+  const seen = [];
+  goals.setOnMet((g) => seen.push(g.id));
+  const g = mk('lap', 101000);
+  goals.list(T0 + 2 * 86400e3);
+  goals.list(T0 + 2 * 86400e3);
+  goals.setOnMet(() => {});
+  assert.deepEqual(seen.filter((x) => x === g.id), [g.id]);
+  assert.equal(goals.checkAfterLap(C).some((x) => x.id === g.id), false, 'already met: not measured again');
+});
+
 test('validate: kinds, ranges, combo with laps, deadline in days', () => {
   const v = goals.validate({ combo: C, kind: 'lap', target: 100000, days: 7 }, T0);
   assert.equal(v.dueAt, T0 + 7 * 86400e3);
   assert.equal(goals.validate({ key: 'test_track|gp|test_car', kind: 'streak', target: 10 }).combo.car, 'test_car');
   const bad = (b, re) => assert.throws(() => goals.validate(b), (e) => e.status === 400 && re.test(e.message));
   bad({ combo: C, kind: 'fly', target: 1 }, /Unknown kind/);
+  bad({ combo: { track: 'test_track', car: 'test_car', layout: 5 }, kind: 'lap', target: 100000 }, /Pick a track/);
+  bad({ combo: { track: ['x'], car: 'y' }, kind: 'lap', target: 100000 }, /Pick a track/);
+  assert.equal(goals.validate({ combo: { track: 'test_track', layout: 'gp', car: 'test_car' }, kind: 'lap', target: 100000 }).combo.layout, 'gp');
   bad({ combo: { ...C, car: 'nope' }, kind: 'lap', target: 100000 }, /No laps/);
   bad({ combo: C, kind: 'lap', target: 5 }, /Lap time/);
   bad({ combo: C, kind: 'streak', target: 2.5 }, /whole number/);
@@ -147,6 +160,9 @@ test('race weekend grouping: by time window, next launch, car and track', () => 
   // a launch in between ends the weekend early
   const cut = weekends.group([...launches, { id: 4, at: at + H, mode: 'practice', trackId: 't', layoutKey: 'gp', car: 'c' }], sessions, match);
   assert.deepEqual(cut.find((w) => w.launch.id === 2).sessions.map((s) => s.id), [11, 12]);
+  // a session in the minute before the next launch belongs to that one only, never to two weekends
+  const close = weekends.group([launches[1], { ...launches[1], id: 5, at: at + H }], [S(20, H - 30e3)], match);
+  assert.deepEqual(close.map((w) => [w.launch.id, w.sessions.map((s) => s.id)]), [[5, [20]], [2, []]]);
 });
 
 test('recordStart keeps Paddock-started sessions only', () => {
@@ -162,7 +178,7 @@ test('achievements: reached at the lap that crossed the line, progress for locke
   const laps = [L(1, 100000, false), L(2, 101000), L(3, 100000), L(4, 99000)];
   for (let i = 5; i <= 14; i++) laps.push(L(i, 99500, true, 2));
   laps.push(L(15, 90000, true, 3, { track: 'z', car: 'q', recorded_at: T0 + 3 * D }));
-  const list = ach.compute({ laps, goals: [{ met: { at: T0 + 5 }, challenge: false }, { met: { at: T0 + 9 }, challenge: true, metInTime: false }], weekends: [{ at: T0, laps: 3 }, { at: T0, laps: 0 }] });
+  const list = ach.compute({ laps, goals: [{ met: { at: T0 + 5 }, challenge: false }, { met: { at: T0 + 9 }, challenge: true }], weekends: [{ at: T0, laps: 3, firstLapAt: T0 + 7 }, { at: T0, laps: 0 }] });
   const get = (id) => list.find((a) => a.id === id);
   assert.equal(list.length, ach.COUNT);
   assert.equal(get('laps-1').unlockedAt, T0 + 1000);
@@ -173,8 +189,8 @@ test('achievements: reached at the lap that crossed the line, progress for locke
   assert.equal(get('tracks-3').have, 2);
   assert.equal(get('days-7').have, 2);
   assert.equal(get('goals-1').unlockedAt, T0 + 5);
-  assert.equal(get('challenges-1').unlockedAt, null, 'met after its deadline does not count');
-  assert.equal(get('weekends-1').unlockedAt, T0, 'a weekend without laps does not count');
+  assert.equal(get('challenges-1').unlockedAt, T0 + 9);
+  assert.equal(get('weekends-1').unlockedAt, T0 + 7, 'at its first lap; a weekend without laps does not count');
   assert.ok(get('consistency-80').unlockedAt != null, 'session 2 is very consistent');
   const live = ach.compute({ laps, live: 2 });
   assert.equal(live.find((a) => a.id === 'consistency-80').unlockedAt, null, 'not from the session being driven');
@@ -182,9 +198,11 @@ test('achievements: reached at the lap that crossed the line, progress for locke
   assert.equal(get('pbs-10').have, 2);
 });
 
-test('achievements seen: new until marked seen', () => {
+test('achievements seen: new until marked seen; nothing new on the first run', () => {
   const list = [{ id: 'x', unlockedAt: Date.now() - 1000 }, { id: 'y', unlockedAt: null }];
-  assert.equal(ach.withSeen(list).items[0].isNew, true);
+  assert.equal(ach.withSeen(list).items[0].isNew, false, 'first run: what was reached before is not new');
+  db.setMeta('achievementsSeenAt', Date.now() - 5000);
+  assert.equal(ach.withSeen(list).items[0].isNew, true, 'reached after the last look');
   ach.markSeen();
   const w = ach.withSeen(list);
   assert.equal(w.items[0].isNew, false);

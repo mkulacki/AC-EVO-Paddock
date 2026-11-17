@@ -159,12 +159,27 @@ bindMarkKey();
 // a new lap: only its track + car is worked out again (service.js invalidate)
 recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); afterLap(l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
 // driver development (P9): goals met by this lap, achievements reached, sessions Paddock started (race weekends)
-game.onStarted((order) => { try { weekends.recordStart(order); } catch (e) { console.log(`[weekends] ${e.message}`); } });
+game.onStarted((order) => { try { weekends.recordStart(order); devChanged(); } catch (e) { console.log(`[weekends] ${e.message}`); } });
+// a goal met for the first time, wherever it was noticed (after a lap, at the end of a session, on a page load)
+goals.setOnMet((g) => {
+  const what = g.challenge ? 'Challenge done' : 'Goal met';
+  console.log(`[goal] ${what}: ${g.text}`);
+  broadcast('goal', { id: g.id, text: g.text, challenge: g.challenge });
+  globalThis.__paddockNotify?.({ title: `${what}: ${g.combo.track} · ${g.combo.car}`, body: g.text, hash: '#/development' });
+});
 let knownAchievements = null; // ids unlocked so far (null until first worked out: nothing is announced at start)
+// goals + achievements, worked out once per change (laps, goals, launches, the live session) and at most once a minute
+// otherwise (challenge deadlines pass with time): Home and Development reuse it
+let devVersion = 0, devCache = null;
+const devChanged = () => { devVersion++; };
 function development() {
+  const live = recorder.session?.id ?? null;
+  if (devCache && devCache.version === devVersion && devCache.live === live && Date.now() - devCache.at < 60e3) return devCache.data;
   const list = goals.list();
-  const all = achievements.compute({ laps: db.listLaps().filter((l) => l.source === 'local'), goals: list, weekends: weekends.history(), live: recorder.session?.id ?? null });
-  return { goals: list, achievements: all };
+  const laps = db.listLaps().filter((l) => l.source === 'local');
+  const data = { goals: list, achievements: achievements.compute({ laps, goals: list, weekends: weekends.history(laps), live }) };
+  devCache = { version: devVersion, live, at: Date.now(), data };
+  return data;
 }
 function announceAchievements() {
   try {
@@ -177,19 +192,21 @@ function announceAchievements() {
     knownAchievements = new Set(now.map((a) => a.id));
   } catch (e) { console.log(`[achievement] ${e.message}`); }
 }
-// after a lap, and at the end of a session (consistency goals wait for it): goals met for the first time
+// after a lap, and at the end of a session (consistency goals wait for it): goals met for the first time (announced by
+// setOnMet), then achievements. Run a few seconds later, not inside the telemetry loop that saved the lap.
 function checkGoals(c) {
-  try {
-    for (const g of goals.checkAfterLap({ track: c.track, layout: c.layout, car: c.car })) {
-      const what = g.challenge ? 'Challenge done' : 'Goal met';
-      console.log(`[goal] ${what}: ${g.text}`);
-      broadcast('goal', { id: g.id, text: g.text, challenge: g.challenge });
-      globalThis.__paddockNotify?.({ title: `${what}: ${c.track} · ${c.car}`, body: g.text, hash: '#/development' });
-    }
-  } catch (e) { console.log(`[goal] ${e.message}`); }
+  devChanged();
+  try { goals.checkAfterLap({ track: c.track, layout: c.layout, car: c.car }); } catch (e) { console.log(`[goal] ${e.message}`); }
   announceAchievements();
 }
-const afterLap = (l) => checkGoals(l);
+let afterLapT = null;
+const pendingCombos = new Map();
+function afterLap(l) {
+  devChanged();
+  pendingCombos.set(`${l.track}|${l.layout}|${l.car}`, l);
+  clearTimeout(afterLapT);
+  afterLapT = setTimeout(() => { const cs = [...pendingCombos.values()]; pendingCombos.clear(); cs.forEach((c, i) => (i === cs.length - 1 ? checkGoals(c) : goals.checkAfterLap(c))); }, 3000);
+}
 setTimeout(announceAchievements, 2000); // what is already unlocked at start is not announced
 recorder.on('session', (s) => console.log(`[session] ${s.track} ${s.layout} / ${s.car}`));
 recorder.on('discarded', (e) => console.log(`[lap discarded] ${e.reason}`));
@@ -788,7 +805,8 @@ async function route(req, res) {
   // ---- Development (P9): goals and challenges, achievements, race weekends, session planner
   if (p === '/api/development' && m === 'GET') {
     const { goals: list, achievements: all } = development();
-    const combos = race.recent().map((c) => ({ key: `${c.track}|${c.layout}|${c.carName}`, track: c.track, layout: c.layout, car: c.carName, laps: c.laps, bestMs: c.bestMs, idealMs: c.idealMs, lastAt: c.lastAt, canStart: !!c.trackRef }));
+    const own = new Set(db.listLaps().filter((l) => l.source === 'local').map((l) => `${l.track}|${l.layout}|${l.car}`));
+    const combos = race.recent().filter((c) => own.has(`${c.track}|${c.layout}|${c.carName}`)).map((c) => ({ key: `${c.track}|${c.layout}|${c.carName}`, track: c.track, layout: c.layout, car: c.carName, laps: c.laps, bestMs: c.bestMs, idealMs: c.idealMs, lastAt: c.lastAt, canStart: !!c.trackRef }));
     return send(res, 200, { goals: list, suggestions: goals.suggest(Date.now(), (c) => db.activePlan(c)), achievements: achievements.withSeen(all),
       weekends: weekends.history(), combos, presets: race.lists().presets.filter((x) => x.spec?.kind !== 'mp').map((x) => ({ id: x.id, name: x.name, mode: x.spec?.mode ?? null })),
       game: { ...game.status(), inSession: inSession() } });
@@ -796,8 +814,9 @@ async function route(req, res) {
   if (p === '/api/goals' && m === 'POST') {
     const q = await readJson(req);
     try {
-      if (q.action === 'remove') { goals.remove(Number(q.id)); return send(res, 200, { ok: true }); }
+      if (q.action === 'remove') { goals.remove(Number(q.id)); devChanged(); return send(res, 200, { ok: true }); }
       const g = goals.create(q);
+      devChanged();
       return send(res, 200, { goal: g });
     } catch (e) { return send(res, e.status || 500, { error: e.message }); }
   }
