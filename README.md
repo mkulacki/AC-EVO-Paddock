@@ -116,6 +116,7 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Track map:** coloured by where you gain or lose time.
 - **Corner table:** brake point, minimum speed, throttle-on point, exit speed, coasting, and line at turn-in/apex/exit against the reference. Click a corner to zoom the charts to it.
 - **AI coach (Google Gemini, free tier):** add an API key under *Settings*. It sends only a compact per-corner summary, never raw telemetry. To see exactly what is sent, click "what is sent to the AI?". Follow-up questions are supported, and answers are saved per lap and reference.
+- **Coach page** (Sessions → *Coach* on a track and car): a chat that knows your history there (session reports, driving style, setups, training plan), your training plan with its checks, and **AI braking points**: suggested per corner from your fastest and typical passes, checked by Paddock, and applied to your brake marks only when you tick them. Every answer rates its confidence; *What is sent to the AI?* shows the full context.
 - **Racing line replay** (the *Racing line replay* tab on the compare page): a camera that follows the cars, with your line drawn against the reference line. It shows:
   - the real track edges from AC EVO's track data (for tracks not in the game data: the width you have used)
   - cars drawn to scale
@@ -147,6 +148,7 @@ When you leave a session with at least 3 laps (one of them valid), Paddock write
 - **Lap-time trend, theoretical best** (your best corners of the session put together) and **where laps went invalid**.
 - **Next practice targets**, each with a number, and the next report ticks off whether you met them.
 - **AI debrief** (button, Gemini): a short debrief with a plan for the next session.
+- **Training plan:** *Make these my training plan* keeps the targets; every later session with that car on that track is checked against them, shown in its report and on the Coach page.
 
 **How the setup is recognised:** AC EVO does not say which setup is loaded, so Paddock takes a fingerprint while the car stands in the pit box (tyre pressures, camber, brake bias, fuel) and matches it with your saved setups for that car and track. No match = **Standard**. These shared-memory values are not confirmed in game yet: check them once in **Setups → Setup recognition** with a saved setup loaded, standing in the pit box. Until then the report marks the setup *Unconfirmed*.
 
@@ -298,6 +300,7 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/setups.js`, `src/carsetup.js` | Setups tab: the game's setup files, reading / writing `.carsetup` with the car's limits |
 | `src/report.js`, `src/setupmatch.js`, `public/reports.js` | session reports; recognising the setup of every lap |
 | `src/ai.js` | Gemini coach, setup engineer and session debrief |
+| `src/coach.js`, `public/coach.js` | Coach page: chat per track and car, training plan, AI braking points |
 | `src/channels.js` | which telemetry readings are checked against the game (provenance) |
 | `src/backup.js`, `src/restore-apply.js`, `src/dataexport.js`, `src/diagnostics.js`, `src/updates.js`, `public/system.js` | Settings: backup and restore, CSV export, diagnostics, update check |
 | `public/` | browser app (no build step) |
@@ -311,7 +314,7 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 Everything stays on your PC. Paddock contacts two services:
 
 - **GitHub**, once a day, to see whether a newer Paddock is out: one request for the project's list of releases, with nothing about you in it. Switch it off in *Settings → Updates*.
-- **Google Gemini**, only when you ask the AI coach or the AI setup engineer and have added your own API key: the compact per-corner summary of a lap, or a setup's values with your description of the car and a summary of your laps on that track. Your key is stored in `data\settings.json`, which is never part of the repository or the release.
+- **Google Gemini**, only when you ask the AI coach or the AI setup engineer and have added your own API key: the compact per-corner summary of a lap, a summary of your history on one track and car (Coach page), or a setup's values with your description of the car and a summary of your laps on that track. Your key is stored in `data\settings.json`, which is never part of the repository or the release.
 
 ## Contributing
 

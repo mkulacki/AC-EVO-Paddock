@@ -2,9 +2,9 @@
 
 _Last updated: 2026-11-17_
 
-**Status:** P0–P7 approved and merged into local `main`. **P8 in progress on `phase/p8-coach`.**
-**Current phase:** P8, AI coach upgrade.
-**Branch:** `phase/p8-coach` (local, not pushed; the installed app runs the P7 build).
+**Status:** P0–P8 approved and merged into local `main`. **P9 starting: decision D3 asked.**
+**Current phase:** P9, driver development (D3 pending).
+**Branch:** `main` (local, not pushed; the installed app runs the P8 build).
 
 ## Phases
 
@@ -18,13 +18,13 @@ _Last updated: 2026-11-17_
 | P5 | Driver home dashboard | Done, approved 2026-11-17 |
 | P6 | Driving technique analysis | Done, approved 2026-11-17 |
 | P7 | Setup history and comparison | Done, approved 2026-11-17 |
-| P8 | AI coach upgrade | In progress |
+| P8 | AI coach upgrade | Done, approved 2026-11-17 |
 | P9 | Driver development | Pending (D3) |
 | P10 | Final regression and release prep | Pending |
 
 ## Current task
 
-P8: AI coach upgrade (combo-level chat, training plan with automatic target checks, AI braking-point suggestions applied after review).
+P9 start: ask D3 (achievements and challenges), then branch `phase/p9-development`.
 
 ## Known problems
 
@@ -32,7 +32,7 @@ P8: AI coach upgrade (combo-level chat, training plan with automatic target chec
 
 ## Test results
 
-- `npm run check` 85/85; `npm test` 111/111. Setup history checked in headless Edge (0 JS errors); 1–12 ms on the user's data.
+- `npm run check` 88/88; `npm test` 124/124. Coach page checked in headless Edge with a stubbed Gemini (0 JS errors).
 
 ## Pending user decisions
 
@@ -41,7 +41,7 @@ P8: AI coach upgrade (combo-level chat, training plan with automatic target chec
 
 ## Next action
 
-Implement P8 on `phase/p8-coach`, then tests, review, deploy and the approval gate.
+Ask D3, record it in DECISIONS.md, then start P9 on `phase/p9-development`.
 
 ## How to resume
 

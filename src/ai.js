@@ -44,18 +44,50 @@ export function splitConfidence(text) {
 
 const API = 'https://generativelanguage.googleapis.com/v1beta';
 
+// Errors carry a short code so the pages can say what to do: nokey, network, http, empty, format.
+const aiError = (code, message) => Object.assign(new Error(message), { code });
+export const NO_KEY_TEXT = 'No Gemini API key set. Open Settings and paste a key from https://aistudio.google.com/apikey';
+
 async function call(pathAndQuery, body) {
   const key = settings.get().geminiApiKey;
-  if (!key) throw new Error('No Gemini API key set. Open Settings and paste a key from https://aistudio.google.com/apikey');
-  const res = await fetch(`${API}/${pathAndQuery}`, {
-    method: body ? 'POST' : 'GET',
-    headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  if (!key) throw aiError('nokey', NO_KEY_TEXT);
+  let res;
+  try {
+    res = await fetch(`${API}/${pathAndQuery}`, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(90000),
+    });
+  } catch (e) {
+    const why = e.name === 'TimeoutError' ? 'no answer within 90 s' : e.cause?.code || e.message;
+    throw aiError('network', `Could not reach Gemini (${why}). Check the internet connection and try again.`);
+  }
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error?.message || `Gemini HTTP ${res.status}`);
+  if (!res.ok) throw aiError('http', res.status === 429 ? `Gemini's free-tier limit is reached for now (${json.error?.message || 'HTTP 429'}). Wait a minute and try again.` : json.error?.message || `Gemini HTTP ${res.status}`);
   return json;
 }
+
+/** One answer from the chosen model. -> {text, model}; json = answer as JSON (the text is then parsed by the caller). */
+export async function generate({ system, contents, json = false, temperature = 0.4 }) {
+  const s = settings.get();
+  const out = await call(`models/${encodeURIComponent(s.geminiModel)}:generateContent`, {
+    systemInstruction: { parts: [{ text: system }] },
+    contents,
+    generationConfig: { temperature, ...(json ? { responseMimeType: 'application/json' } : {}) },
+  });
+  const cand = out.candidates?.[0];
+  const text = cand?.content?.parts?.map((p) => p.text || '').join('') || '';
+  if (!text) throw aiError('empty', `Empty answer from Gemini (${cand?.finishReason || out.promptFeedback?.blockReason || 'unknown'})`);
+  return { text, model: s.geminiModel };
+}
+/** A JSON answer, parsed (code fences tolerated). */
+export function parseJson(text) {
+  try { return JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, '')); } catch { throw aiError('format', 'Gemini did not answer in the expected format; try again'); }
+}
+export const CONFIDENCE = CONFIDENCE_RULE;
+export const levelOf = level;
+export const fmtMs = (ms) => fmt(ms);
 
 export async function listModels() {
   const json = await call('models?pageSize=200');
@@ -118,15 +150,7 @@ export async function coach(cmp, lap, question, previousAnswer) {
     if (previousAnswer) contents.push({ role: 'model', parts: [{ text: previousAnswer }] });
     contents.push({ role: 'user', parts: [{ text: `Follow-up question from the driver (answer briefly, based on the data): ${question}` }] });
   }
-  const json = await call(`models/${encodeURIComponent(s.geminiModel)}:generateContent`, {
-    systemInstruction: { parts: [{ text: SYSTEM }] },
-    contents,
-    generationConfig: { temperature: 0.4 },
-  });
-  const cand = json.candidates?.[0];
-  const text = cand?.content?.parts?.map((p) => p.text || '').join('') || '';
-  if (!text) throw new Error(`Empty answer from Gemini (${cand?.finishReason || json.promptFeedback?.blockReason || 'unknown'})`);
-  return { text, model: s.geminiModel };
+  return generate({ system: SYSTEM, contents });
 }
 
 // ---------------------------------------------------------------- setup engineer
@@ -179,16 +203,9 @@ export async function setupEngineer({ setup, problem, telemetry }) {
     setup: values, cannot_change_here: locked.length ? locked : undefined,
     telemetry: telemetry || 'no laps recorded with this car on this track yet',
   };
-  const json = await call(`models/${encodeURIComponent(s.geminiModel)}:generateContent`, {
-    systemInstruction: { parts: [{ text: SETUP_SYSTEM }] },
-    contents: [{ role: 'user', parts: [{ text: `Respond in ${s.language || 'English'} (JSON keys stay in English).\n\n${JSON.stringify(input)}` }] }],
-    generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
-  });
-  const cand = json.candidates?.[0];
-  const text = cand?.content?.parts?.map((p) => p.text || '').join('') || '';
-  if (!text) throw new Error(`Empty answer from Gemini (${cand?.finishReason || json.promptFeedback?.blockReason || 'unknown'})`);
-  let out;
-  try { out = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw new Error('Gemini did not answer in the expected format; try again'); }
+  const { text } = await generate({ system: SETUP_SYSTEM, json: true, temperature: 0.3,
+    contents: [{ role: 'user', parts: [{ text: `Respond in ${s.language || 'English'} (JSON keys stay in English).\n\n${JSON.stringify(input)}` }] }] });
+  const out = parseJson(text);
   // keep only real, changeable values; snap them to the car's limits (the model sees shown units, files store raw)
   const changes = [];
   const skipped = [];
@@ -228,13 +245,5 @@ export async function debrief(report) {
   const s = settings.get();
   const { trend, ...rest } = report;
   const input = { ...rest, data_quality: channels.forAi(['core', 'trackLimits', 'setupProbe', 'conditions']), lap_times: trend.map((l) => `${l.n}: ${fmt(l.ms)}${l.valid ? '' : ' (invalid)'}${l.setup ? ` [${l.setup}]` : ''}`) };
-  const json = await call(`models/${encodeURIComponent(s.geminiModel)}:generateContent`, {
-    systemInstruction: { parts: [{ text: DEBRIEF_SYSTEM }] },
-    contents: [{ role: 'user', parts: [{ text: `Respond in ${s.language || 'English'}.\n\nSession report (JSON):\n${JSON.stringify(input)}` }] }],
-    generationConfig: { temperature: 0.4 },
-  });
-  const cand = json.candidates?.[0];
-  const text = cand?.content?.parts?.map((p) => p.text || '').join('') || '';
-  if (!text) throw new Error(`Empty answer from Gemini (${cand?.finishReason || json.promptFeedback?.blockReason || 'unknown'})`);
-  return { text, model: s.geminiModel };
+  return generate({ system: DEBRIEF_SYSTEM, contents: [{ role: 'user', parts: [{ text: `Respond in ${s.language || 'English'}.\n\nSession report (JSON):\n${JSON.stringify(input)}` }] }] });
 }

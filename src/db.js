@@ -188,3 +188,42 @@ export function getReport(sessionId) {
 export const listReports = () => db.prepare('SELECT session_id, created_at, data FROM reports ORDER BY created_at DESC').all()
   .map((r) => ({ sessionId: r.session_id, createdAt: r.created_at, data: JSON.parse(r.data) }));
 export function saveReportAi(sessionId, text, model) { db.prepare('UPDATE reports SET ai_text = ?, ai_model = ?, ai_at = ? WHERE session_id = ?').run(text, model, Date.now(), sessionId); }
+
+// ---------------------------------------------------------------- AI coach (P8): chat per track + car, training plans
+// coach_messages: the conversation with the coach per combo (the game's track / layout / car names, as in the laps);
+// role 'driver' or 'coach'. training_plans: targets taken from a session report, checked against later sessions;
+// closed_at set when replaced or ended. Both additive: older databases just get the new tables.
+db.exec(`CREATE TABLE IF NOT EXISTS coach_messages (
+  id INTEGER PRIMARY KEY, track TEXT, layout TEXT, car TEXT, role TEXT, text TEXT, model TEXT, created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS coach_messages_combo ON coach_messages(track, layout, car);
+CREATE TABLE IF NOT EXISTS training_plans (
+  id INTEGER PRIMARY KEY, track TEXT, layout TEXT, car TEXT, from_session INTEGER, from_started_at INTEGER,
+  targets TEXT, created_at INTEGER, closed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS training_plans_combo ON training_plans(track, layout, car);`);
+export const coachMessages = (c) =>
+  db.prepare('SELECT id, role, text, model, created_at FROM coach_messages WHERE track = ? AND layout = ? AND car = ? ORDER BY id').all(c.track, c.layout, c.car);
+export function addCoachMessages(c, msgs) {
+  const st = db.prepare('INSERT INTO coach_messages (track, layout, car, role, text, model, created_at) VALUES (?,?,?,?,?,?,?)');
+  db.exec('BEGIN');
+  try { for (const m of msgs) st.run(c.track, c.layout, c.car, m.role, m.text, m.model ?? null, m.at ?? Date.now()); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+export const clearCoachMessages = (c) => db.prepare('DELETE FROM coach_messages WHERE track = ? AND layout = ? AND car = ?').run(c.track, c.layout, c.car);
+
+const planRow = (r) => (r ? { id: r.id, combo: { track: r.track, layout: r.layout, car: r.car }, fromSession: r.from_session, fromStartedAt: r.from_started_at,
+  targets: JSON.parse(r.targets), createdAt: r.created_at, closedAt: r.closed_at } : null);
+export const activePlan = (c) => planRow(db.prepare('SELECT * FROM training_plans WHERE track = ? AND layout = ? AND car = ? AND closed_at IS NULL ORDER BY id DESC LIMIT 1').get(c.track, c.layout, c.car));
+export const getPlan = (id) => planRow(db.prepare('SELECT * FROM training_plans WHERE id = ?').get(id));
+export function createPlan(c, p) {
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE training_plans SET closed_at = ? WHERE track = ? AND layout = ? AND car = ? AND closed_at IS NULL').run(Date.now(), c.track, c.layout, c.car);
+    const r = db.prepare('INSERT INTO training_plans (track, layout, car, from_session, from_started_at, targets, created_at) VALUES (?,?,?,?,?,?,?)')
+      .run(c.track, c.layout, c.car, p.fromSession, p.fromStartedAt, JSON.stringify(p.targets), Date.now());
+    db.exec('COMMIT');
+    return Number(r.lastInsertRowid);
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+export const setPlanTargets = (id, targets) => db.prepare('UPDATE training_plans SET targets = ? WHERE id = ?').run(JSON.stringify(targets), id);
+export const closePlan = (id) => db.prepare('UPDATE training_plans SET closed_at = ? WHERE id = ? AND closed_at IS NULL').run(Date.now(), id);

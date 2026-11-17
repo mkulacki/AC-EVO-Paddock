@@ -29,6 +29,7 @@ import * as setupmatch from './setupmatch.js';
 import * as report from './report.js';
 import * as carreport from './carreport.js';
 import * as setuphistory from './setuphistory.js';
+import * as coach from './coach.js';
 import * as channels from './channels.js';
 import * as backup from './backup.js';
 import * as dataexport from './dataexport.js';
@@ -136,6 +137,7 @@ const spotter = createSpotter({ config: settings.spotterConfig,
   emit: (cue) => { const c = settings.spotterConfig(); broadcast('spotter', { ...cue, sound: c.sound, volume: c.volume }); } });
 // own brake marks: marking them with a wheel button / keyboard shortcut, or from the brake pedal on one lap.
 // The confirmation sounds go through the spotter's channel (always beeps, also when the spotter is off).
+coach.setLiveSession(() => recorder.session?.id ?? null); // the session being driven is not checked against a plan yet
 const marker = createMarker({ recorder,
   notify: (say) => broadcast('spotter', { say, sound: 'beep', volume: settings.spotterConfig().volume }),
   changed: (recording, combo) => broadcast('brakemarks', { recording, combo }) });
@@ -465,7 +467,7 @@ async function route(req, res) {
     const c = r.data.combo;
     return send(res, 200, { ...r, setupChoices: setupmatch.candidates(c.car, c.track, c.layout).map((x) => ({ name: x.file.name, rel: x.file.rel })),
       probeConfirmed: channels.trusted('setupProbe'), channels: channels.summary(), hasKey: !!settings.get().geminiApiKey,
-      ai: r.ai ? { ...r.ai, ...ai.splitConfidence(r.ai.text) } : null, laps, technique: TECHNIQUE });
+      ai: r.ai ? { ...r.ai, ...ai.splitConfidence(r.ai.text) } : null, laps, technique: TECHNIQUE, plan: coach.planForSession(id, c) });
   }
   if (p === '/api/report/regenerate' && m === 'POST') {
     const { session } = await readJson(req);
@@ -736,6 +738,43 @@ async function route(req, res) {
     const lapId = Number(url.searchParams.get('lap')), ref = url.searchParams.get('ref') || 'best';
     const cmp = svc.compare([lapId], ref);
     return send(res, 200, ai.buildSummary(cmp, cmp.laps[0]));
+  }
+  // ---- AI coach per track + car (P8): chat, training plan, braking points
+  if (p.startsWith('/api/coach') || p === '/api/plan') {
+    // AI errors: no key -> 400 (the page says what to do), Gemini unreachable or refusing -> 502
+    const AI = ['network', 'http', 'empty', 'format'];
+    const fail = (e) => send(res, e.status || (e.code === 'nokey' ? 400 : AI.includes(e.code) ? 502 : 500), { error: e.message, code: AI.includes(e.code) || e.code === 'nokey' ? e.code : null });
+    try {
+      const q = m === 'POST' ? await readJson(req) : Object.fromEntries(url.searchParams);
+      if (p === '/api/plan' && m === 'POST') {
+        if (q.action === 'create') return send(res, 200, { plan: coach.createPlan(Number(q.session)) });
+        if (q.action === 'remove') return send(res, 200, { plan: coach.removeTarget(Number(q.id), Number(q.index)) });
+        if (q.action === 'close') { coach.closePlan(Number(q.id)); return send(res, 200, { plan: null }); }
+        return send(res, 400, { error: 'unknown action' });
+      }
+      const c = coach.comboOfParams(q);
+      if (p === '/api/plan') return send(res, 200, { plan: coach.activePlan(c) });
+      if (p === '/api/coach' && m === 'GET') {
+        const laps = db.lapsForCombo(c.track, c.layout, c.car, true);
+        return send(res, 200, { combo: c, laps: laps.length, validLaps: laps.filter((l) => l.valid).length, hasKey: !!settings.get().geminiApiKey,
+          model: settings.get().geminiModel, messages: coach.messages(c), plan: coach.activePlan(c), brakeMarks: marks.marksFor(marks.comboOf(c)).length, marksCombo: marks.comboOf(c),
+          reports: db.listReports().filter((r) => r.data.combo?.track === c.track && r.data.combo?.layout === c.layout && r.data.combo?.car === c.car)
+            .map((r) => ({ sessionId: r.sessionId, startedAt: r.data.startedAt, bestMs: r.data.best?.ms ?? null, targets: (r.data.targets || []).length }))
+            .sort((a, b) => b.startedAt - a.startedAt).slice(0, 5) });
+      }
+      if (p === '/api/coach/context') return send(res, 200, coach.preview(c));
+      if (p === '/api/coach/ask' && m === 'POST') return send(res, 200, await coach.ask(c, q.question));
+      if (p === '/api/coach/clear' && m === 'POST') { coach.clear(c); return send(res, 200, { ok: true }); }
+      if (p === '/api/coach/brakes/data') return send(res, 200, coach.brakeData(c));
+      if (p === '/api/coach/brakes' && m === 'POST') return send(res, 200, await coach.suggestBrakes(c));
+      if (p === '/api/coach/brakes/apply' && m === 'POST') {
+        const out = coach.applyBrakes(c, q.items);
+        const saved = marks.save(out.combo, out.marks);
+        broadcast('brakemarks', { recording: marker.status(), combo: out.combo });
+        return send(res, 200, { marks: saved, combo: out.combo });
+      }
+      return send(res, 404, { error: 'not found' });
+    } catch (e) { return fail(e); }
   }
   if (p === '/api/debug/raw') return send(res, 200, source.lastRaw ?? source.read?.() ?? null);
 

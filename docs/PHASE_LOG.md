@@ -286,3 +286,40 @@
     - per-lap catalogue matching (now per combo).
   - Lows fixed: the palette full kind name, versions only for recorded values, both reasons named, A ≠ B by default, thin tests.
 - **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
+
+## P8: AI coach upgrade
+
+- **Started / finished:** 2026-11-17 · branch `phase/p8-coach`
+- **Implemented:**
+  - **Coach page** (`src/coach.js`, `public/coach.js`, `#/coach?combo=`) per track + car:
+    - chat with a compact context: totals, recent sessions, the last 3 reports (weakest corners, style habits, invalid laps), corner times, laps by setup, the plan and its checks, data quality;
+    - *What is sent* shows instructions and data; every answer carries a confidence badge;
+    - the chat is stored per combo (`coach_messages`) and can be cleared.
+  - **Training plan** (`training_plans`): a report's measurable targets, one active plan per combo. Later sessions (latest 10) are checked with `report.checkTargets`; short sessions and the live session are skipped with a reason. Shown on the Coach page (sessions × targets) and in each report ("Make these my training plan").
+  - **AI braking points:** per-corner data (zone, fastest and typical pass, current mark). Suggestions are validated (zone across the line for the first corner, ≤ 15 m later than the fastest pass, one per corner) and applied only for ticked corners, replacing only that corner's marks.
+  - **`src/ai.js`:** shared `generate()`, error codes and clear messages for no key, network, timeout (90 s), 429 and empty answers.
+  - **Links:** a Coach button on each Sessions combo, the palette ("coach …"), and the page list.
+- **Files:** `src/coach.js` (new), `src/ai.js`, `src/db.js`, `src/report.js`, `src/server.js`, `public/coach.js` (new), `public/reports.js`, `public/app.js`, `public/sessions.js`, `public/palette.js`, `public/style.css`, `test/coach.test.js` (new), `test/smoke.test.js`, `test/shell.test.js`, README, CHANGELOG, DECISIONS, FEATURE_INVENTORY.
+- **Tests performed:**
+  - `npm run check` 88/88; `npm test` 124/124.
+  - Coach tests (12, Gemini stubbed through `fetch`):
+    - context size and contents;
+    - no key, network error, 429 and empty answer, each leaving the chat unchanged;
+    - history and system prompt sent, key only in the header;
+    - plan checks equal `checkTargets`, plan replace and remove;
+    - suggestion validation, apply per corner, zone across the line, the 60-mark limit;
+    - fenced JSON; short and live sessions skipped.
+  - Smoke test: every coach and plan route without calling Gemini, and the key absent from *What is sent*.
+  - Headless Edge, 0 JS errors: Coach page in light and dark, desktop and narrow width, chat, plan and braking points with a stubbed Gemini; report plan check.
+- **Known limitations:**
+  - AI answers were checked only against a stubbed Gemini here; the real model's quality depends on the user's key and model.
+  - Braking points rest on the best lap's corner zones; a brake point before the start/finish line is only seen through the user's marks (lap data starts at the line).
+- **Review findings (code-review subagent):**
+  - No critical or high findings.
+  - Mediums, all fixed:
+    - short and live sessions were checked, and their reports rebuilt on every request (now skipped, and the built reports cached);
+    - braking zones did not wrap the start/finish line;
+    - the chat touched the next page after navigation.
+  - Lows fixed: the `parseJson` regex, error status mapping, older sessions labelled "other plan", session-less laps counted as sessions, the 60-mark limit, the unconditional 15 m test.
+  - Accepted: corners matched by name; the 90 s timeout (documented).
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
