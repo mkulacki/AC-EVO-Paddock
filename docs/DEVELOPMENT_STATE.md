@@ -24,7 +24,7 @@ _Last updated: 2026-11-17_
 
 ## Current task
 
-P10 approval gate: release candidate 0.6.0-beta.1 built and checked locally (release/ zip + notes).
+The user is testing the 0.6.0-beta.1 build locally (installed at `E:AC EVO Paddock`) and will give **go / no-go** in a new chat. P10 is not merged into `main` yet. Nothing is pushed, tagged or released (no local tag either).
 
 ## Known problems
 
@@ -41,7 +41,14 @@ P10 approval gate: release candidate 0.6.0-beta.1 built and checked locally (rel
 
 ## Next action
 
-On APPROVE: merge `phase/p10-release` into local `main`. Pushing `main`, tagging `v0.6.0-beta.1`, the GitHub pre-release (release/ zip + notes) and the overtake.gg update each only on the user's explicit go.
+- **No-go (changes wanted):** fix on `phase/p10-release` (or a branch from it), run `npm test` and `npm run check`, redeploy (stop the app only if the game is not running, `rm -rf dist && npx electron-builder --win dir`, `node desktop/deploy.mjs`, clear `ELECTRON_RUN_AS_NODE`, start the installed exe). Then rebuild and re-verify the release zip (CLAUDE.md steps 5–7): the SHA-256 changes, so update it in `release/notes-v0.6.0-beta.1.md` and in PHASE_LOG P10. Add the changes to the CHANGELOG under 0.6.0-beta.1.
+- **Go:** confirm each public step with the user, then:
+  1. merge `phase/p10-release` into `main` (`--no-ff`), and mark P10 approved in PHASE_LOG and here;
+  2. push `main`;
+  3. tag `v0.6.0-beta.1` (annotated) and push the tag;
+  4. `gh release create v0.6.0-beta.1 release/AC-EVO-Paddock-v0.6.0-beta.1-win64.zip -R mkulacki/ac-evo-paddock --prerelease --title "AC EVO Paddock v0.6.0-beta.1" --notes-file release/notes-v0.6.0-beta.1.md`, then check that the asset state is `uploaded`;
+  5. optional: the overtake.gg update (`.claude/overtake/README.md`).
+- **Before publishing,** check that the zip is unchanged: SHA-256 `BFA36F50169D2B183C37ABC480CA32C8BA370340D9539F4AA7B1AFA7A1B2E4F0` (`Get-FileHash`).
 
 ## How to resume
 
