@@ -198,4 +198,4 @@
   - The high finding is fixed: a blocking tasklist call on every dashboard request, which reloads after each lap.
   - Both mediums fixed: a full recompute after every lap; no refresh when a report arrives.
   - All 6 lows fixed: calendar days, the first-day PB marker, the target count, touch handling, the HUD error text, the "time" label. Tests extended as suggested.
-- **User approval:** pending.
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
