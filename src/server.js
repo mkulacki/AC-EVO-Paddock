@@ -28,6 +28,7 @@ import { createSetupTracker } from './setupmatch.js';
 import * as setupmatch from './setupmatch.js';
 import * as report from './report.js';
 import * as carreport from './carreport.js';
+import * as channels from './channels.js';
 import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -412,13 +413,13 @@ async function route(req, res) {
     if (!r) {
       // too short for a report: the session page shows the basics and the laps
       if (!laps.length) return send(res, 404, { error: 'This session has no laps.' });
-      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return send(res, 200, { data: null, session: db.getSession(id) ?? null, laps, hasKey: !!settings.get().geminiApiKey, probeConfirmed: !!settings.get().probeConfirmed });
+      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return send(res, 200, { data: null, session: db.getSession(id) ?? null, laps, hasKey: !!settings.get().geminiApiKey, probeConfirmed: channels.trusted('setupProbe'), channels: channels.summary() });
       try { report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); }
     }
     const c = r.data.combo;
     return send(res, 200, { ...r, setupChoices: setupmatch.candidates(c.car, c.track, c.layout).map((x) => ({ name: x.file.name, rel: x.file.rel })),
-      probeConfirmed: !!settings.get().probeConfirmed, hasKey: !!settings.get().geminiApiKey,
-      laps });
+      probeConfirmed: channels.trusted('setupProbe'), channels: channels.summary(), hasKey: !!settings.get().geminiApiKey,
+      ai: r.ai ? { ...r.ai, ...ai.splitConfidence(r.ai.text) } : null, laps });
   }
   if (p === '/api/report/regenerate' && m === 'POST') {
     const { session } = await readJson(req);
@@ -439,12 +440,12 @@ async function route(req, res) {
     if (!r) return send(res, 404, { error: 'Report not found' });
     const out = await ai.debrief(r.data);
     db.saveReportAi(Number(session), out.text, out.model);
-    return send(res, 200, { ...out, at: Date.now() });
+    return send(res, 200, { ...out, ...ai.splitConfidence(out.text), at: Date.now() });
   }
   // ---- setup fingerprint check (Setups tab): what Paddock reads in the pits against the saved setups
   if (p === '/api/setupcheck' && m === 'GET') {
     return send(res, 200, { live: setupTracker.live(), current: setupTracker.current(), conditions: setupTracker.conditions(),
-      probe: source.lastRaw?.frame?.probe ?? null, carData: source.lastRaw?.frame?.carData ?? null, inSession: inSession(), confirmed: !!settings.get().probeConfirmed });
+      probe: source.lastRaw?.frame?.probe ?? null, carData: source.lastRaw?.frame?.carData ?? null, inSession: inSession(), confirmed: channels.trusted('setupProbe'), channels: channels.list() });
   }
   // car & setup report of a session (tyres, brakes, suspension, balance): Car & setup tab
   if (p === '/api/carreport' && m === 'GET') {
@@ -458,10 +459,16 @@ async function route(req, res) {
     } catch (e) { return send(res, 400, { error: e.message }); }
   }
   if (p === '/api/setupcheck/confirm' && m === 'POST') {
-    const { ok } = await readJson(req);
-    settings.update({ probeConfirmed: !!ok });
-    return send(res, 200, { confirmed: !!ok });
+    // {group, ok}: ok true = the readings match the game, false = they do not, null = forget the check.
+    // Without a group (Paddock before 0.6): the pit-box readings and the temperatures.
+    const { group, ok = null } = await readJson(req);
+    try {
+      for (const g of group ? [group] : ['setupProbe', 'conditions']) channels.confirm(g, ok);
+      return send(res, 200, { confirmed: channels.trusted('setupProbe'), channels: channels.list() });
+    } catch (e) { return send(res, 400, { error: e.message }); }
   }
+  // what each telemetry reading is worth: checked against the game or not (src/channels.js)
+  if (p === '/api/channels') return send(res, 200, channels.list());
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows
   if (p === '/api/overview') {
@@ -556,6 +563,7 @@ async function route(req, res) {
       const body = await readJson(req);
       if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.startsWith('••••')) delete body.geminiApiKey;
       if (body.markButton !== undefined && body.markButton !== null) delete body.markButton; // set only by /api/wheel/capture
+      delete body.channelChecks; delete body.probeConfirmed; // set only by /api/setupcheck/confirm
       const oldPath = settings.get().gamePath, oldKey = settings.get().markKey;
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
@@ -572,13 +580,13 @@ async function route(req, res) {
     const refKey = `${cmp.ref.id}:${cmp.ref.lapTimeMs}`;
     if (!question && !force) {
       const cached = db.getAnalysis(lapId, refKey);
-      if (cached) return send(res, 200, { text: cached.text, model: cached.model, cached: true, createdAt: cached.created_at });
+      if (cached) return send(res, 200, { ...ai.splitConfidence(cached.text), model: cached.model, cached: true, createdAt: cached.created_at });
     }
     const lap = cmp.laps.find((l) => l.id === lapId);
     if (!lap) return send(res, 400, { error: 'Pick a lap different from the reference' });
     const out = await ai.coach(cmp, lap, question, question ? db.getAnalysis(lapId, refKey)?.text : null);
     if (!question) db.saveAnalysis(lapId, refKey, out.model, out.text);
-    return send(res, 200, { ...out, cached: false, createdAt: Date.now() });
+    return send(res, 200, { ...out, ...ai.splitConfidence(out.text), cached: false, createdAt: Date.now() });
   }
   if (p === '/api/ai/summary') { // what exactly is sent to the AI (transparency/debug)
     const lapId = Number(url.searchParams.get('lap')), ref = url.searchParams.get('ref') || 'best';

@@ -67,7 +67,7 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | Setup vs driving issue analysis | Partial | setup engineer + Car & setup rules, but on **unverified** channels, and the engineer does not split laps by setup (README limitation) |
 | Telemetry-aware chat | Partial | follow-ups per lap only; no chat across sessions or combos |
 | Improvement recommendations | Done | coach, debrief, targets |
-| Confidence indicators | Missing | Car & setup says "(to be confirmed in game)" in its text; AI answers carry no confidence or provenance |
+| Confidence indicators | Done (P2) | provenance badges, unconfirmed hints kept apart, AI confidence on every answer |
 
 ## Garage and car setup
 

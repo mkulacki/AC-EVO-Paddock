@@ -9,6 +9,7 @@ import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { spawn, execFileSync } from 'node:child_process';
 import { isolate, ROOT } from './helpers.js';
 
@@ -73,6 +74,49 @@ test('the Gemini key is never sent to the page, only masked', async () => {
   const s = await json('/api/settings');
   assert.equal(s.geminiApiKey, '••••' + FAKE_KEY.slice(-4));
   for (const p of ['/api/settings', '/api/status', '/api/game', '/api/overview']) assert.ok(!(await get(p)).includes(FAKE_KEY), `${p} leaks the key`);
+});
+
+test('telemetry checks: list, confirm a group, refuse unknown ones, not settable through /api/settings', async () => {
+  const list = await json('/api/channels');
+  assert.equal(list.find((g) => g.id === 'tyres').status, 'unverified');
+  const send = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  let r = await send('/api/setupcheck/confirm', { group: 'tyres', ok: true });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).channels.find((g) => g.id === 'tyres').status, 'verified');
+  assert.equal((await send('/api/setupcheck/confirm', { group: 'slip', ok: true })).status, 400);
+  await send('/api/settings', { channelChecks: { brakes: true } });
+  assert.equal((await json('/api/channels')).find((g) => g.id === 'brakes').status, 'unverified');
+  await send('/api/setupcheck/confirm', { group: 'tyres', ok: null });
+  assert.equal((await send('/api/setupcheck/confirm', { group: 'tyres', ok: 'yes' })).status, 400, 'ok must be a boolean or null');
+  // an old client (no group): the pit-box readings and temperatures, as before
+  r = await send('/api/setupcheck/confirm', { ok: true });
+  const st = Object.fromEntries((await r.json()).channels.map((g) => [g.id, g.status]));
+  assert.equal(st.setupProbe, 'verified'); assert.equal(st.conditions, 'verified'); assert.equal(st.tyres, 'unverified');
+  await send('/api/setupcheck/confirm', { ok: null });
+});
+
+test('saved AI answers come back with their confidence split off (no Gemini call)', async () => {
+  const o = await json('/api/overview');
+  const sid = o.sessions.find((s) => o.laps.some((l) => l.session_id === s.id)).id;
+  const rep = await json(`/api/report?session=${sid}`); // makes the report
+  assert.equal(rep.ai, null);
+  assert.equal(typeof rep.channels, 'object');
+  const dbf = new DatabaseSync(path.join(env.ACEVO_DATA, 'telemetry.db'));
+  dbf.prepare('UPDATE reports SET ai_text = ?, ai_model = ?, ai_at = ? WHERE session_id = ?').run('Good session.\nConfidence: medium - 6 laps', 'stub', Date.now(), sid);
+  // a saved coach answer for a lap against the best lap (the key the server uses: "<ref id>:<ref time>")
+  const valid = o.laps.filter((l) => l.valid && l.session_id === sid).sort((a, b) => a.lap_time_ms - b.lap_time_ms);
+  const [best, other] = valid;
+  dbf.prepare('INSERT INTO analyses (lap_id, ref_key, model, created_at, text) VALUES (?,?,?,?,?)').run(other.id, `${best.id}:${best.lap_time_ms}`, 'stub', Date.now(), 'Brake later.\n**Confidence:** low - one lap');
+  dbf.close();
+  const rep2 = await json(`/api/report?session=${sid}`);
+  assert.equal(rep2.ai.text, 'Good session.');
+  assert.deepEqual(rep2.ai.confidence, { level: 'medium', basis: '6 laps' });
+  const r = await fetch(base + '/api/ai/analyze', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lap: other.id, ref: 'best' }) });
+  assert.equal(r.status, 200);
+  const a = await r.json();
+  assert.equal(a.cached, true, 'served from the database, Gemini not called');
+  assert.equal(a.text, 'Brake later.');
+  assert.deepEqual(a.confidence, { level: 'low', basis: 'one lap' });
 });
 
 // raw request: fetch/URL would clean up "../" before sending it

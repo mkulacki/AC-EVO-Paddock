@@ -67,6 +67,28 @@ export const stats = (vals) => {
   return { n: v.length, mean, sd, min: v[0], max: v[v.length - 1], median: q(0.5), q1: q(0.25), q3: q(0.75) };
 };
 
+// ---------------------------------------------------------------- provenance (src/channels.js, docs/DECISIONS.md)
+// Where a value comes from and whether it was checked against the game. Kinds: a channel status (verified,
+// unverified, mismatch, missing) or calculated / ai.
+const PROV = {
+  verified: ['Measured', 'Read from the game, and checked against what the game shows.'],
+  unverified: ['Unconfirmed', 'Read from the game\'s shared memory, but not checked against the game yet. Check it in Setups → Setup recognition.'],
+  mismatch: ['Wrong reading', 'You found that these readings do not match the game. Treat them as wrong.'],
+  missing: ['Not available', 'The game did not provide this reading in this session.'],
+  calculated: ['Calculated', 'Worked out by Paddock from readings checked against the game.'],
+  ai: ['AI', 'Written by an AI model (Gemini) from the data shown. It can be wrong.'],
+};
+/** A small badge: prov('unverified'), prov('calculated', 'From your valid laps.') */
+export function prov(kind, more = '') {
+  const [label, tip] = PROV[kind] || PROV.unverified;
+  return `<span class="prov prov-${PROV[kind] ? kind : 'unverified'}" title="${esc(`${tip}${more ? ` ${more}` : ''}`)}">${label}</span>`;
+}
+/** The line under an AI answer: AI badge, confidence and what it rests on. c = {level, basis} or null. */
+export function aiConfidence(c) {
+  if (!c) return `<div class="ai-conf">${prov('ai')}<span class="conf conf-none" title="The answer does not rate its own confidence: it was saved before Paddock asked for a rating, or the model left it out. Judge it by the data it quotes.">Confidence not rated</span></div>`;
+  return `<div class="ai-conf">${prov('ai')}<span class="conf conf-${esc(c.level)}">Confidence: ${esc(c.level)}</span>${c.basis ? `<span class="hint">${esc(c.basis)}</span>` : ''}</div>`;
+}
+
 // minimal markdown -> HTML
 export function md(src) {
   const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^*]+)\*/g, '$1<i>$2</i>').replace(/`([^`]+)`/g, '<code>$1</code>');

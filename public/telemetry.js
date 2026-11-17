@@ -2,7 +2,7 @@
 // Layout: lap picker · "where the time went" bar (one segment per corner and straight) · on the left the track map and the
 // selected corner, on the right the charts. One cursor: hovering the charts or the map moves the cursor on all charts and the
 // cars on the map. Clicking a corner (bar, map or the corner card) zooms the charts and the map to it.
-import { css, esc, api, post, fmt, fmtGap, gapClass, idxAt, md, getMirror, sideTxt, fitProjection, gearTxt, SERIES } from './util.js';
+import { css, esc, api, post, fmt, fmtGap, gapClass, idxAt, md, aiConfidence, getMirror, sideTxt, fitProjection, gearTxt, SERIES } from './util.js';
 
 const MAX_LAPS = 3;
 const color = (i) => css(SERIES[i]); // 0 = reference, 1.. = laps
@@ -475,7 +475,7 @@ function mountAi(box, lap, data, ref, hasKey) {
     if (append) out.appendChild(h); else { out.innerHTML = ''; out.appendChild(h); }
     try {
       const r = await post('/api/ai/analyze', { lap: lap.id, ref: String(ref), ...body });
-      h.innerHTML = (body.question ? `<p class="secondary"><b>Q:</b> ${esc(body.question)}</p>` : '') + md(r.text)
+      h.innerHTML = (body.question ? `<p class="secondary"><b>Q:</b> ${esc(body.question)}</p>` : '') + md(r.text) + aiConfidence(r.confidence)
         + `<p class="muted" style="font-size:12px">${r.cached ? 'Saved analysis from' : 'Analysis by'} ${esc(r.model)}, ${new Date(r.createdAt).toLocaleString()}${r.cached ? ' <button class="small ghost" data-re>Analyze again</button>' : ''}</p>`;
       if (r.cached) h.querySelector('[data-re]').onclick = () => run({ force: true });
       qBox.hidden = false;

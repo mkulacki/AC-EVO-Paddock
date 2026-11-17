@@ -6,6 +6,17 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### Honest data: what is measured and what is not
+
+- Every reading now says where it comes from: **Measured** (checked against the game), **Unconfirmed** (read from shared memory, not checked yet), **Calculated**, **AI**, **Not available**.
+- **Setups → Setup recognition → Checked against the game:** confirm each group separately (pit-box readings, temperatures, tyres, brakes, suspension) instead of one switch. An earlier "Readings match the game" still counts for the pit-box readings and temperatures.
+- **Car & setup:** suggestions based on readings you have not checked are listed apart, under *Unconfirmed hints*, instead of as advice. Balance (understeer / oversteer) comes from slip angles, which the game does not show, so it is shown as an unconfirmed reading.
+- **AI coach, debrief and setup engineer** now rate their confidence (high, medium, low) and say what it rests on; they are told which readings are not checked and must not state them as facts.
+
+### Development
+
+- Automated tests: `npm test` (unit tests and an API smoke test with the mock car) and `npm run check` (syntax). See README, Contributing.
+
 ## 0.5.0-beta.1
 
 ### New: Car & setup report

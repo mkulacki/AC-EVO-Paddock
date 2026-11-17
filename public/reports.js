@@ -1,7 +1,7 @@
 // Session page (Sessions → a session): telemetry of its laps (public/telemetry.js), its report and its laps. Reports are made automatically when a session ends (3+ laps, one valid), or on request for older sessions.
 // Best lap and average, change against earlier sessions, best / weakest corners, consistency, setups and
 // conditions, lap-time trend, theoretical best, track limits, next practice targets and the AI debrief.
-import { $, css, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES, md } from './util.js';
+import { $, css, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES, md, prov, aiConfidence } from './util.js';
 import { mountTelemetry } from './telemetry.js';
 import { mountCarSetup } from './carsetup.js';
 
@@ -44,8 +44,9 @@ export async function viewReport(view, params, cleanup) {
     </div>`;
   }).join('') : '<p class="muted">Not enough laps through the corners yet.</p>'}</div>`;
 
-  const setupCard = () => `<div class="card"><h2>Setup${r.setups.length > 1 ? 's' : ''} used</h2>
-    ${res.probeConfirmed ? '' : '<p class="muted" style="font-size:12px;margin:0 0 8px">Setup recognition has not been checked in the game yet. Check it once in the <a href="#/setups">Setups</a> tab (stand in the pit box with a saved setup loaded).</p>'}
+  const ch = res.channels || {};
+  const setupCard = () => `<div class="card"><h2>Setup${r.setups.length > 1 ? 's' : ''} used${prov(ch.setupProbe || 'unverified', 'Recognised from the tyre pressures, camber, brake bias and fuel read in the pit box.')}</h2>
+    ${ch.setupProbe === 'verified' ? '' : `<p class="muted" style="font-size:12px;margin:0 0 8px">${ch.setupProbe === 'mismatch' ? 'You found that the pit-box readings do not match the game, so the recognised setup is likely wrong.' : 'The pit-box readings behind setup recognition have not been checked in the game yet.'} Check them in the <a href="#/setups">Setups</a> tab (stand in the pit box with a saved setup loaded), or correct a setup below.</p>`}
     ${r.setups.map((s, i) => {
       const [label, tip] = s.name == null ? ['Not recorded', 'Laps recorded before Paddock linked setups to laps'] : MATCH[s.match] || ['', ''];
       const vals = s.values ? Object.entries(s.values) : [];
@@ -66,8 +67,7 @@ export async function viewReport(view, params, cleanup) {
   const conditionsCard = `<div class="card"><h2>Conditions</h2>
     ${c?.launch ? `<p style="margin:0 0 6px"><b>${esc(c.launch.weather)}</b>${c.launch.dynamic ? ' (changing)' : ''} · grip ${esc(c.launch.grip)} · start ${esc(c.launch.time)} · ${esc(c.launch.mode)}</p>`
       : '<p class="muted" style="margin:0 0 6px">Weather and grip are known for sessions started from the Race tab.</p>'}
-    <p style="margin:0">Air ${temp(c?.airC)} · Track ${temp(c?.roadC)}</p>
-    ${res.probeConfirmed || !(c?.airC || c?.roadC) ? '' : '<p class="muted" style="font-size:12px;margin:6px 0 0">Temperatures are read from shared memory and not confirmed in game yet.</p>'}</div>`;
+    <p style="margin:0">Air ${temp(c?.airC)} · Track ${temp(c?.roadC)} ${c?.airC || c?.roadC ? prov(ch.conditions || 'unverified') : ''}</p></div>`;
 
   const tl = r.trackLimits;
   const limitsCard = `<div class="card"><h2>Track limits</h2>${!tl.invalid ? '<p class="neg" style="margin:0">No invalid laps.</p>'
@@ -108,7 +108,7 @@ export async function viewReport(view, params, cleanup) {
       : '<p class="muted" style="margin:0">Your first session with this car on this track: the next report compares against this one.</p>'}</div>
 
     <div class="grid-2">${cornerCard('Best corners', r.corners.best, false)}${cornerCard('Weakest corners', r.corners.weakest, true)}</div>
-    <p class="muted" style="font-size:12px;margin:-6px 0 16px">Corner times: your typical time today (the middle of your valid laps) against your fastest pass of that corner ever.${cons.worstCorner ? ` Least consistent corner: <b>${esc(cons.worstCorner.name)}</b> (${pm(cons.worstCorner.sdMs)}).` : ''}</p>
+    <p class="muted" style="font-size:12px;margin:-6px 0 16px">${prov('calculated', 'From your lap times, speed and inputs.')} Corner times: your typical time today (the middle of your valid laps) against your fastest pass of that corner ever.${cons.worstCorner ? ` Least consistent corner: <b>${esc(cons.worstCorner.name)}</b> (${pm(cons.worstCorner.sdMs)}).` : ''}</p>
 
     <div class="card"><div class="row" style="margin-bottom:6px"><h2 style="margin:0">Lap times</h2><span class="spacer"></span><div class="legend" id="rLegend"></div></div><div id="rTrend"></div></div>
 
@@ -121,7 +121,7 @@ export async function viewReport(view, params, cleanup) {
 
     <div class="card"><div class="row"><h2 style="margin:0">AI debrief</h2><span class="spacer"></span>
       <button id="rAi" class="${res.ai ? 'ghost' : 'primary'}" ${res.hasKey ? '' : 'disabled title="Add a Gemini API key in Settings"'}>${res.ai ? 'Write again' : 'Write debrief'}</button></div>
-      <div id="rAiOut" style="margin-top:8px">${res.ai ? `<div class="ai-out">${md(res.ai.text)}</div><p class="muted" style="font-size:12px">${esc(res.ai.model)}, ${esc(when(res.ai.at))}</p>`
+      <div id="rAiOut" style="margin-top:8px">${res.ai ? `<div class="ai-out">${md(res.ai.text)}</div>${aiConfidence(res.ai.confidence)}<p class="muted" style="font-size:12px">${esc(res.ai.model)}, ${esc(when(res.ai.at))}</p>`
         : `<p class="muted" style="margin:0">${res.hasKey ? 'Gemini turns this report into a short debrief with a plan for your next session.' : 'Add a Gemini API key in <a href="#/settings">Settings</a> for an AI debrief.'}</p>`}</div></div>
     </div>`;
 
@@ -139,13 +139,13 @@ export async function viewReport(view, params, cleanup) {
     const b = $('#rAi'); b.disabled = true; b.textContent = 'Writing…';
     try {
       const out = await post('/api/report/ai', { session: id });
-      $('#rAiOut').innerHTML = `<div class="ai-out">${md(out.text)}</div><p class="muted" style="font-size:12px">${esc(out.model)}, just now</p>`;
+      $('#rAiOut').innerHTML = `<div class="ai-out">${md(out.text)}</div>${aiConfidence(out.confidence)}<p class="muted" style="font-size:12px">${esc(out.model)}, just now</p>`;
       b.textContent = 'Write again'; b.className = 'ghost';
     } catch (e) { $('#rAiOut').innerHTML = `<p class="pos">${esc(e.message)}</p>`; b.textContent = 'Write debrief'; }
     b.disabled = false;
   };
 
-  await bindSession(view, params, cleanup, { id, laps: res.laps, bestLapId: r.best.lapId, hasKey: res.hasKey, probeConfirmed: res.probeConfirmed, reload, onReport: drawTrend });
+  await bindSession(view, params, cleanup, { id, laps: res.laps, bestLapId: r.best.lapId, hasKey: res.hasKey, reload, onReport: drawTrend });
 
   // ---- lap-time trend (uPlot): valid laps, invalid laps, clean average, theoretical best. Drawn when the Report tab is first shown
   function drawTrend() {
@@ -193,7 +193,7 @@ function sessionTabs(laps, bestLapId, bestMs, report = true) {
         <span class="hint">click a lap to analyse it · tick up to 3 to compare</span></summary>
         ${lapsBlock(laps, { bestMs, bestLapId })}</details></div>`;
 }
-async function bindSession(view, params, cleanup, { id, laps, bestLapId, hasKey, probeConfirmed, reload, onReport }) {
+async function bindSession(view, params, cleanup, { id, laps, bestLapId, hasKey, reload, onReport }) {
   const want = params.get('tab');
   const state = { tab: want === 'report' && onReport ? 'report' : want === 'car' ? 'car' : 'tele', tele: null };
   const url = (s) => `#/report?session=${id}${s ? `&laps=${s.laps.join(',')}&ref=${s.ref}${s.corner ? `&c=${encodeURIComponent(s.corner)}` : ''}` : ''}${state.tab !== 'tele' ? `&tab=${state.tab}` : ''}`;
@@ -207,7 +207,7 @@ async function bindSession(view, params, cleanup, { id, laps, bestLapId, hasKey,
     if ($('#tabReport')) $('#tabReport').hidden = tab !== 'report';
     $('#tabCar').hidden = tab !== 'car';
     if (tab === 'report' && !trendDrawn && onReport) { trendDrawn = true; onReport(); }
-    if (tab === 'car' && !carShown) { carShown = true; mountCarSetup($('#tabCar'), id, { probeConfirmed }); }
+    if (tab === 'car' && !carShown) { carShown = true; mountCarSetup($('#tabCar'), id); }
     history.replaceState(null, '', url(teleState));
   };
   view.querySelectorAll('.sess-tabs [data-tab]').forEach((a) => a.onclick = (e) => { e.preventDefault(); show(a.dataset.tab); });
@@ -298,5 +298,5 @@ async function viewBasic(view, res, reload, params, cleanup) {
     </div>
     <p class="muted" style="margin:0 0 16px">A session report needs 3 laps or more, one of them valid.</p>
     ${sessionTabs(laps, best?.id, best?.lap_time_ms, false)}`;
-  await bindSession(view, params, cleanup, { id: s?.id ?? c.session_id, laps, bestLapId: best?.id ?? null, hasKey: res.hasKey, probeConfirmed: res.probeConfirmed, reload, onReport: null });
+  await bindSession(view, params, cleanup, { id: s?.id ?? c.session_id, laps, bestLapId: best?.id ?? null, hasKey: res.hasKey, reload, onReport: null });
 }

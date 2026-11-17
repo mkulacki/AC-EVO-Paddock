@@ -1,7 +1,7 @@
 // Setups tab: the game's own saved setups (Saved Games\ACE\Car Setups\<car>\<track>\*.carsetup), per car, with the
 // chosen track's setups first. Setups are loaded and saved in the game's own setup screen; here they are read,
 // edited (as files), explained and changed by the AI setup engineer, copied to other tracks and shared.
-import { $, esc, api, post, askText } from './util.js';
+import { $, esc, api, post, askText, prov, aiConfidence } from './util.js';
 import { openGarage, openTrackPicker, thumbUrl } from './garage.js';
 
 const FROM = { shared: 'Shared', paddock: 'Edited in Paddock', ai: 'AI engineer', copy: 'Copied' };
@@ -129,10 +129,10 @@ export async function viewSetups(view, params, cleanup) {
       <div class="row" style="margin-top:8px"><span class="spacer"></span><button id="aiAsk" ${a.busy ? 'disabled' : ''}>${a.busy ? '<span class="spinner"></span> Thinking…' : res ? 'Ask again' : 'Ask the engineer'}</button></div>
       ${a.error ? `<p class="error">${esc(a.error)}</p>` : ''}
       ${res ? `<div class="ai-out" style="margin-top:10px">
-          <div class="md">${md(res.summary)}</div>
+          <div class="md">${md(res.summary)}</div>${aiConfidence(res.confidence)}
           ${res.changes.length ? `<h3 style="margin-top:12px">Proposed changes</h3><table class="setup-values"><tbody>${res.changes.map((c) => `<tr>
               <td><label class="row" style="gap:6px"><input type="checkbox" data-aipick="${esc(c.name)}" ${a.pick?.has(c.name) ? 'checked' : ''}> ${esc(label(c.name))}</label></td>
-              <td style="white-space:nowrap">${esc(val(c.name, c.from))} → <b>${esc(val(c.name, c.to))}</b></td><td class="muted" style="font-size:12.5px">${esc(c.reason)}</td></tr>`).join('')}</tbody></table>
+              <td style="white-space:nowrap">${esc(val(c.name, c.from))} → <b>${esc(val(c.name, c.to))}</b></td><td class="muted" style="font-size:12.5px">${esc(c.reason)}${c.confidence ? ` <span class="conf conf-${esc(c.confidence)}" style="white-space:nowrap">(confidence: ${esc(c.confidence)})</span>` : ''}</td></tr>`).join('')}</tbody></table>
             <div class="row" style="margin-top:8px"><span class="spacer"></span><button id="aiApply">Put the ticked changes in the values ▾</button></div>`
           : '<p class="muted">No setup changes proposed.</p>'}
           ${res.skipped?.length ? `<p class="muted" style="font-size:12px">Ignored (not adjustable on this car): ${esc(res.skipped.join(', '))}</p>` : ''}
@@ -324,6 +324,25 @@ function carCheck(cd, open) {
     </tbody></table><p class="muted" style="font-size:12px;margin:4px 0 0">Compare with the game's tyre page (temperatures and pressures) while standing still.</p></details>`;
 }
 
+// Which telemetry readings were checked against the game (src/channels.js). Unchecked ones are shown as unconfirmed
+// everywhere, and conclusions based on them are kept apart from the confirmed ones.
+function channelChecks(list, open) {
+  const ask = list.filter((g) => g.confirmable), fixed = list.filter((g) => !g.confirmable);
+  return `<details class="chan-checks" style="margin-top:10px" ${(open ?? ask.some((g) => g.status !== 'verified')) ? 'open' : ''}>
+    <summary><b>Checked against the game</b> <span class="muted" style="font-size:12px">${ask.filter((g) => g.status === 'verified').length} of ${ask.length} groups</span></summary>
+    <p class="muted" style="font-size:12px;margin:6px 0">Compare each group with what the game shows (live values above while you drive or stand in the pits), then say whether they match.</p>
+    ${ask.map((g) => `<div class="chan">
+      <div class="chan-head">${prov(g.status)} <b>${esc(g.label)}</b></div>
+      <div class="muted chan-hint">${esc(g.check || '')}</div>
+      <div class="row chan-btns">${g.status === 'verified' || g.status === 'mismatch'
+        ? `<button class="small ghost" data-group="${esc(g.id)}" data-ok="reset">Undo</button>`
+        : `<button class="small" data-group="${esc(g.id)}" data-ok="1">Matches the game</button><button class="small ghost" data-group="${esc(g.id)}" data-ok="0">Doesn't match</button>`}</div>
+    </div>`).join('')}
+    <details class="chan-fixed"><summary class="muted">Readings that cannot be checked here (${fixed.length})</summary>
+      ${fixed.map((g) => `<div class="chan"><div class="chan-head">${prov(g.status)} <b>${esc(g.label)}</b></div><div class="muted chan-hint">${esc(g.note || '')}</div></div>`).join('')}
+    </details></details>`;
+}
+
 function mountSetupCheck(el, cleanup) {
   let busy = false;
   async function draw() {
@@ -333,6 +352,7 @@ function mountSetupCheck(el, cleanup) {
     busy = false;
     const res = c.live?.result, top = res?.scores?.[0];
     const wasOpen = !!el.querySelector('details.car-chk')?.open; // redrawn every 3 s: keep it open
+    const chOpen = el.querySelector('details.chan-checks')?.open; // undefined on the first draw
     const t = (x) => (x ? `${x.avg} °C` : '–');
     el.innerHTML = `<div class="card setup-check">
       <h3>Setup recognition</h3>
@@ -344,10 +364,17 @@ function mountSetupCheck(el, cleanup) {
           <td>${+p.you.toFixed(2)}</td><td class="${Math.abs(p.you - p.file) <= p.tol ? 'neg' : 'pos'}">${+p.file.toFixed(2)}</td></tr>`).join('')}</tbody></table>`
           : '<p class="muted" style="margin:0">No saved setup for this car and track to compare with.</p>'}
         <p class="muted" style="font-size:12px;margin:6px 0">Air ${t(c.conditions?.airC)} · Track ${t(c.conditions?.roadC)}</p>
-        ${carCheck(c.carData, wasOpen)}
-        <div class="row"><button class="small" data-ok="1">Readings match the game</button><button class="small ghost" data-ok="0">They don't</button></div>`}
+        ${carCheck(c.carData, wasOpen)}`}
+      ${channelChecks(c.channels || [], chOpen)}
     </div>`;
-    el.querySelectorAll('[data-ok]').forEach((b) => { b.onclick = async () => { await post('/api/setupcheck/confirm', { ok: b.dataset.ok === '1' }); draw(); }; });
+    el.querySelectorAll('[data-ok]').forEach((b) => {
+      b.onclick = async () => {
+        b.disabled = true;
+        const ok = b.dataset.ok === 'reset' ? null : b.dataset.ok === '1';
+        try { await post('/api/setupcheck/confirm', { group: b.dataset.group, ok }); } catch (e) { alert(e.message); }
+        draw();
+      };
+    });
   }
   draw();
   const timer = setInterval(draw, 3000);

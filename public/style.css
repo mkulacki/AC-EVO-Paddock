@@ -179,6 +179,31 @@ h3 { font-weight: 600; font-size: var(--fs-sm); line-height: 1.3; margin: 0 0 8p
 /* mod (third-party) content: one solid colour so it reads the same on cards, photos and plain panels */
 .badge.mod, .pick-media .over .badge.mod, .car-card .img .cat .badge.mod { border-color: transparent; background: var(--mod); color: var(--on-mod); }
 .badge.kunos { color: var(--text-secondary); }
+/* provenance: where a value comes from (util.js prov). Shape, not colour, carries "unconfirmed" (colour means timing here):
+   solid outline = checked, dashed = not checked against the game, strike = known wrong */
+.prov {
+  display: inline-flex; align-items: center; font-weight: 600; font-size: 11px; line-height: 1.4; letter-spacing: .02em;
+  padding: 0 6px; border-radius: 2px; border: 1px solid var(--border-strong); color: var(--text-secondary); white-space: nowrap;
+  vertical-align: middle; cursor: help; text-transform: none; font-style: normal; font-family: var(--font);
+}
+.prov-unverified { border-style: dashed; color: var(--text-primary); }
+.prov-mismatch { border-color: var(--critical); color: var(--critical); text-decoration: line-through; }
+.prov-missing { color: var(--text-muted); border-color: var(--border); }
+.prov-ai { border-color: transparent; background: var(--surface-3); color: var(--text-primary); }
+h2 .prov, h3 .prov { margin-left: 8px; }
+.ai-conf { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 4px; font-size: var(--fs-xs); }
+.conf { font-weight: 600; }
+.conf-high { color: var(--text-primary); }
+.conf-medium { color: var(--text-secondary); }
+.conf-low, .conf-none { color: var(--text-muted); }
+.sugs.unconfirmed b { font-weight: 500; }
+/* Setups → Setup recognition: which telemetry groups were checked against the game (narrow side column) */
+.chan { padding: 8px 0; border-top: 1px solid var(--border); font-size: 12.5px; }
+.chan-head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.chan-hint { font-size: 12px; margin-top: 2px; }
+.chan-btns { margin-top: 6px; gap: 6px; flex-wrap: wrap; }
+.chan-fixed { margin-top: 6px; }
+.chan-fixed > summary { font-size: 12px; cursor: pointer; padding: 4px 0; }
 
 /* tables */
 table { width: 100%; border-collapse: collapse; }
@@ -666,5 +691,8 @@ button.cseg:hover { box-shadow: inset 0 0 0 2px var(--text-primary); }
 .balbar .fill.os { background: var(--faster); }
 .us-t { color: var(--slower); }
 .os-t { color: var(--faster); }
+/* balance from unconfirmed slip angles: shown, but not as a verdict */
+.balbar.unconf .fill { opacity: .4; }
+.bal-unc { color: var(--text-secondary); }
 .balscale { display: flex; justify-content: space-between; margin-left: 90px; margin-right: 140px; }
 @media (max-width: 1000px) { .car-grid { grid-template-columns: 1fr; } }
