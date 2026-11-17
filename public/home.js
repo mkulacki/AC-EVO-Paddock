@@ -60,11 +60,11 @@ export async function viewHome(view, cleanup) {
       <div class="muted s">${esc(prettyName(t.car))} · best <b class="best">${fmt(t.bestMs)}</b>${t.idealMs ? ` · ideal ${fmt(t.idealMs)}` : ''}</div>
       ${spark(t.days, i)}</div>`).join('')}</div>` : '';
 
-  const records = `<div class="card"><h2>Your records</h2><div class="tablewrap"><table class="home-rec"><thead><tr><th>Track</th><th>Car</th><th>Best lap</th><th title="Your best corners, from any lap, put together">Ideal lap</th><th title="Best lap minus ideal lap">Could gain</th><th>Laps</th><th>Last driven</th><th></th></tr></thead>
+  const records = `<div class="card"><h2>Your records</h2><div class="tablewrap"><table class="home-rec"><thead><tr><th>Track</th><th>Car</th><th>Best lap</th><th title="Your best corners, from any lap, put together">Ideal lap</th><th title="Best lap minus ideal lap">Could gain</th><th title="Performance score of your last ${d.scoreLaps} laps here, 0–100 (calculated). ${esc(d.scoreFormula || '')}">Score</th><th>Laps</th><th>Last driven</th><th></th></tr></thead>
     <tbody>${d.records.map((c) => `<tr><td>${combo(c)}</td><td>${esc(prettyName(c.car))}</td>
       <td>${c.bestMs != null ? `<b class="best">${fmt(c.bestMs)}</b>` : '<span class="muted">no valid lap</span>'}</td>
       <td>${c.idealMs ? fmt(c.idealMs) : '–'}</td><td>${c.idealMs && c.bestMs ? fmtGap(c.bestMs - c.idealMs) : '–'}</td>
-      <td>${c.validLaps}<span class="muted"> / ${c.laps}</span></td><td class="muted">${esc(ago(c.lastAt))}</td>
+      <td>${scoreCell(c)}</td><td>${c.validLaps}<span class="muted"> / ${c.laps}</span></td><td class="muted">${esc(ago(c.lastAt))}</td>
       <td style="white-space:nowrap"><a href="#/progress?combo=${encodeURIComponent(c.key)}">Progress</a>${c.bestLapId && c.idealMs ? ` · <a href="#/compare?laps=${c.bestLapId}&ref=ideal">Best against ideal</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
 
   view.innerHTML = `<div class="race-head"><div><h1>Home</h1><div class="sub">Your driving at a glance, from your own laps.</div></div><span class="spacer"></span><a href="#/race"><button class="primary">Set up a session</button></a></div>
@@ -117,4 +117,11 @@ function bindSparks(view, trends) {
     const hide = () => { cross.setAttribute('visibility', 'hidden'); dot.hidden = true; tip.hidden = true; };
     svg.addEventListener('pointermove', show); svg.addEventListener('pointerdown', show); svg.addEventListener('pointerleave', hide);
   });
+}
+
+// the performance score (src/analysis.js performanceScore) of the last laps, with its parts; links to the breakdown
+function scoreCell(c) {
+  const s = c.score;
+  if (!s || s.score == null) return `<span class="muted" title="${esc(`No score yet: ${s?.reason || 'no laps'}.`)}">–</span>`;
+  return `<a href="#/consistency?combo=${encodeURIComponent(c.key)}" title="Pace ${s.pace} · consistency ${s.consistency} · validity ${s.validity} (calculated). Click for the breakdown."><b>${s.score}</b></a>`;
 }

@@ -2,7 +2,7 @@ import * as db from './db.js';
 import { cornersOnGrid } from './track.js';
 import * as trackdata from './trackdata.js';
 import { resample, detectCorners, cornerMetrics, lapStats, deltaSeries, buildIdeal, gridStep, CHANNELS,
-  lateralOffsets, turnSign, envelope } from './analysis.js';
+  lateralOffsets, turnSign, envelope, performanceScore, SCORE_FORMULA, TECHNIQUE } from './analysis.js';
 
 const comboKey = (m) => `${m.track}|${m.layout}|${m.car}`;
 export const parseCombo = (key) => { const [track, layout, car] = key.split('|'); return { track, layout, car }; };
@@ -163,7 +163,7 @@ export function compare(lapIds, refSpec) {
       trace: packTrace(ref.R), stats: lapStats(ref.R), corners: refMetrics },
     corners: corners.map((c, k) => ({ n: c.n, name: c.name, apex: Math.round(ref.R.d[c.apexIdx]), start: Math.round(ref.R.d[c.a]), end: Math.round(ref.R.d[c.b]), turn: turns[k] })),
     band: trackBand(ref.info, ref), cornersSource: ref.info.cornersSource,
-    bestMs: ref.info.best?.lap_time_ms ?? null, idealMs: ref.info.ideal?.timeMs ?? null,
+    bestMs: ref.info.best?.lap_time_ms ?? null, idealMs: ref.info.ideal?.timeMs ?? null, technique: TECHNIQUE,
     laps,
   };
 }
@@ -185,14 +185,21 @@ export function consistency(combo, session = 'all', includeInvalid = false) {
         recordedAt: l.recorded_at, isBest: l.id === info.best.id, corners: corners.map((c) => cornerMetrics(R, c, wide)) };
     }).filter(Boolean);
   const sessionIds = new Set(all.map((l) => l.session_id));
+  // the score of the laps in view (invalid ones included: validity is part of it)
+  const scored = all.filter((l) => session === 'all' || String(l.session_id) === String(session));
   return {
     combo: { track: combo.track, layout: combo.layout, car: combo.car },
     bestId: info.best.id, bestMs: info.best.lap_time_ms, idealMs: info.ideal?.timeMs ?? null,
     corners: corners.map((c) => ({ n: c.n, name: c.name, apex: Math.round(ref.d[c.apexIdx]) })),
+    score: scoreOf(scored, info.ideal?.timeMs), scoreFormula: SCORE_FORMULA, technique: TECHNIQUE,
     sessions: db.listSessions().filter((s) => sessionIds.has(s.id)).map((s) => ({ id: s.id, startedAt: s.started_at, type: s.session_type })),
     laps,
   };
 }
+
+// Performance score (src/analysis.js performanceScore) of db lap rows against the ideal lap.
+export const SCORE_LAPS = 10;
+export const scoreOf = (rows, idealMs) => performanceScore(rows.map((l) => ({ ms: l.lap_time_ms, valid: !!l.valid })), idealMs);
 
 // Progress over time for one track + car: per driving day (local time) the day's best lap, the all-time
 // best and the ideal lap as they stood at the end of that day, and how repeatable the day's laps were.
@@ -265,9 +272,11 @@ export function dashboard({ now = Date.now(), recent = 5, trends = 3, trendDays 
   };
 
   // personal records: per track + car, the best valid lap and the ideal lap (best corners stitched together)
-  const combos = new Map();
-  for (const l of laps) {
+  const combos = new Map(), lapsBy = new Map(); // lapsBy: comboKey -> laps, newest first
+  for (const l of [...laps].sort((a, b) => b.recorded_at - a.recorded_at)) {
     const k = comboKey(l);
+    if (!lapsBy.has(k)) lapsBy.set(k, []);
+    lapsBy.get(k).push(l);
     if (!combos.has(k)) combos.set(k, { key: k, track: l.track, layout: l.layout, car: l.car, laps: 0, validLaps: 0, lastAt: 0, best: null });
     const c = combos.get(k);
     c.laps++; c.lastAt = Math.max(c.lastAt, l.recorded_at);
@@ -276,8 +285,10 @@ export function dashboard({ now = Date.now(), recent = 5, trends = 3, trendDays 
   const records = [...combos.values()].sort((a, b) => b.lastAt - a.lastAt).map((c) => {
     let idealMs = null;
     try { idealMs = c.best ? comboInfo(c).ideal?.timeMs ?? null : null; } catch { /* lap data unreadable: no ideal */ }
+    // the score of the last laps driven here
+    const score = scoreOf((lapsBy.get(c.key) || []).slice(0, SCORE_LAPS), idealMs);
     return { key: c.key, track: c.track, layout: c.layout, car: c.car, laps: c.laps, validLaps: c.validLaps, lastAt: c.lastAt,
-      bestMs: c.best?.lap_time_ms ?? null, bestLapId: c.best?.id ?? null, bestAt: c.best?.recorded_at ?? null, idealMs };
+      bestMs: c.best?.lap_time_ms ?? null, bestLapId: c.best?.id ?? null, bestAt: c.best?.recorded_at ?? null, idealMs, score };
   });
 
   // recent sessions: the report's summary when there is one, else what the laps say
@@ -318,7 +329,7 @@ export function dashboard({ now = Date.now(), recent = 5, trends = 3, trendDays 
       targets: x.r.targets.map((t) => ({ kind: t.kind, text: t.text })),
       lastCheck: lastCheck(x.r.prevTargets) }));
 
-  return { generatedAt: now, totals, recentSessions: sessions, records, trends: trendList, targets };
+  return { generatedAt: now, scoreFormula: SCORE_FORMULA, scoreLaps: SCORE_LAPS, totals, recentSessions: sessions, records, trends: trendList, targets };
 }
 
 export { CHANNELS };
