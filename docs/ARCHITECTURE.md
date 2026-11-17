@@ -52,7 +52,7 @@ AC EVO shared memory ──(koffi, 60 Hz loop in server.js)──> src/shm.js �
 
 ### Frontend structure
 
-`public/app.js` owns the shell, the router (`#/`, `#/report`, `#/compare`, `#/progress`, `#/consistency`, `#/race`, `#/setups`, `#/tracks`, `#/track`, `#/game`, `#/mods`, `#/settings`), the status bar and the Sessions list. One module per page (`race.js`, `setups.js`, `reports.js`, `telemetry.js`, `replay.js`, `carsetup.js`, …), with shared helpers in `util.js`. The design tokens are CSS custom properties in `style.css` (dark first, light via `prefers-color-scheme`).
+`public/app.js` is the shell: the router (`#/`, `#/report`, `#/compare`, `#/progress`, `#/consistency`, `#/race`, `#/setups`, `#/tracks`, `#/track`, `#/game`, `#/mods`, `#/settings`), the status line and nav dots; `public/palette.js` holds the sidebar toggle, the command palette and the shortcuts. Each render gets its own cleanup list. One module per page (`sessions.js`, `compare.js`, `game.js`, `settingspage.js`,  (`race.js`, `setups.js`, `reports.js`, `telemetry.js`, `replay.js`, `carsetup.js`, …), with shared helpers in `util.js`. The design tokens are CSS custom properties in `style.css` (dark first, light via `prefers-color-scheme`).
 
 ## Hard constraints (do not break)
 
@@ -68,6 +68,5 @@ AC EVO shared memory ──(koffi, 60 Hz loop in server.js)──> src/shm.js �
 ## Known architectural weaknesses
 
 - `src/server.js` (643 lines) mixes the router, the telemetry loop, game orchestration and session-end handling. It works, but every new feature adds a route there.
-- `public/app.js` mixes the shell, the router and the Sessions page.
 - **Shared-memory offsets are community-sourced and only partly verified in game** (`src/shm.js` `OFFSETS`). Verified: speed, pedals, gear, lap time, npos, x/z, track-limit channels. **Not verified:** setup fingerprint (pressures, camber, bias, fuel), air/road temperature, the tyre block, suspension travel and slip angles. The Car & setup report and its understeer/oversteer verdicts depend on them.
 - No automated tests. The only checks are `node --check` and manual runs with `npm run mock` / `npm run seed`.

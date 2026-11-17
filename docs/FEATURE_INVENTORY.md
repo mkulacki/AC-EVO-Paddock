@@ -15,16 +15,16 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | --- | --- | --- |
 | Motorsport engineering-cockpit design | Done | `style.css` "pit-wall timing screen" design system (0.5.0 design pass) |
 | Dark graphite interface | Done | dark first, light theme from the OS setting |
-| Orange accent | **Conflict** | the accent is deliberately **lime** (`--accent: #c8ff1e`); orange is `--series-2` (a chart colour). Product decision D1 |
+| Orange accent | Decided: lime (D1) | the user kept the lime accent |
 | Consistent typography/spacing | Done | Barlow / Barlow Condensed, type scale tokens |
 | Reusable component library | Partial | CSS classes are shared; no JS component helpers for cards, states and tables beyond `util.js` |
-| Sidebar navigation | Missing | top navigation bar with 7 tabs. Decision D1 |
-| Responsive layouts | Partial | desktop-sized; some grids wrap, nothing tested below ~1100 px |
+| Sidebar navigation | Done (P4) | collapsible icon rail |
+| Responsive layouts | Done for desktop (P4) | rail below 900 px, checked at 860/1024 px |
 | Customizable dashboard widgets | Missing | no dashboard yet. Deferred: low value for the cost |
-| Global search | Missing | per-page filters only (garage, tracks, setups) |
-| Keyboard shortcuts | Partial | replay/telemetry arrows, F8 in the HUD, F5/F11/F12 in the desktop app; no app-wide shortcuts, no help |
-| Command Center (palette) | Missing | |
-| Loading/empty/error states | Partial | present on most pages, written ad hoc in each page, not consistent |
+| Global search | Done (P4) | command palette, Ctrl+K |
+| Keyboard shortcuts | Done (P4) | ? list, Alt+1…7, Ctrl+B, Ctrl+K |
+| Command Center (palette) | Done (P4) | |
+| Loading/empty/error states | Done (P4) | router loading bar + error card; shared helpers |
 
 ## Driver dashboard
 
