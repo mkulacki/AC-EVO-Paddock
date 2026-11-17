@@ -2,9 +2,9 @@
 
 _Last updated: 2026-11-17_
 
-**Status:** P0–P5 approved and merged into local `main`. **P6 done on `phase/p6-technique`, waiting for approval.**
-**Current phase:** P6, Driving technique analysis (approval gate).
-**Branch:** `phase/p6-technique` (local, not pushed; the installed app runs the P6 build).
+**Status:** P0–P6 approved and merged into local `main`. **P7 in progress.**
+**Current phase:** P7, Setup history and comparison.
+**Branch:** `phase/p7-setups` (local, not pushed; the installed app runs the P6 build).
 
 ## Phases
 
@@ -16,15 +16,15 @@ _Last updated: 2026-11-17_
 | P3 | Application management | Done, approved 2026-11-17 (D2: check and notify) |
 | P4 | App shell: navigation, command palette, states | Done, approved 2026-11-17 (D1: lime + sidebar) |
 | P5 | Driver home dashboard | Done, approved 2026-11-17 |
-| P6 | Driving technique analysis | Done, waiting for approval |
-| P7 | Setup history and comparison | Pending |
+| P6 | Driving technique analysis | Done, approved 2026-11-17 |
+| P7 | Setup history and comparison | In progress |
 | P8 | AI coach upgrade | Pending |
 | P9 | Driver development | Pending (D3) |
 | P10 | Final regression and release prep | Pending |
 
 ## Current task
 
-P6 approval gate: the user reviews the installed app (Consistency, session report → Report & targets, Telemetry map → Inputs, Home records).
+P7 started on `phase/p7-setups`: reading the existing setup code (src/setups.js, setupmatch.js, db snapshots, public/setups.js).
 
 ## Known problems
 
@@ -41,7 +41,7 @@ P6 approval gate: the user reviews the installed app (Consistency, session repor
 
 ## Next action
 
-On APPROVE: merge `phase/p6-technique` into local `main` (no push), mark P6 approved here and in PHASE_LOG, then create `phase/p7-setups` and start P7 (setup history and comparison). On changes requested: fix on the P6 branch, redeploy, report again.
+Implement P7 (docs/IMPLEMENTATION_ROADMAP.md): setup history per car + track, compare two setups, performance by setup, laps split by setup for the setup engineer. Then the usual workflow: tests, headless-Edge check, review subagent, deploy, report and approval gate.
 
 ## How to resume
 

@@ -242,4 +242,4 @@
   - Mediums, fixed: an early brake tap was taken as the braking zone (now the application holding the peak); report count medians were rounded up from .5.
   - Lows, fixed: the score test could skip its checks; the Consistency median differed from the report's.
   - Low, accepted: v1 reports have no style section until regenerated.
-- **User approval:** pending.
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
