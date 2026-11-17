@@ -137,7 +137,7 @@ test('braking points: data per corner; out-of-zone and too-late suggestions reje
   const data = coach.brakeData(combo);
   assert.ok(data.corners.length >= 2);
   assert.ok(data.laps_used > 0);
-  const c = data.corners.find((x) => x.fastest_pass?.brake_m != null && x.fastest_pass.kind === 'brake');
+  const c = data.corners.find((x) => x.fastest_pass?.brake_m != null && x.fastest_pass.kind === 'brake' && !x.zone_crosses_line);
   assert.ok(c, 'a braking corner');
   assert.ok(c.fastest_pass.brake_m >= c.zone_from_m && c.fastest_pass.brake_m <= c.apex_m, 'the fastest pass brakes inside its zone');
   const good = { corner: c.corner, brake_m: c.fastest_pass.brake_m + 5, kind: 'brake', reason: 'later by 5 m', confidence: 'medium' };
@@ -150,20 +150,38 @@ test('braking points: data per corner; out-of-zone and too-late suggestions reje
   assert.equal(out.suggestions[0].m, good.brake_m);
   assert.equal(out.suggestions[0].confidence, 'medium');
   assert.deepEqual(out.confidence, { level: 'medium', basis: 'recent laps' });
-  // +40 m: past the apex (outside) or inside the zone but too late
+  // -50 m: not on the lap; +40 m: past the apex (outside) or inside the zone but too late
   const lateWhy = c.fastest_pass.brake_m + 40 > c.apex_m ? 'outside' : 'more';
-  assert.deepEqual(out.rejected.map((r) => r.why.split(' ')[0]).sort(), ['a', 'outside', 'unknown', lateWhy].sort());
+  assert.deepEqual(out.rejected.map((r) => r.why.split(' ')[0]).sort(), ['a', 'no', 'unknown', lateWhy].sort());
   assert.equal(marks.marksFor(marks.comboOf(combo)).length, before, 'asking saves nothing');
-  // a suggestion more than 15 m later than the fastest pass is rejected on its own too
-  const late = coach.validateSuggestions(data, [{ corner: c.corner, brake_m: Math.min(c.apex_m, c.fastest_pass.brake_m + 16) }]);
-  if (c.fastest_pass.brake_m + 16 <= c.apex_m) assert.match(late.rejected[0].why, /later than your fastest pass/);
+});
+
+test('review fix: suggestion checks on a synthetic lap, including a zone across the start/finish line', () => {
+  const data = { lap_length_m: 4000, corners: [
+    { corner: 'T1', zone_from_m: 3500, apex_m: 200, zone_crosses_line: true, fastest_pass: { brake_m: 120 } },
+    { corner: 'T2', zone_from_m: 200, apex_m: 900, fastest_pass: { brake_m: 700 } }] };
+  const v = coach.validateSuggestions(data, [
+    { corner: 'T2', brake_m: 716 },  // 16 m later than the fastest pass
+    { corner: 'T2', brake_m: 715 },  // 15 m: allowed
+    { corner: 'T1', brake_m: 3950 }, // before the line, inside T1's zone, earlier than the fastest pass
+    { corner: 'T1', brake_m: 3000 }, // before T1's zone
+    { corner: 'T1', brake_m: 4100 }]); // not on the lap
+  assert.deepEqual(v.suggestions.map((x) => [x.corner, x.m]), [['T2', 715], ['T1', 3950]]);
+  assert.deepEqual(v.rejected.map((r) => r.why.split(' ')[0]), ['more', 'outside', 'no']);
+});
+
+test('review fix: fenced JSON from the model is read', async () => {
+  const ai = await import('../src/ai.js');
+  assert.deepEqual(ai.parseJson('```json\n{"a": 1}\n```'), { a: 1 });
+  assert.deepEqual(ai.parseJson('  ```\n{"a": 2}```  '), { a: 2 });
+  assert.throws(() => ai.parseJson('not json'), (e) => e.code === 'format');
 });
 
 test('braking points: applying replaces the marks of that corner only', () => {
   const data = coach.brakeData(combo);
   const L = data.lap_length_m;
   const mc = marks.comboOf(combo);
-  const [a, b] = data.corners;
+  const [, a, b] = data.corners; // two corners whose zones do not cross the start/finish line
   // one mark in corner a's zone, one in b's
   marks.save(mc, [{ pos: (a.zone_from_m + 1) / L, kind: 'brake' }, { pos: (b.zone_from_m + 1) / L, kind: 'lift' }]);
   const m = Math.round((a.zone_from_m + a.apex_m) / 2);
@@ -175,6 +193,36 @@ test('braking points: applying replaces the marks of that corner only', () => {
   assert.ok(!saved.some((x) => Math.abs(x.pos * L - (a.zone_from_m + 1)) < 0.5), 'the old mark of that corner is replaced');
   assert.throws(() => coach.applyBrakes(combo, [{ corner: a.corner, m: a.apex_m + 50 }]), /outside the corner's zone/);
   assert.throws(() => coach.applyBrakes(combo, []), /Pick at least one/);
+  // a mark before the start/finish line belongs to the first corner and is replaced by its new point
+  const first = data.corners[0];
+  assert.ok(first.zone_crosses_line, 'the first zone crosses the line');
+  marks.save(mc, [{ pos: 0.999, kind: 'brake' }, { pos: (b.zone_from_m + 1) / L, kind: 'lift' }]);
+  assert.equal(coach.brakeData(combo).corners[0].my_mark_m, Math.round(0.999 * L), 'shown as the mark of the first corner');
+  const out2 = coach.applyBrakes(combo, [{ corner: first.corner, m: Math.round(first.apex_m / 2), kind: 'brake' }]);
+  assert.equal(out2.marks.length, 2);
+  assert.ok(!out2.marks.some((x) => x.pos === 0.999), 'the mark before the line is replaced');
+  // the 60-mark limit is not passed silently
+  marks.save(mc, Array.from({ length: marks.MAX_MARKS }, (_, i) => ({ pos: (b.apex_m + 1 + i) / L, kind: 'brake' })).filter((x) => x.pos < 1));
+  const n = marks.marksFor(mc).length;
+  assert.equal(n, marks.MAX_MARKS);
+  assert.throws(() => coach.applyBrakes(combo, [{ corner: first.corner, m: Math.round(first.apex_m / 2) }]), /the most is 60/);
+});
+
+test('review fix: short sessions and the session being driven are not checked against the plan', async () => {
+  await seedLaps(2); // an aborted run after s3
+  const s4 = db.listSessions().sort((a, b) => b.started_at - a.started_at)[0].id;
+  let p = coach.createPlan(s1);
+  const row = p.sessions.find((x) => x.sessionId === s4);
+  assert.match(row.skipped, /only 2 laps/);
+  assert.equal(row.items, undefined);
+  coach.setLiveSession(() => s3);
+  p = coach.activePlan(combo);
+  assert.match(p.sessions.find((x) => x.sessionId === s3).skipped, /still being driven/);
+  assert.equal(p.targets[0].checked, 1, 'only s2 counts');
+  coach.setLiveSession(() => null);
+  assert.equal(coach.planForSession(s4, combo).check.skipped.startsWith('only'), true);
+  assert.throws(() => coach.createPlan(99999), (e) => e.status === 404);
+  coach.closePlan(p.id);
 });
 
 test('braking points without a key: a clear message, no call', async () => {

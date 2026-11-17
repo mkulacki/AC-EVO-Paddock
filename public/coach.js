@@ -47,39 +47,44 @@ export async function viewCoach(view, params, cleanup) {
     log.scrollTop = log.scrollHeight;
   };
   drawLog(data.messages);
+  // this page's own elements: an answer arriving after you left must not touch the next page
+  const input = $('#chQ'), askBtn = $('#chAsk'), clearBtn = $('#chClear');
   let busy = false;
   const ask = async () => {
-    const input = $('#chQ'), text = input.value.trim();
+    const text = input.value.trim();
     if (!text || busy) return;
-    busy = true; $('#chAsk').disabled = true;
+    busy = true; askBtn.disabled = true;
     if (!log.querySelector('.chat-msg')) log.innerHTML = '';
     log.insertAdjacentHTML('beforeend', `<div class="chat-msg me pending"><div class="who">You</div>${esc(text)}</div><p class="chat-wait"><span class="spinner"></span> The coach is reading your data…</p>`);
     log.scrollTop = log.scrollHeight;
     try {
       await post('/api/coach/ask', { track, layout, car, question: text });
       input.value = '';
-      if (!view.isConnected) return;
-      drawLog((await api(`/api/coach?${q}`)).messages);
-      $('#chClear').hidden = false;
+      if (!log.isConnected) return;
+      const fresh = (await api(`/api/coach?${q}`)).messages;
+      if (!log.isConnected) return;
+      drawLog(fresh);
+      clearBtn.hidden = false;
     } catch (e) {
-      if (!view.isConnected) return;
+      if (!log.isConnected) return;
       log.querySelector('.chat-wait')?.remove();
       log.querySelector('.chat-msg.pending')?.remove();
       log.insertAdjacentHTML('beforeend', `<p class="pos chat-err">${esc(e.message)} <span class="muted">(your question was not sent to the chat history; it is still in the box)</span></p>`);
-    } finally { busy = false; if ($('#chAsk')) $('#chAsk').disabled = !data.hasKey; }
+    } finally { busy = false; askBtn.disabled = !data.hasKey; }
   };
-  $('#chAsk').onclick = ask;
-  $('#chQ').onkeydown = (e) => { if (e.key === 'Enter') ask(); };
-  $('#chClear').onclick = async () => {
+  askBtn.onclick = ask;
+  input.onkeydown = (e) => { if (e.key === 'Enter') ask(); };
+  clearBtn.onclick = async () => {
     if (!confirm('Delete this chat with the coach? Your laps, reports and plan stay.')) return;
     await post('/api/coach/clear', { track, layout, car });
-    drawLog([]); $('#chClear').hidden = true;
+    drawLog([]); clearBtn.hidden = true;
   };
 
   // ---- training plan
+  const planBox = $('#planCard');
   const drawPlan = (plan) => {
-    const box = $('#planCard');
-    if (!box) return;
+    const box = planBox;
+    if (!box.isConnected) return;
     if (!plan) {
       box.innerHTML = `<h2>Training plan</h2><p class="muted" style="margin:0 0 8px">No plan yet. A plan is the measurable targets of a session report (a lap time, corner times, consistency, track limits); every later session here is checked against them automatically.</p>
         ${data.reports.length ? `<ul class="plain-list">${data.reports.map((r) => `<li class="row" style="gap:8px"><span>${esc(day(r.startedAt))} <span class="muted">best ${fmt(r.bestMs)} · ${r.targets} targets</span></span><span class="spacer"></span>
@@ -97,8 +102,9 @@ export async function viewCoach(view, params, cleanup) {
         <tbody>${plan.targets.map((t, k) => `<tr><td>${esc(t.text)}${t.last ? `<div class="muted" style="font-size:12px">last: ${esc(t.last.actual)}</div>` : ''}</td>
           ${shown.map((s) => `<td class="c" title="${esc(s.skipped || s.items[k].actual)}">${s.skipped ? '<span class="muted">–</span>' : mark(s.items[k].met)}</td>`).join('')}
           <td class="c">${t.checked ? `${t.met} / ${t.checked}` : '–'}</td><td><button class="small ghost" data-rm="${k}" title="Remove this target from the plan">×</button></td></tr>`).join('')}</tbody></table></div>
-      ${ses.length > shown.length ? `<p class="muted" style="font-size:12px;margin:6px 0 0">The last ${shown.length} sessions are shown; "Met" counts all ${ses.length}.</p>` : ''}`;
-    $('#planEnd').onclick = async () => { if (confirm('End this training plan? You can make a new one from any report.')) drawPlan((await post('/api/plan', { action: 'close', id: plan.id })).plan); };
+      ${ses.length > shown.length || plan.olderSessions ? `<p class="muted" style="font-size:12px;margin:6px 0 0">The last ${shown.length} sessions are shown; "Met" counts the latest ${ses.length}${plan.olderSessions ? ` (${plan.olderSessions} older session${plan.olderSessions === 1 ? '' : 's'} not counted)` : ''}.</p>` : ''}
+      ${ses.some((x) => x.skipped) ? `<p class="muted" style="font-size:12px;margin:6px 0 0">– = not checked (hover for why): sessions under 3 laps, without a valid lap, or still being driven.</p>` : ''}`;
+    box.querySelector('#planEnd').onclick = async () => { if (confirm('End this training plan? You can make a new one from any report.')) drawPlan((await post('/api/plan', { action: 'close', id: plan.id })).plan); };
     box.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = async () => drawPlan((await post('/api/plan', { action: 'remove', id: plan.id, index: Number(b.dataset.rm) })).plan); });
   };
   drawPlan(data.plan);
@@ -114,8 +120,8 @@ export async function viewCoach(view, params, cleanup) {
     <div id="bkOut"></div>`;
   let seq = 0;
   cleanup.push(() => { seq++; });
-  $('#bkAsk').onclick = async () => {
-    const my = ++seq, out = $('#bkOut'), btn = $('#bkAsk');
+  brakeBox.querySelector('#bkAsk').onclick = async () => {
+    const my = ++seq, out = brakeBox.querySelector('#bkOut'), btn = brakeBox.querySelector('#bkAsk');
     btn.disabled = true;
     out.innerHTML = '<p><span class="spinner"></span> Looking at your corners…</p>';
     let r;
@@ -133,7 +139,7 @@ export async function viewCoach(view, params, cleanup) {
       ${r.rejected.length ? `<p class="muted" style="font-size:12px;margin:8px 0 0">Left out by Paddock's checks: ${r.rejected.map((x) => `${esc(x.corner)}${x.brakeM != null ? ` ${x.brakeM} m` : ''} (${esc(x.why)})`).join('; ')}.</p>` : ''}
       <p class="muted" style="font-size:12px;margin:6px 0 0">${esc(r.model)}, from ${r.lapsUsed} recent valid laps. Distances are metres from the start/finish line.</p>`;
     const boxes = [...out.querySelectorAll('input[data-i]')];
-    const apply = $('#bkApply');
+    const apply = out.querySelector('#bkApply');
     if (!apply) return;
     boxes.forEach((b) => { b.onchange = () => { apply.disabled = !boxes.some((x) => x.checked); }; });
     apply.onclick = async () => {
@@ -142,10 +148,10 @@ export async function viewCoach(view, params, cleanup) {
       apply.disabled = true;
       try {
         const res = await post('/api/coach/brakes/apply', { track, layout, car, items });
-        $('#bkCount').textContent = res.marks.length;
-        $('#bkMsg').innerHTML = `<span class="neg">Saved ${items.length} point${items.length === 1 ? '' : 's'}.</span> <a href="${trackHref}">See them on the track map</a>`;
+        brakeBox.querySelector('#bkCount').textContent = res.marks.length;
+        out.querySelector('#bkMsg').innerHTML = `<span class="neg">Saved ${items.length} point${items.length === 1 ? '' : 's'}.</span> <a href="${trackHref}">See them on the track map</a>`;
         boxes.forEach((b) => { if (b.checked) { b.checked = false; b.disabled = true; } });
-      } catch (e) { apply.disabled = false; $('#bkMsg').innerHTML = `<span class="pos">${esc(e.message)}</span>`; }
+      } catch (e) { apply.disabled = false; out.querySelector('#bkMsg').innerHTML = `<span class="pos">${esc(e.message)}</span>`; }
     };
   };
 }

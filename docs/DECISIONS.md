@@ -86,3 +86,16 @@ Earlier product decisions (Race tab, Mods, setups, spotter, brake marks, reports
 - **Typical lap = median of clean laps** (valid, within 7 % of that setup's best), the same rule as the report and Progress, so the numbers agree across pages.
 - **Its own page** (`#/setuphistory?combo=`), reached from the Sessions combo, the palette ("history …") and the Setups tab (*Your laps here*), because laps are keyed by game track/car names and setups by catalogue ids; `/api/setuphistory/combos` maps one to the other.
 - **AI engineer** gets `by_setup` (compact rows; `this_setup` only on the entry driven with the file's current values, `this_setup_other_values` on its older or unknown versions, so old lap times are not credited to new values) plus a note on whether setup recognition is checked in game.
+
+## 2026-11-17: P8, AI coach upgrade
+
+- **One Coach page per track + car** (`#/coach?combo=`), from the Sessions combo, the palette ("coach …") and the page list. The chat is kept per combo (`coach_messages`); the per-lap coach on Compare stays as it was.
+- **Context = summaries, never telemetry:** totals, the last 6 sessions, the last 3 reports (weakest corners with reasons, style habits, invalid laps, targets met), corner times of the latest report, laps by setup (P7), the training plan with its checks, the number of brake marks, and data quality. Under 9 kB (tested), sent as the system instruction; the last 12 messages go along as history. *What is sent* shows the instructions and the data.
+  - **Rejected:** sending lap traces or every report (the free tier's token limits).
+- **A chat turn is saved only when the answer came back:** a missing key, no network, a quota error or an empty answer leave the chat as it was, and the question stays in the box.
+- **Training plan = a report's measurable targets** (lap, corner, consistency, track limits: the kinds `checkTargets` checks), one active plan per combo, replaced by a new one. Every later session (up to the latest 10) is checked with the same rules as the report's "last session's targets"; sessions without a stored report are checked from a report built on the fly (not stored).
+  - **Rejected:** AI-written targets (free text that cannot be checked automatically). The debrief still writes a plan in words; the structured plan is the report's targets.
+- **AI braking points** are validated by Paddock before they are shown: inside the corner's zone (previous apex to this apex, on the best lap), at most 15 m later than the driver's fastest recent pass, one per corner. Applying replaces only the marks inside the ticked corners' zones. Nothing is saved by asking.
+- **AI errors carry a code** (nokey → 400, network/http/empty/format → 502) and say what to do; 429 says the free-tier limit is reached.
+- **Review follow-ups:** a plan is not checked against sessions under 3 laps (no stored report) or the session being driven; those show "–" with the reason. Only the latest 10 later sessions count, and the page says how many older ones are left out. The first corner's braking zone runs across the start/finish line, so a mark placed before the line belongs to it. Applying never silently passes the 60-mark limit. Gemini calls (coach, debrief, setup engineer) time out after 90 s.
+  - **Accepted:** corners are matched by name (T1…Tn are unique by construction).

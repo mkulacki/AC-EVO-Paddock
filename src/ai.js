@@ -83,7 +83,7 @@ export async function generate({ system, contents, json = false, temperature = 0
 }
 /** A JSON answer, parsed (code fences tolerated). */
 export function parseJson(text) {
-  try { return JSON.parse(text.replace(/^```(?:json)?s*|s*```$/g, '')); } catch { throw aiError('format', 'Gemini did not answer in the expected format; try again'); }
+  try { return JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, '')); } catch { throw aiError('format', 'Gemini did not answer in the expected format; try again'); }
 }
 export const CONFIDENCE = CONFIDENCE_RULE;
 export const levelOf = level;

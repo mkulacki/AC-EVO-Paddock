@@ -6,6 +6,13 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### New: AI coach per track and car
+
+- **Coach** page for each track and car (the *Coach* button on Sessions, or Ctrl K "coach …"): ask questions about your driving there. The coach gets a summary of your laps, session reports, driving style, setups and training plan; *What is sent to the AI?* shows it in full. Every answer rates its confidence. The chat is kept per track and car.
+- **Training plan:** make a report's targets your plan (*Make these my training plan* on the report, or *Use as plan* on the Coach page). Every later session there is checked against it automatically: met or not met per session, on the Coach page and in each report.
+- **AI braking points:** the coach suggests where to brake in each corner from your fastest and typical passes. Paddock checks each point (inside the corner, at most 15 m later than your fastest pass) and nothing changes until you tick points and apply them to your brake marks.
+- Clearer AI errors: no key, no internet, and Gemini's free-tier limit each say what to do.
+
 ### New: setup history
 
 - **Setup history** for each track and car: every setup you drove, each version of an edited setup apart, with its best and typical lap, spread, sessions and conditions.

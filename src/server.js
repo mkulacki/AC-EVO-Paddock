@@ -137,6 +137,7 @@ const spotter = createSpotter({ config: settings.spotterConfig,
   emit: (cue) => { const c = settings.spotterConfig(); broadcast('spotter', { ...cue, sound: c.sound, volume: c.volume }); } });
 // own brake marks: marking them with a wheel button / keyboard shortcut, or from the brake pedal on one lap.
 // The confirmation sounds go through the spotter's channel (always beeps, also when the spotter is off).
+coach.setLiveSession(() => recorder.session?.id ?? null); // the session being driven is not checked against a plan yet
 const marker = createMarker({ recorder,
   notify: (say) => broadcast('spotter', { say, sound: 'beep', volume: settings.spotterConfig().volume }),
   changed: (recording, combo) => broadcast('brakemarks', { recording, combo }) });
@@ -741,7 +742,8 @@ async function route(req, res) {
   // ---- AI coach per track + car (P8): chat, training plan, braking points
   if (p.startsWith('/api/coach') || p === '/api/plan') {
     // AI errors: no key -> 400 (the page says what to do), Gemini unreachable or refusing -> 502
-    const fail = (e) => send(res, e.status || (e.code === 'nokey' ? 400 : e.code ? 502 : 500), { error: e.message, code: e.code || null });
+    const AI = ['network', 'http', 'empty', 'format'];
+    const fail = (e) => send(res, e.status || (e.code === 'nokey' ? 400 : AI.includes(e.code) ? 502 : 500), { error: e.message, code: AI.includes(e.code) || e.code === 'nokey' ? e.code : null });
     try {
       const q = m === 'POST' ? await readJson(req) : Object.fromEntries(url.searchParams);
       if (p === '/api/plan' && m === 'POST') {

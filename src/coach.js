@@ -48,7 +48,7 @@ export function context(combo) {
   const valid = laps.filter((l) => l.valid);
 
   const bySes = new Map();
-  for (const l of laps) { const k = l.session_id ?? `lap${l.id}`; if (!bySes.has(k)) bySes.set(k, []); bySes.get(k).push(l); }
+  for (const l of laps) { if (l.session_id == null) continue; if (!bySes.has(l.session_id)) bySes.set(l.session_id, []); bySes.get(l.session_id).push(l); }
   const sessions = [...bySes.values()].slice(0, SESSIONS_IN_CONTEXT).map((ls) => {
     const v = ls.filter((l) => l.valid).map((l) => l.lap_time_ms);
     return { date: day(Math.min(...ls.map((l) => l.recorded_at))), laps: ls.length, valid: v.length, best: v.length ? fmt(Math.min(...v)) : null };
@@ -130,44 +130,68 @@ export async function ask(combo, question) {
 }
 
 // ---------------------------------------------------------------- training plan
-/** Later sessions of the combo (after the plan's source session), oldest first, the latest PLAN_SESSIONS of them. */
+let liveSession = () => null;
+/** The server tells which session is being driven: it is checked once it has ended. */
+export const setLiveSession = (fn) => { liveSession = fn; };
+
+/** Every later session of the combo (after the plan's source session), oldest first: {sessionId, startedAt, laps, lastAt}. */
 function laterSessions(plan) {
-  const ids = new Map();
+  const by = new Map();
   for (const l of db.lapsForCombo(plan.combo.track, plan.combo.layout, plan.combo.car, true)) {
     if (l.session_id == null || l.session_id === plan.fromSession) continue;
-    const at = ids.get(l.session_id);
-    if (at == null || l.recorded_at < at) ids.set(l.session_id, l.recorded_at);
+    const x = by.get(l.session_id) || { sessionId: l.session_id, startedAt: Infinity, laps: 0, lastAt: 0 };
+    x.startedAt = Math.min(x.startedAt, l.recorded_at); x.lastAt = Math.max(x.lastAt, l.recorded_at); x.laps++;
+    by.set(l.session_id, x);
   }
-  return [...ids.entries()].filter(([, at]) => at > (plan.fromStartedAt ?? 0)).sort((a, b) => a[1] - b[1]).slice(-PLAN_SESSIONS)
-    .map(([sessionId, startedAt]) => ({ sessionId, startedAt }));
+  return [...by.values()].filter((x) => x.startedAt > (plan.fromStartedAt ?? 0)).sort((x, y) => x.startedAt - y.startedAt);
 }
-const reportFor = (sessionId) => {
-  const stored = db.getReport(sessionId)?.data;
+// reports built for sessions that have none stored (older sessions): kept while the session's laps stay the same
+const built = new Map();
+function reportFor(s) {
+  const stored = db.getReport(s.sessionId)?.data;
   if (stored) return stored;
-  try { return report.build(sessionId, { withPrevTargets: false }); } catch (e) { return { error: e.message }; }
-};
+  const k = `${s.sessionId}:${s.laps}:${s.lastAt}`;
+  if (!built.has(k)) {
+    let r;
+    try { r = report.build(s.sessionId, { withPrevTargets: false }); } catch (e) { r = { error: e.message }; }
+    if (built.size > 200) built.clear();
+    built.set(k, r);
+  }
+  return built.get(k);
+}
+/** One session checked against a plan: {sessionId, startedAt, items} or {..., skipped: why}. */
+function checkSession(plan, s) {
+  const base = { sessionId: s.sessionId, startedAt: s.startedAt };
+  if (s.sessionId === liveSession()) return { ...base, skipped: 'still being driven' };
+  // too short for a report (an out lap, an aborted run): not a fair check of the targets
+  if (s.laps < report.MIN_LAPS && !db.getReport(s.sessionId)) return { ...base, skipped: `only ${s.laps} lap${s.laps === 1 ? '' : 's'} (a check needs ${report.MIN_LAPS})` };
+  const r = reportFor(s);
+  if (r.error) return { ...base, skipped: r.error };
+  return { ...base, items: report.checkTargets(plan.targets, r).map((i) => ({ met: i.met, actual: i.actual })) };
+}
 
-/** A plan with every later session checked: targets[i] = {...target, checked, met, last}, sessions[] per session. */
+/**
+ * A plan with the latest PLAN_SESSIONS later sessions checked: targets[i] = {...target, checked, met, last},
+ * sessions[] per session (skipped ones say why), olderSessions = later sessions before those (not counted).
+ */
 export function planStatus(plan) {
   if (!plan) return null;
-  const sessions = laterSessions(plan).map((s) => {
-    const r = reportFor(s.sessionId);
-    if (r.error) return { ...s, skipped: r.error };
-    return { ...s, items: report.checkTargets(plan.targets, r).map((i) => ({ met: i.met, actual: i.actual })) };
-  });
+  const all = laterSessions(plan);
+  const sessions = all.slice(-PLAN_SESSIONS).map((s) => checkSession(plan, s));
   const checked = sessions.filter((s) => s.items);
   const targets = plan.targets.map((t, k) => {
     const known = checked.map((s) => s.items[k]).filter((i) => i.met === true || i.met === false);
     return { ...t, checked: known.length, met: known.filter((i) => i.met).length, last: checked.length ? checked[checked.length - 1].items[k] : null };
   });
   const last = checked[checked.length - 1];
-  return { ...plan, targets, sessions, allMetLast: last ? last.items.every((i) => i.met === true) : null };
+  return { ...plan, targets, sessions, olderSessions: Math.max(0, all.length - PLAN_SESSIONS), allMetLast: last ? last.items.every((i) => i.met === true) : null };
 }
 
 /** Make a session report's measurable targets the combo's training plan (replaces the active one). */
 export function createPlan(sessionId) {
-  const stored = db.getReport(sessionId)?.data;
-  const r = stored || report.build(sessionId);
+  if (!db.getSession(sessionId)) throw Object.assign(new Error('Session not found'), { status: 404 });
+  let r = db.getReport(sessionId)?.data;
+  if (!r) { try { r = report.build(sessionId); } catch (e) { throw Object.assign(e, { status: 400 }); } }
   const targets = (r.targets || []).filter((t) => PLAN_KINDS.has(t.kind));
   if (!targets.length) throw Object.assign(new Error('This report has no targets that can be checked'), { status: 400 });
   const id = db.createPlan(r.combo, { fromSession: sessionId, fromStartedAt: r.startedAt ?? db.getSession(sessionId)?.started_at ?? Date.now(), targets });
@@ -192,18 +216,30 @@ export function planForSession(sessionId, combo) {
   if (!plan) return null;
   if (plan.fromSession === sessionId) return { plan, role: 'source' };
   const s = plan.sessions.find((x) => x.sessionId === sessionId);
-  return s ? { plan, role: 'checked', check: s } : { plan, role: 'other' };
+  if (s) return { plan, role: 'checked', check: s };
+  const older = laterSessions(plan).find((x) => x.sessionId === sessionId);
+  return older ? { plan, role: 'checked', check: checkSession(plan, older) } : { plan, role: 'other' };
 }
 
 // ---------------------------------------------------------------- braking points
-/** Where each corner's mark may go (metres on the best lap): from the previous corner's apex to this apex. */
+/**
+ * Where each corner's mark may go (metres on the best lap): from the previous corner's apex to this apex. The first
+ * corner's zone runs from the last corner's apex across the start/finish line (wraps = from > apex), so a mark
+ * placed before the line (pos near 1) still belongs to it.
+ */
 function zones(combo) {
   const info = svc.comboInfo(combo);
   if (!info.best) throw Object.assign(new Error('No valid lap with this car on this track yet'), { status: 404 });
   const ref = svc.getResampled(info.best.id).R;
-  return { info, ref, L: ref.L, list: info.corners.map((c, k) => ({ c, name: c.name, from: k ? Math.round(ref.d[info.corners[k - 1].apexIdx]) : 0, apex: Math.round(ref.d[c.apexIdx]) })) };
+  const cs = info.corners, apexOf = (c) => Math.round(ref.d[c.apexIdx]);
+  return { info, ref, L: ref.L, list: cs.map((c, k) => {
+    const from = k ? apexOf(cs[k - 1]) : cs.length > 1 ? apexOf(cs[cs.length - 1]) : 0;
+    return { c, name: c.name, from, apex: apexOf(c), wraps: k === 0 && cs.length > 1 };
+  }) };
 }
-const inZone = (z, m) => m >= z.from && m <= z.apex;
+const inZone = (z, m) => (z.wraps ? m >= z.from || m <= z.apex : m >= z.from && m <= z.apex);
+/** b - a along the lap, the short way round (a point just before the line is "earlier" than one just after it) */
+const along = (a, b, L) => { let d = b - a; if (d > L / 2) d -= L; else if (d < -L / 2) d += L; return d; };
 
 /** What the braking-point AI gets: per corner the fastest recent pass, the typical one and the current mark. */
 export function brakeData(combo) {
@@ -221,7 +257,7 @@ export function brakeData(combo) {
     const pts = recent.map((x) => x.m.brakePoint ?? x.m.liftPoint).filter((v) => v != null);
     const mark = mine.find((m) => inZone(z, m.pos * L));
     return {
-      corner: z.name, zone_from_m: z.from, apex_m: z.apex,
+      corner: z.name, zone_from_m: z.from, apex_m: z.apex, zone_crosses_line: z.wraps || undefined,
       fastest_pass: bm ? { brake_m: bm.brakePoint ?? bm.liftPoint, kind: bm.brakePoint != null ? 'brake' : bm.liftPoint != null ? 'lift' : 'flat out',
         entry_kmh: bm.entrySpeed, min_kmh: bm.minSpeed, max_brake_pct: bm.maxBrakePct, corner_ms: Math.round(best.t), lap: best.l.lap_number, date: day(best.l.recorded_at) } : null,
       typical: recent.length ? { brake_m: pts.length ? Math.round(median(pts)) : null, earliest_m: pts.length ? Math.min(...pts) : null, latest_m: pts.length ? Math.max(...pts) : null,
@@ -230,12 +266,12 @@ export function brakeData(combo) {
     };
   });
   return { track: `${combo.track} ${combo.layout}`.trim(), car: combo.car, lap_length_m: Math.round(L), laps_used: valid.length, corners,
-    units: 'metres from the start/finish line; larger brake_m = later braking', data_quality: channels.forAi(['core']) };
+    units: 'metres from the start/finish line (0 .. lap_length_m); larger brake_m = later braking, except across the line: zone_crosses_line = the zone starts before the line (zone_from_m > apex_m), and a point before the line is given as a distance near lap_length_m', data_quality: channels.forAi(['core']) };
 }
 
 const BRAKE_SYSTEM = `You are a sim-racing driving coach suggesting braking points ("brake marks") for Assetto Corsa EVO.
 The driver's audio spotter counts down to these marks. You get, per corner: the zone where its mark may go
-(zone_from_m .. apex_m), fastest_pass = the driver's fastest pass through that corner among recent valid laps
+(zone_from_m .. apex_m; for the first corner it may cross the start/finish line), fastest_pass = the driver's fastest pass through that corner among recent valid laps
 (braking point, entry and minimum speed, time), typical = their latest laps (median braking point and its range),
 and my_mark_m = their current mark (null = none).
 Rules:
@@ -255,10 +291,12 @@ export function validateSuggestions(data, raw) {
   const out = [], rejected = [];
   for (const s of Array.isArray(raw) ? raw : []) {
     const c = data.corners.find((x) => x.corner === s?.corner);
+    const L = data.lap_length_m;
     const m = Math.round(Number(s?.brake_m));
-    const why = !c ? 'unknown corner' : !Number.isFinite(m) ? 'no distance'
-      : m < c.zone_from_m || m > c.apex_m ? `outside the corner's zone (${c.zone_from_m}–${c.apex_m} m)`
-        : c.fastest_pass?.brake_m != null && m > c.fastest_pass.brake_m + MAX_LATER_M ? `more than ${MAX_LATER_M} m later than your fastest pass (${c.fastest_pass.brake_m} m)`
+    const z = c && { from: c.zone_from_m, apex: c.apex_m, wraps: !!c.zone_crosses_line };
+    const why = !c ? 'unknown corner' : !Number.isFinite(m) || m < 0 || m >= L ? 'no distance on the lap'
+      : !inZone(z, m) ? `outside the corner's zone (${c.zone_from_m}–${c.apex_m} m)`
+        : c.fastest_pass?.brake_m != null && along(c.fastest_pass.brake_m, m, L) > MAX_LATER_M ? `more than ${MAX_LATER_M} m later than your fastest pass (${c.fastest_pass.brake_m} m)`
           : out.some((x) => x.corner === c.corner) ? 'a second point for the same corner' : null;
     if (why) { rejected.push({ corner: String(s?.corner ?? '?'), brakeM: Number.isFinite(m) ? m : null, why }); continue; }
     out.push({ corner: c.corner, m, pos: m / (data.lap_length_m || 1), kind: s.kind === 'lift' ? 'lift' : 'brake',
@@ -294,9 +332,10 @@ export function applyBrakes(combo, items) {
     const z = list.find((x) => x.name === it?.corner);
     const m = Number(it?.m);
     if (!z) throw Object.assign(new Error(`Unknown corner ${it?.corner}`), { status: 400 });
-    if (!Number.isFinite(m) || !inZone(z, m)) throw Object.assign(new Error(`${z.name}: ${m} m is outside the corner's zone (${z.from}–${z.apex} m)`), { status: 400 });
+    if (!Number.isFinite(m) || m < 0 || m >= L || !inZone(z, m)) throw Object.assign(new Error(`${z.name}: ${m} m is outside the corner's zone (${z.from}–${z.apex} m)`), { status: 400 });
     next = next.filter((x) => !inZone(z, x.pos * L));
     next.push({ pos: m / L, kind: it.kind === 'lift' ? 'lift' : 'brake' });
   }
+  if (next.length > marks.MAX_MARKS) throw Object.assign(new Error(`This would make ${next.length} brake marks; the most is ${marks.MAX_MARKS}. Remove some on the track map first.`), { status: 400 });
   return { combo: mc, marks: next };
 }

@@ -60,12 +60,12 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | Capability | Status | Note |
 | --- | --- | --- |
 | Post-session engineer report | Done | AI debrief button on the report |
-| Personalised training plans | Partial | the debrief contains a plan, but it isn't saved as structured data or tracked |
+| Personalised training plans | Done (P8) | a report's measurable targets saved as the combo's plan, checked against every later session |
 | Technique analysis | Done (P6) | per-corner brake/trail/release/throttle/steering metrics, corner rankings, inputs map layer, report style section, performance score |
-| Braking-point recommendations | Partial | coach + brake marks "fill from best lap"; no AI-proposed marks |
+| Braking-point recommendations | Done (P8) | AI suggestions per corner, validated (zone, ≤ 15 m later than the fastest pass), applied to brake marks only after review |
 | Corner entry/exit analysis | Done | corner card entry/apex/exit + coach |
 | Setup vs driving issue analysis | Partial | setup engineer + Car & setup rules, on **unverified** channels; laps split by setup since P7 |
-| Telemetry-aware chat | Partial | follow-ups per lap only; no chat across sessions or combos |
+| Telemetry-aware chat | Done (P8) | Coach page: chat per track + car with reports, style, setups and plan as context; per-lap follow-ups as before |
 | Improvement recommendations | Done | coach, debrief, targets |
 | Confidence indicators | Done (P2) | provenance badges, unconfirmed hints kept apart, AI confidence on every answer |
 
@@ -75,9 +75,9 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | --- | --- | --- |
 | Car profiles | Done | garage with the game's spec sheet (Race tab) |
 | Setup management | Done | Setups tab, edits the game's `.carsetup` within the limits |
-| Setup history | Partial | every lap stores a setup snapshot; there is no history view |
-| Setup version comparison | Missing | the editor only highlights pending changes |
-| Performance comparison per setup | Partial | the report lists best lap per setup for one session only |
+| Setup history | Done (P7) | Setup history page per track + car, versions of edited files apart |
+| Setup version comparison | Done (P7) | compare two setups: lap times and exactly the values that differ |
+| Performance comparison per setup | Done (P7) | best and typical lap, spread and conditions per setup across sessions |
 | Import / export / portable sharing | Done | `.carsetup` share/import |
 | Setup recommendations | Done (unverified) | rules + AI engineer; inputs unverified |
 
@@ -88,7 +88,7 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | Personal goals | Missing | |
 | Achievements | Missing | needs a product yes (gamification) |
 | Challenges | Missing | needs a product yes |
-| Training plans | Partial | see AI coach |
+| Training plans | Done (P8) | see AI coach |
 | Session planner | Partial | Race tab presets; no plan with goals |
 | Race weekend history | Partial | sessions store `session_type`; no weekend grouping view |
 | Progress tracking | Done | Progress + report target checks |
