@@ -1,6 +1,6 @@
 # Architecture: AC EVO Paddock
 
-Audited 2026-11-17 at `main` = `de836d2` (v0.5.0-beta.1). This describes the code as it is, not as planned.
+Audited 2026-11-17 at `main` = `de836d2` (v0.5.0-beta.1); refreshed 2026-11-17 after the P1–P9 roadmap (0.6.0-beta.1). This describes the code as it is, not as planned.
 
 ## Stack
 
@@ -15,7 +15,7 @@ Audited 2026-11-17 at `main` = `de836d2` (v0.5.0-beta.1). This describes the cod
 | Packaging | electron-builder `--win dir`, `asar: false`, unsigned | portable zip; `data\` next to the exe |
 | AI | Google Gemini REST (`src/ai.js`), user's own key | optional; only compact summaries are sent |
 
-Runtime dependencies: 4 (`koffi`, `uplot`, two font packages). Dev: `electron`, `electron-builder`. No test, lint or type-check tooling exists.
+Runtime dependencies: 4 (`koffi`, `uplot`, two font packages). Dev: `electron`, `electron-builder`. Tests: built-in `node:test` (`npm test`, temp data dirs, mock car, API smoke test) and `npm run check` (syntax of every shipped script). No lint or type-check tooling.
 
 ## Process and data flow
 
@@ -41,7 +41,9 @@ AC EVO shared memory ──(koffi, 60 Hz loop in server.js)──> src/shm.js �
 - `telemetry.db` (SQLite, WAL)
   - `sessions(id, track, layout, car, session_type, driver, started_at, conditions JSON)`
   - `laps(id, session_id, track, layout, car, lap_number, lap_time_ms, valid, driver, source, recorded_at, track_length, samples, data BLOB, setup_name, setup_info JSON)`. `data` is gzip'd JSON of column arrays: `t spd thr brk str gear rpm x z glat glon d …` at 60 Hz, plus `data.car` (10 Hz tyre/brake/suspension traces since 0.5.0).
-  - `analyses` (saved AI coach answers), `reports` (session report JSON + AI debrief), `setup_snapshots` (setup values at the time a lap was driven), brake marks.
+  - `analyses` (saved AI coach answers), `reports` (session report JSON + AI debrief), `setup_snapshots` (setup values at the time a lap was driven), `brake_marks`.
+  - AI coach (P8): `coach_messages` (chat per track + car), `training_plans` (targets from a report, checked against later sessions).
+  - Driver development (P9): `goals` (goals and challenges, met state stored once), `launches` (sessions Paddock started, for race weekends), `meta` (small values such as when achievements were last seen). Achievements are not stored: recomputed from the data.
   - Migrations: `PRAGMA user_version` (v1 distance normalisation, with an automatic `VACUUM INTO` backup) plus additive `ALTER TABLE … ADD COLUMN` checks.
 - JSON files: `settings.json` (holds the Gemini key), `race.json` (server passwords), `setup-meta.json`, `mods.json`, `game-catalogue.json`, `game-applied.json`.
 - Caches: `trackcache/`, `carcache/` (safe to delete). Logs: `logs/paddock.log` (desktop only).
@@ -52,7 +54,7 @@ AC EVO shared memory ──(koffi, 60 Hz loop in server.js)──> src/shm.js �
 
 ### Frontend structure
 
-`public/app.js` is the shell: the router (`#/`, `#/report`, `#/compare`, `#/progress`, `#/consistency`, `#/race`, `#/setups`, `#/tracks`, `#/track`, `#/game`, `#/mods`, `#/settings`), the status line and nav dots; `public/palette.js` holds the sidebar toggle, the command palette and the shortcuts. Each render gets its own cleanup list. One module per page (`sessions.js`, `compare.js`, `game.js`, `settingspage.js`,  (`race.js`, `setups.js`, `reports.js`, `telemetry.js`, `replay.js`, `carsetup.js`, …), with shared helpers in `util.js`. The design tokens are CSS custom properties in `style.css` (dark first, light via `prefers-color-scheme`).
+`public/app.js` is the shell: the router (`#/home`, `#/`, `#/report`, `#/compare`, `#/progress`, `#/consistency`, `#/setuphistory`, `#/coach`, `#/development`, `#/race`, `#/setups`, `#/tracks`, `#/track`, `#/game`, `#/mods`, `#/settings`), the status line and nav dots; `public/palette.js` holds the sidebar toggle, the command palette and the shortcuts. Each render gets its own cleanup list. One module per page (`sessions.js`, `compare.js`, `game.js`, `settingspage.js`,  (`race.js`, `setups.js`, `reports.js`, `telemetry.js`, `replay.js`, `carsetup.js`, …), with shared helpers in `util.js`. The design tokens are CSS custom properties in `style.css` (dark first, light via `prefers-color-scheme`).
 
 ## Hard constraints (do not break)
 
@@ -67,6 +69,6 @@ AC EVO shared memory ──(koffi, 60 Hz loop in server.js)──> src/shm.js �
 
 ## Known architectural weaknesses
 
-- `src/server.js` (643 lines) mixes the router, the telemetry loop, game orchestration and session-end handling. It works, but every new feature adds a route there.
+- `src/server.js` (~940 lines) mixes the router, the telemetry loop, game orchestration and session-end handling. It works, but every new feature adds a route there.
 - **Shared-memory offsets are community-sourced and only partly verified in game** (`src/shm.js` `OFFSETS`). Verified: speed, pedals, gear, lap time, npos, x/z, track-limit channels. **Not verified:** setup fingerprint (pressures, camber, bias, fuel), air/road temperature, the tyre block, suspension travel and slip angles. The Car & setup report and its understeer/oversteer verdicts depend on them.
-- No automated tests. The only checks are `node --check` and manual runs with `npm run mock` / `npm run seed`.
+- Tests cover the server modules and the API, not the in-game HUD or the pages' DOM (pages are checked with headless screenshots during development). Driving in game (shared memory, launches, race weekends) is checked by hand.

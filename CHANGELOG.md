@@ -4,7 +4,9 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
-Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
+Nothing yet.
+
+## 0.6.0-beta.1
 
 ### New: goals, challenges, achievements and race weekends
 
@@ -13,7 +15,6 @@ Changes merged to `main` that are not in a release yet. Move them under a versio
 - **Achievements:** 28 milestones (laps, distance, variety, driving days, personal bests, clean runs, long stints, consistency, goals, race weekends), each with the day you reached it; locked ones show how far you are. Home shows the latest.
 - **Session planner:** pick a car and track you drove, a goal and a Race tab preset (or hotlap / practice), and Paddock starts it in AC EVO.
 - **Race weekend history:** race weekends started from Paddock, with the sessions you drove in them and their best laps.
-- Alt+1…9 now include Development (Alt+4); Tracks, Setups, Game, Mods and Settings moved one number up.
 
 ### New: AI coach per track and car
 
@@ -58,7 +59,7 @@ Changes merged to `main` that are not in a release yet. Move them under a versio
 
 - The pages are in a **sidebar** now (it collapses to icons with Ctrl+B, and by itself in narrow windows). The lime accent stays.
 - **Search and commands (Ctrl+K):** pages, Settings sections, tracks, sessions, your car and track combos, cars with setups.
-- **Keyboard shortcuts:** ? lists them; Alt+1…7 open the pages.
+- **Keyboard shortcuts:** ? lists them; Alt+1…9 open the pages in sidebar order.
 - Every page shows the same loading bar, and a clear message with *Try again* when something fails. Consistency without valid laps now says so instead of showing an error.
 
 ### Development
