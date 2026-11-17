@@ -30,14 +30,14 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 
 | Capability | Status | Note |
 | --- | --- | --- |
-| Driver performance overview | Missing | the home page is the Sessions list |
+| Driver performance overview | Done (P5) | Home |
 | Recent sessions | Done | Sessions tab, by date |
 | Performance trends | Done | Progress page per combo; report lap-time trend |
-| Personal records | Partial | PB per combo on Sessions cards; no records list across all combos |
+| Personal records | Done (P5) | Home → Your records |
 | Driving consistency | Done | Consistency page, 0–100 score in reports |
 | Session summaries | Done | session reports |
-| Important warnings | Partial | nav dots (HUD outdated, new report); loader/game version warnings on Game/Mods tabs; not collected in one place |
-| Recommended next actions | Partial | "next practice targets" per report; not shown across the app |
+| Important warnings | Done (P5) | Home → Needs attention |
+| Recommended next actions | Done (P5) | Home → Next practice targets |
 
 ## Telemetry engineering
 

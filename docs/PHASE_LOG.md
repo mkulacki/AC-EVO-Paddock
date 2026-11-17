@@ -158,4 +158,44 @@
   - No critical or high findings.
   - All 3 medium fixed: the kind-filter regex typo (backslash lost in a shell heredoc) hiding the Tracks page; listeners leaking when you left a page during its load; dialogs stacking on the garage and text prompts.
   - All 6 low fixed: stale palette cache, delayed close hitting a new palette, shortcut-list focus and keys, AZERTY Alt+digits, the narrow-window toggle overwriting the stored choice, the status tooltip in the rail, the brake-mark key conflict.
+- **User approval:** **APPROVED** 2026-11-17. Merged into local `main`.
+
+## P5: Driver home dashboard
+
+- **Started / finished:** 2026-11-17 · branch `phase/p5-home`
+- **Implemented:**
+  - **Home (`#/home`) is where Paddock opens; `#/` stays Sessions.** It shows:
+    - **Needs attention:** pending or failed restore, missing game folder, HUD update waiting or an install error, loader built for another game version, telemetry readings not checked or marked wrong, update available, no Gemini key. Each has a level word, an icon and a link.
+    - **Totals:** laps (valid of all), sessions, combos, time in laps and days, the last 7 and 30 days, the last lap.
+    - **Recent sessions** with the report summary (consistency, PB, change against last time).
+    - **Next practice targets** from the newest report of the 3 most recent combos, with "met X of Y" last time.
+    - **Best lap per day** for the 3 most driven combos: a sparkline drawn like Progress (higher = slower), personal-best dots, and a hover crosshair and tooltip.
+    - **Records:** best, ideal, could gain, laps, last driven, with links to Progress and best against ideal.
+  - Empty database: a short how-to instead of zeros.
+  - `src/service.js` `dashboard()` uses stored laps and reports only. Imported laps are excluded, and a missing value is shown as missing.
+  - Per-combo invalidation after a lap, and `progress()` cached per combo.
+- **Files:** `src/service.js`, `src/server.js`, `public/home.js` (new), `public/app.js`, `public/index.html`, `public/palette.js`, `public/style.css`, `test/dashboard.test.js` (new), `test/smoke.test.js`, `test/shell.test.js`, README, CHANGELOG, DECISIONS.
+- **Tests performed:**
+  - `npm run check`: 81/81. `npm test`: 84/84, including:
+    - an empty database;
+    - totals and records against the stored laps;
+    - the report summary;
+    - the trend equal to Progress;
+    - two driving days;
+    - imported laps excluded;
+    - a second report with its target check;
+    - per-combo invalidation.
+  - Headless Edge, 0 JS errors: Home with demo data, empty, dark, and 8 days of data with a hover screenshot. That screenshot caught the sparkline drawn upside down and stretched markers, both fixed.
+  - Timing:
+    - scratch database with 240 laps: 16 ms cold, 2 ms warm, 14 ms after a new lap;
+    - deployed app on the user's 50 laps and 11 combos: 17 ms, then 4 ms.
+- **Known limitations:**
+  - Fixed layout (no widgets).
+  - Trends only for the 3 most driven combos of the last 60 days.
+  - "Time in laps" counts saved laps only (no out laps or time in the pits).
+- **Review findings (code-review subagent):**
+  - No critical findings.
+  - The high finding is fixed: a blocking tasklist call on every dashboard request, which reloads after each lap.
+  - Both mediums fixed: a full recompute after every lap; no refresh when a report arrives.
+  - All 6 lows fixed: calendar days, the first-day PB marker, the target count, touch handling, the HUD error text, the "time" label. Tests extended as suggested.
 - **User approval:** pending.
