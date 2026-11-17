@@ -11,6 +11,7 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   markButton: null, // wheel button that marks a brake point: {vid, pid, nth, button, name}; null = none
   markKey: '', // keyboard shortcut (Electron accelerator) that marks a brake point, desktop app only
   probeConfirmed: false, // the driver checked in game that the setup fingerprint / temperatures read right (Setups tab; before 0.6)
+  updateCheck: true, // once a day, ask GitHub whether a newer Paddock is out (nothing is downloaded; src/updates.js)
   channelChecks: null }; // per telemetry group, whether the readings match the game: {group: true|false} (src/channels.js)
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity

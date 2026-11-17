@@ -1,4 +1,4 @@
-// Minimal zip reader (no dependencies): list the entries of a .zip and extract one to a file.
+// Minimal zip reader and writer (no dependencies): list the entries of a .zip and extract one to a file; write backups.
 // Supports stored and deflated entries and Zip64. Encrypted entries are refused.
 import fs from 'node:fs';
 import zlib from 'node:zlib';
@@ -92,4 +92,79 @@ export async function extract(file, entry, dest) {
   const steps = [src, ...(entry.method === 8 ? [zlib.createInflateRaw()] : []), fs.createWriteStream(dest)];
   await pipeline(...steps);
   if (fs.statSync(dest).size !== entry.size) throw new Error(`${entry.name}: size mismatch after extracting`);
+}
+
+// ---------------------------------------------------------------- writer (backups)
+const MAX32 = 0xffffffff;
+const dosTime = (d) => ({
+  time: (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1),
+  date: ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(),
+});
+/**
+ * Write a zip: entries [{name, file}] (streamed from disk) or [{name, data: Buffer|string}], deflated, UTF-8 names.
+ * Sizes go in a data descriptor after each entry, so nothing is held in memory. Zip64 is not written: an entry or the
+ * whole archive over 4 GiB is refused.
+ */
+export async function writeZip(dest, entries) {
+  const out = fs.createWriteStream(dest);
+  let offset = 0;
+  const put = (buf) => new Promise((resolve, reject) => { offset += buf.length; out.write(buf, (e) => (e ? reject(e) : resolve())); });
+  const central = [];
+  const { time, date } = dosTime(new Date());
+  try {
+    for (const e of entries) {
+      const name = Buffer.from(e.name.split(String.fromCharCode(92)).join('/'));
+      const start = offset;
+      const h = Buffer.alloc(30);
+      h.writeUInt32LE(LOC, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(0x0808, 6); h.writeUInt16LE(8, 8);
+      h.writeUInt16LE(time, 10); h.writeUInt16LE(date, 12); h.writeUInt16LE(name.length, 26);
+      await put(h); await put(name);
+      let crc = 0, usize = 0, csize = 0;
+      const deflate = zlib.createDeflateRaw({ level: 6 });
+      const done = new Promise((resolve, reject) => {
+        deflate.on('data', (c) => { csize += c.length; deflate.pause(); put(c).then(() => deflate.resume(), reject); });
+        deflate.on('end', resolve); deflate.on('error', reject);
+      });
+      const feed = (chunk) => { crc = zlib.crc32(chunk, crc); usize += chunk.length; };
+      if (e.file) {
+        const src = fs.createReadStream(e.file);
+        src.on('data', feed);
+        await pipeline(src, deflate);
+      } else {
+        const b = Buffer.isBuffer(e.data) ? e.data : Buffer.from(String(e.data));
+        feed(b); deflate.end(b);
+      }
+      await done;
+      if (usize > MAX32 || csize > MAX32 || offset > MAX32) throw new Error(`${e.name} is too big for a zip without Zip64`);
+      const dd = Buffer.alloc(16);
+      dd.writeUInt32LE(0x08074b50, 0); dd.writeUInt32LE(crc >>> 0, 4); dd.writeUInt32LE(csize, 8); dd.writeUInt32LE(usize, 12);
+      await put(dd);
+      central.push({ name, crc, csize, usize, start });
+    }
+    const cdStart = offset;
+    for (const c of central) {
+      const h = Buffer.alloc(46);
+      h.writeUInt32LE(CEN, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(20, 6); h.writeUInt16LE(0x0808, 8); h.writeUInt16LE(8, 10);
+      h.writeUInt16LE(time, 12); h.writeUInt16LE(date, 14); h.writeUInt32LE(c.crc >>> 0, 16); h.writeUInt32LE(c.csize, 20); h.writeUInt32LE(c.usize, 24);
+      h.writeUInt16LE(c.name.length, 28); h.writeUInt32LE(c.start, 42);
+      await put(h); await put(c.name);
+    }
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(EOCD, 0); end.writeUInt16LE(central.length, 8); end.writeUInt16LE(central.length, 10);
+    end.writeUInt32LE(offset - cdStart, 12); end.writeUInt32LE(cdStart, 16);
+    await put(end);
+    await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
+  } catch (err) {
+    out.destroy();
+    fs.rmSync(dest, { force: true });
+    throw err;
+  }
+}
+
+/** One entry of a (small) zip as a Buffer, or null when it is not there. */
+export function readEntry(file, name) {
+  const e = list(file).find((x) => x.name === name);
+  if (!e) return null;
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try { extractSync(file, e, tmp); return fs.readFileSync(tmp); } finally { fs.rmSync(tmp, { force: true }); }
 }

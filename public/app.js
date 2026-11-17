@@ -10,6 +10,7 @@ import { viewSetups } from './setups.js';
 import { viewReport, lapsBlock, bindLaps } from './reports.js';
 import { mountTelemetry, getCompare, forgetCompare } from './telemetry.js';
 import { initSpotter, spotterAudioState, loadVoice } from './spotter.js';
+import { systemHtml, bindSystem } from './system.js';
 
 const view = $('#view');
 
@@ -77,6 +78,17 @@ async function hudBadge() {
 hudBadge();
 setInterval(hudBadge, 60000);
 window.addEventListener('paddock:hud', hudBadge);
+
+// a dot on Settings while a newer Paddock is out (src/updates.js; checked once a day, if switched on)
+async function updateBadge() {
+  let u; try { u = await api('/api/updates'); } catch { return; }
+  const a = document.querySelector('nav a[data-nav=settings]'); if (!a) return;
+  a.querySelector('.nav-dot')?.remove();
+  if (u.enabled && u.latest) a.insertAdjacentHTML('beforeend', `<span class="nav-dot" title="AC EVO Paddock ${esc(u.latest.version)} is out (Settings → Updates)"></span>`);
+}
+updateBadge();
+setInterval(updateBadge, 3600e3);
+window.addEventListener('paddock:updates', updateBadge);
 
 // ------------------------------------------------------------------ router
 let currentRoute = '';
@@ -484,12 +496,14 @@ async function viewSettings() {
         <span></span><div class="hint" style="margin:0">If “brake” comes too late for you, move Timing to the right so it comes earlier.</div>
       </div>
       <div class="hint" id="spState" style="margin:8px 0 0"></div></div>
+    ${systemHtml()}
     <div class="card"><div class="row"><h2 style="margin:0">Restart Paddock</h2><span class="spacer"></span><button id="restart">Restart Paddock</button></div>
       <p class="muted" style="margin-bottom:0">Closes and reopens Paddock, for example after changing its files. The page reloads by itself when Paddock is back.</p></div>
     <div class="card"><div class="row"><h2 style="margin:0">Telemetry debug</h2><span class="spacer"></span><button id="rawGo">Show live raw values</button></div>
       <p class="muted">Use this while driving to check that speed, pedals, lap time, track position (npos) and coordinates look right.</p>
       <pre class="raw" id="raw" hidden></pre></div>`;
   $('#restart').onclick = (e) => restartPaddock(e.currentTarget);
+  bindSystem(restartPaddock);
   // brake spotter: saved on every change, like the HUD
   let sp = s.spotter, spT;
   const spOffsetTxt = (v) => (+v === 0 ? 'on the point' : `${Math.abs(v)} ms ${v > 0 ? 'earlier' : 'later'}`);
