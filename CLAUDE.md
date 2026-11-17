@@ -23,7 +23,7 @@ Ask the user before pushing, tagging or publishing. Each of those is public.
 
 1. **Version:** bump `version` in `package.json` and in both top-level entries of `package-lock.json` (semver; betas are `0.x.y-beta.N`). If the in-game HUD changed, also bump `mod/trainerhud/app.json` `version`.
    If AC EVO updated since the last release, check that `mod/ACEUIAppLoader/loader.json` `game` matches the new game version. If it doesn't, replace both zips with the matching [ACE UI App Loader release](https://github.com/dreasgrech/ACEUIAppLoader/releases) and update `version`, `game` and the two `.kspkg` SHA-256s. Paddock never installs a loader that was built for a different game version.
-2. **Syntax check:** `for f in desktop/*.cjs desktop/*.mjs overlay/*.cjs src/*.js src/tools/*.js public/*.js mod/trainerhud/*.js; do node --check "$f" || echo FAIL $f; done`
+2. **Syntax check and tests:** `npm run check` (syntax of every shipped script) and `npm test` (unit tests + API smoke test against a mock server, ~2 s). Both must pass. The tests use temporary data dirs under `%TEMP%\paddock-tests` and never write to `data\` or `Saved Games\ACE`.
 3. **Secret scan of what will be committed:**
    - `git diff --cached --name-only | grep -iE "^data/|node_modules|^dist/|\.db$|settings\.json|\.log$"` must print nothing.
    - `git grep --cached -nIE "AIza[0-9A-Za-z_-]{20,}|AQ\.[A-Za-z0-9_-]{20,}|ghp_|gho_|sk-[A-Za-z0-9]{20,}"` must print nothing.

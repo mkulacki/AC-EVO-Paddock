@@ -276,6 +276,7 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `mod/trainerhud/` | the in-game HUD and launcher (ACE UI App Loader app) |
 | `mod/ACEUIAppLoader/` | the bundled ACE UI App Loader release (unmodified zips, MIT licence, `loader.json` = loader + game version) |
 | `desktop/`, `overlay/` | Electron desktop app and standalone overlay |
+| `test/` | automated tests (`npm test`, built-in `node:test`) and the syntax check (`npm run check`) |
 
 ## Privacy
 
@@ -285,6 +286,8 @@ Everything stays on your PC. The only data sent anywhere goes to Google Gemini, 
 
 Bug reports, ideas and pull requests are welcome. Please open an issue first for larger changes.
 `npm run seed` and `npm run mock` let you work without the game.
+Before a pull request, run `npm run check` (syntax) and `npm test`: unit tests for the analysis, database migrations, file formats and setup recognition, plus a smoke test of the API with the mock car. They run in temporary folders and need neither the game nor your `data\`.
+Project documentation (architecture, feature inventory, roadmap) is in [docs/](docs/).
 
 ## Support the project
 
