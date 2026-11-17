@@ -24,7 +24,7 @@ _Last updated: 2026-11-17_
 
 ## Current task
 
-The user is testing the 0.6.0-beta.1 build locally (installed at `E:AC EVO Paddock`) and will give **go / no-go** in a new chat. P10 is not merged into `main` yet. Nothing is pushed, tagged or released (no local tag either).
+The user is testing the 0.6.0-beta.1 build locally (installed in the `AC EVO Paddock` folder on drive E) and will give **go / no-go** in a new chat. P10 is not merged into `main` yet. Nothing is pushed, tagged or released (no local tag either).
 
 ## Known problems
 
