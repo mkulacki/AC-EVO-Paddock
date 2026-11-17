@@ -6,6 +6,15 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### New: goals, challenges, achievements and race weekends
+
+- **Development** page (sidebar, after Sessions): your goals and challenges, challenges suggested from your laps, a session planner, your achievements and your race weekends.
+- **Goals** for each track and car: a lap time, laps close to a time in one session, valid laps in a row, or a consistency score. Paddock checks them against every lap you drive after setting one and tells you when one is met. A **challenge** is a goal with a deadline; Paddock suggests a few from your last 30 days of laps (and your training plan's lap target).
+- **Achievements:** 28 milestones (laps, distance, variety, driving days, personal bests, clean runs, long stints, consistency, goals, race weekends), each with the day you reached it; locked ones show how far you are. Home shows the latest.
+- **Session planner:** pick a car and track you drove, a goal and a Race tab preset (or hotlap / practice), and Paddock starts it in AC EVO.
+- **Race weekend history:** race weekends started from Paddock, with the sessions you drove in them and their best laps.
+- Alt+1…9 now include Development (Alt+4); Tracks, Setups, Game, Mods and Settings moved one number up.
+
 ### New: AI coach per track and car
 
 - **Coach** page for each track and car (the *Coach* button on Sessions, or Ctrl K "coach …"): ask questions about your driving there. The coach gets a summary of your laps, session reports, driving style, setups and training plan; *What is sent to the AI?* shows it in full. Every answer rates its confidence. The chat is kept per track and car.

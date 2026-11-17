@@ -117,6 +117,28 @@ test('home dashboard: data and what needs attention', async () => {
   assert.ok(!d.warnings.some((w) => /Gemini API key/.test(w.text)), 'a key is set in this test');
   await get('/home.js');
   await get('/setuphistory.js');
+  assert.ok(d.development && Array.isArray(d.development.goals) && d.development.achievements.total > 10, 'goals and achievements for Home');
+});
+
+test('development: goals, suggestions, achievements, weekends; planner refuses what it cannot start', async () => {
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await json('/api/development');
+  assert.ok(d.combos.length >= 1 && d.achievements.total > 10 && Array.isArray(d.weekends) && Array.isArray(d.presets));
+  assert.ok(d.achievements.items.find((a) => a.id === 'laps-1').unlockedAt, 'the seeded laps unlock the first one');
+  const c = d.combos[0];
+  const made = await (await post('/api/goals', { key: c.key, kind: 'streak', target: 50, days: 7 })).json();
+  assert.equal(made.goal.state, 'open');
+  assert.equal(made.goal.challenge, true);
+  assert.equal((await post('/api/goals', { key: c.key, kind: 'streak', target: 50 })).status, 400, 'the same goal while it is open (with or without a deadline)');
+  assert.equal((await post('/api/goals', { key: 'no|such|combo', kind: 'lap', target: 90000 })).status, 400);
+  assert.ok((await json('/api/development')).goals.some((g) => g.id === made.goal.id));
+  assert.equal((await post('/api/goals', { action: 'remove', id: made.goal.id })).status, 200);
+  assert.equal((await post('/api/goals', { action: 'remove', id: made.goal.id })).status, 404);
+  assert.equal((await post('/api/achievements/seen', {})).status, 200);
+  assert.ok((await json('/api/development')).achievements.items.every((a) => !a.isNew));
+  assert.equal((await post('/api/development/start', { key: c.key, preset: 'nope' })).status, 400, 'unknown preset');
+  assert.equal((await post('/api/development/start', { key: 'no|such|combo' })).status, 400, 'not in the game');
+  await get('/development.js');
 });
 
 test('the Gemini key is never sent to the page, only masked', async () => {

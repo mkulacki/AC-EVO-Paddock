@@ -814,3 +814,38 @@ a.card.stat:hover { border-color: var(--border-strong); }
 .plain-list li:last-child { border-bottom: 0; }
 table.plan-table td.c, table.plan-table th:not(:first-child) { text-align: center; white-space: nowrap; }
 table.plan-table td.c span { font-weight: 700; }
+
+/* ---- Development (P9): goals, challenges, achievements, race weekends */
+.dev-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 16px; }
+.dev-grid > .card { margin-bottom: 0; }
+@media (max-width: 1100px) { .dev-grid { grid-template-columns: minmax(0, 1fr); } }
+.goal-list { list-style: none; margin: 0; padding: 0; }
+.goal { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); }
+.goal:first-child { border-top: 0; }
+.goal .g-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.goal .g-state { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; white-space: nowrap; }
+.goal.g-missed .g-main b { color: var(--text-secondary); }
+.badge.chal { border-color: transparent; background: var(--accent-soft); color: var(--accent-text); }
+.goal-done { margin-top: 10px; }
+.goal-done summary { cursor: pointer; color: var(--text-secondary); font-size: var(--fs-sm); }
+.goal-form { display: flex; flex-direction: column; gap: 10px; padding: 10px 0 12px; }
+.goal-form label { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); color: var(--text-secondary); }
+.goal-form select, .goal-form input { max-width: 100%; }
+#dvForm { border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+.ach-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 20px; }
+.ach-groups h3 { margin: 6px 0 4px; font-size: var(--fs-sm); color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; }
+.ach-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.ach { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 2px 8px; padding: 6px 0; }
+.ach-ic { font-size: 18px; line-height: 1.1; color: var(--text-muted); }
+.ach.got .ach-ic { color: var(--accent); }
+.ach.locked .ach-t b { color: var(--text-secondary); }
+.ach.new .ach-t b { color: var(--accent-text); }
+.ach-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ach-bar { grid-column: 2; height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+.ach-bar i { display: block; height: 100%; background: var(--accent); opacity: .7; }
+.wk-list { list-style: none; margin: 0; padding: 0; }
+.wk-list > li { padding: 10px 0; border-top: 1px solid var(--border); }
+.wk-list > li:first-child { border-top: 0; padding-top: 0; }
+table.wk-table { margin-top: 6px; }
+.home-ach { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
+.home-ach span { white-space: nowrap; }

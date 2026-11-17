@@ -3,6 +3,7 @@ import { $, esc, api, post, fmt, prettyName } from './util.js';
 import { viewConsistency } from './consistency.js';
 import { viewSetupHistory } from './setuphistory.js';
 import { viewCoach } from './coach.js';
+import { viewDevelopment } from './development.js';
 import { viewTracks, viewTrack } from './tracks.js';
 import { viewRace } from './race.js';
 import { viewProgress } from './progress.js';
@@ -47,6 +48,13 @@ events.addEventListener('report', () => {
   if (a && !a.querySelector('.nav-dot')) a.insertAdjacentHTML('beforeend', '<span class="nav-dot" title="New session report"></span>');
 });
 let reloadT;
+// a goal met or an achievement reached (P9): Home and Development show it; elsewhere a dot on Development
+for (const ev of ['goal', 'achievement']) events.addEventListener(ev, () => {
+  if (currentRoute === 'home') { clearTimeout(reloadT); reloadT = setTimeout(render, 500); return; }
+  if (currentRoute === 'development') { window.dispatchEvent(new Event('paddock:development')); return; }
+  const a = document.querySelector('nav a[data-nav=development]');
+  if (a && !a.querySelector('.nav-dot')) a.insertAdjacentHTML('beforeend', `<span class="nav-dot" title="${ev === 'goal' ? 'Goal met' : 'New achievement'}"></span>`);
+});
 
 // ------------------------------------------------------------------ restart the app (Settings), e.g. to load code changes
 async function restartPaddock(btn) {
@@ -105,9 +113,10 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/home').split('?'); // Paddock opens on Home; #/ is Sessions
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/coach': 'coach', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/report': 'report' }[path] || 'laps';
-  const navKey = currentRoute === 'track' ? 'tracks' : ['home', 'settings', 'game', 'mods', 'race', 'setups', 'tracks'].includes(currentRoute) ? currentRoute : 'laps';
+  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/coach': 'coach', '/development': 'development', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/report': 'report' }[path] || 'laps';
+  const navKey = currentRoute === 'track' ? 'tracks' : ['home', 'settings', 'game', 'mods', 'race', 'setups', 'tracks', 'development'].includes(currentRoute) ? currentRoute : 'laps';
   if (navKey === 'laps') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
+  if (navKey === 'development') document.querySelector('nav a[data-nav=development] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
     if (currentRoute === 'home') await viewHome(view, mine);
@@ -122,6 +131,7 @@ async function render() {
     else if (currentRoute === 'progress') await viewProgress(view, params, mine);
     else if (currentRoute === 'setuphistory') await viewSetupHistory(view, params, mine);
     else if (currentRoute === 'coach') await viewCoach(view, params, mine);
+    else if (currentRoute === 'development') await viewDevelopment(view, mine);
     else if (currentRoute === 'settings') await viewSettings(view, mine, { restartPaddock, setStatus: (s) => { status = s; } });
     else if (currentRoute === 'report') await viewReport(view, params, mine);
     else await viewSessions(view, params, { rerender: render, entering: prevRoute !== 'laps' });

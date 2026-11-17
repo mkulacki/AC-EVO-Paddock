@@ -269,6 +269,12 @@ export function buildOrder(spec) {
   // for the session report (src/game.js launchConditions); the HUD ignores it
   const st = Math.max(0, Math.min(1435, start));
   order.conditions = { weather: w.label, dynamic: !!spec.dynamic, grip: grip.label, time: `${String(Math.floor(st / 60)).padStart(2, '0')}:${String(st % 60).padStart(2, '0')}`, mode: mode.label };
+  // for the race weekend history (src/weekends.js): what was started and roughly how long it runs; the HUD ignores it
+  const raceMin = race.type !== 'time' ? clamp(race.laps, ...L.raceLaps, D.race.laps) * 3 : clamp(race.minutes, ...L.raceMin, D.race.minutes);
+  const plannedMin = mode.id === 'hotlap' ? 60 : mode.id === 'practice' ? clamp(spec.practiceMin, ...L.practiceMin, D.practiceMin)
+    : mode.id === 'race' ? raceMin
+      : clamp(spec.practiceMin, ...L.practiceMin, D.practiceMin) + clamp(spec.qualifyingMin, ...L.qualifyingMin, D.qualifyingMin) + clamp(spec.warmupMin, ...L.warmupMin, D.warmupMin) + raceMin;
+  order.meta = { mode: mode.id, trackId: t.id, layoutKey: l.key, car: order.car.id || order.car.display, plannedMin, goalId: Number.isInteger(spec.goalId) ? spec.goalId : null };
   if (Buffer.byteLength(JSON.stringify(order)) > MAX_ORDER_BYTES) throw new Error('This setup is too large to send to the game (fewer grid cars?)');
   if (!spec.noRemember) { store.last = spec; saveStore(); } // one-click starts keep the Race tab's own setup
   return order;

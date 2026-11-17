@@ -51,7 +51,7 @@ Paddock also runs as a standalone Windows app (Electron) with its own window and
 - **Home** (where Paddock opens): what needs attention, your totals, recent sessions, next practice targets, your best lap per day for the cars and tracks you drive most, and your records. Everything on it comes from your own laps.
 - **Sidebar:** Home, Race, Sessions, Tracks and Setups, then Game, Mods and Settings. The live status (recording, game state) is at the bottom. Collapse it to icons with the arrow at the bottom or **Ctrl+B**; narrow windows get the icons automatically.
 - **Search (Ctrl+K):** type to jump to a page, a Settings section, a track and layout, a recent session, a car's setups, or the progress, consistency or best-against-ideal view of a car and track you have driven. Start with a kind to narrow it down, for example `track brands` or `session monza`. It never starts the game.
-- **Shortcuts:** press **?** for the list. **Alt+1…8** open the pages in sidebar order.
+- **Shortcuts:** press **?** for the list. **Alt+1…9** open the pages in sidebar order.
 
 ## Race tab
 
@@ -134,6 +134,14 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Inputs on the track map:** the map in Telemetry can be coloured by time (gaining / losing) or by **inputs** (braking, coasting, part and full throttle).
 - **Setup history** (button on each track/car, and *Your laps here* in the Setups tab): every setup you drove there, with dates, sessions, laps, best and typical lap, spread and conditions. A saved setup you changed between sessions is listed once per version, so changed values are never mixed. **Compare two setups** shows their lap times side by side and exactly which values differ (from the values recorded when you drove them).
 - **Export/import:** share `.lap.gz` files with friends and compare against their laps.
+
+## Development (goals, challenges, achievements)
+
+- **Goals** per track and car, checked against every lap you drive after setting one: a lap time, a number of laps within a window of a time in one session, valid laps in a row in one session, or a session consistency score (the report's formula; checked when the session ends). Paddock tells you when one is met, on Home and with a desktop notification.
+- **Challenges** are goals with a deadline (3 to 30 days). Paddock suggests a few for your most driven cars and tracks of the last 30 days: a bit faster than your best (towards your ideal lap), laps close to your best, a longer clean run, a better consistency score. An active training plan's lap target is offered as a goal.
+- **Session planner:** a car and track you drove, a goal, and a Race tab preset (or hotlap / practice with clear weather and optimum grip); Paddock sets it up in AC EVO like the Race tab. Online presets are started from the Race tab.
+- **Achievements:** milestones worked out from your laps, sessions, goals and race weekends, each with the day you reached it. Locked ones show how far you are. Nothing is stored for them: they follow your data.
+- **Race weekends:** each race weekend started from Paddock, with the sessions driven in it (by time, car and track, since the game does not say which part of the weekend a session was) and their best laps.
 
 ## Session reports
 
@@ -301,6 +309,7 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/report.js`, `src/setupmatch.js`, `public/reports.js` | session reports; recognising the setup of every lap |
 | `src/ai.js` | Gemini coach, setup engineer and session debrief |
 | `src/coach.js`, `public/coach.js` | Coach page: chat per track and car, training plan, AI braking points |
+| `src/goals.js`, `src/achievements.js`, `src/weekends.js`, `public/development.js` | Development page: goals and challenges, achievements, race weekends, session planner |
 | `src/channels.js` | which telemetry readings are checked against the game (provenance) |
 | `src/backup.js`, `src/restore-apply.js`, `src/dataexport.js`, `src/diagnostics.js`, `src/updates.js`, `public/system.js` | Settings: backup and restore, CSV export, diagnostics, update check |
 | `public/` | browser app (no build step) |

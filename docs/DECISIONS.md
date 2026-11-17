@@ -99,3 +99,20 @@ Earlier product decisions (Race tab, Mods, setups, spotter, brake marks, reports
 - **AI errors carry a code** (nokey → 400, network/http/empty/format → 502) and say what to do; 429 says the free-tier limit is reached.
 - **Review follow-ups:** a plan is not checked against sessions under 3 laps (no stored report) or the session being driven; those show "–" with the reason. Only the latest 10 later sessions count, and the page says how many older ones are left out. The first corner's braking zone runs across the start/finish line, so a mark placed before the line belongs to it. Applying never silently passes the 60-mark limit. Gemini calls (coach, debrief, setup engineer) time out after 90 s.
   - **Accepted:** corners are matched by name (T1…Tn are unique by construction).
+
+## 2026-11-17: D3, gamification
+
+- **Decision (user):** achievements and challenges: **yes**, alongside goals (the roadmap default was "no; goals only").
+
+## 2026-11-17: P9, driver development
+
+- **Goals are checked from lap times and the game's valid flag only** (verified core telemetry): lap time, laps within a window of a reference time in one session, valid laps in a row in one session, session consistency score (the report's formula, `report.consistencyOf`). Only laps driven after the goal was set count. The first time a goal is met, the time, lap and session are stored, so deleting laps later does not take it back.
+  - **Rejected:** corner or technique goals (they rest on detected corners and would move when the track model changes); goals over all cars (a lap time only means something per car and track).
+- **A challenge is a goal with a deadline** (one table, `due_at`): laps after the deadline do not count, and a challenge met after it would never be "met in time". Paddock suggests challenges (7 days) for the 3 most driven combos of the last 30 days: a lap time halfway from the best towards the ideal lap (at most 0.5 s, at least 0.1 s), laps within 0.5 s (0.3 s once that is done) of the best, a longer valid run, a consistency score 3 points higher. An active training plan's lap target is offered as a goal (P8 plans feed goals). Suggestions skip kinds already open on that combo.
+- **A consistency goal waits for the end of the session** being driven (its score can still change); the other kinds can be met mid-session, because more laps never undo them.
+- **Achievements are not stored:** they are recomputed from laps, goals and weekends, with the time of the event that crossed each threshold, so they are always consistent with the data (a restore or deleted laps change them accordingly). Only "seen at" is kept (`meta`), for the "new" badge. 28 achievements in ladders; the page shows reached steps plus the next one of each ladder (all on request).
+  - **Rejected:** stored unlocks (they would disagree with the data after deleting laps or restoring a backup); points or levels (not asked for, and they invite comparing numbers that mean nothing across cars).
+- **Race weekends:** Paddock records every session it started (`launches`, from the order's `meta` once the HUD reports "started"). A session belongs to a weekend launch if it started after it, before the next launch, within the planned length + 90 min, on the launch's track layout and car. The game does not say which part of the weekend (practice, qualifying, race) a session was, so the history lists the sessions in order with their game session type.
+- **Session planner** builds the same order as the Race tab: a driven combo's catalogue track and car + a Race tab preset's session settings (or hotlap / 30 min practice with clear weather and optimum grip), with the goal id in the order's meta. Online presets are refused (they join a server). Starting asks before ending a running session, like *Start hotlap*.
+- **Notifications:** a goal met or an achievement reached is broadcast to the page (Home refreshes, a dot on Development) and shown as a desktop notification. Achievements already reached when Paddock starts are not announced.
+- **Sidebar:** Development sits after Sessions; Alt+1…9 follow the sidebar, so the later pages moved one number up.

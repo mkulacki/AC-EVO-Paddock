@@ -2,9 +2,9 @@
 
 _Last updated: 2026-11-17_
 
-**Status:** P0–P8 approved and merged into local `main`. **P9 starting: decision D3 asked.**
-**Current phase:** P9, driver development (D3 pending).
-**Branch:** `main` (local, not pushed; the installed app runs the P8 build).
+**Status:** P0–P9 approved and merged into local `main`. **P10 in progress.**
+**Current phase:** P10, final regression and release preparation.
+**Branch:** `phase/p10-release` (local, not pushed).
 
 ## Phases
 
@@ -19,12 +19,12 @@ _Last updated: 2026-11-17_
 | P6 | Driving technique analysis | Done, approved 2026-11-17 |
 | P7 | Setup history and comparison | Done, approved 2026-11-17 |
 | P8 | AI coach upgrade | Done, approved 2026-11-17 |
-| P9 | Driver development | Pending (D3) |
+| P9 | Driver development | Done, approved 2026-11-17 (D3: yes) |
 | P10 | Final regression and release prep | Pending |
 
 ## Current task
 
-P9 start: ask D3 (achievements and challenges), then branch `phase/p9-development`.
+P10: full regression, release preparation (no push, tag or publish without asking).
 
 ## Known problems
 
@@ -32,16 +32,16 @@ P9 start: ask D3 (achievements and challenges), then branch `phase/p9-developmen
 
 ## Test results
 
-- `npm run check` 88/88; `npm test` 124/124. Coach page checked in headless Edge with a stubbed Gemini (0 JS errors).
+- `npm run check` 93/93; `npm test` 137/137. Development page and Home checked in headless Edge (0 JS errors).
 
 ## Pending user decisions
 
-- D3 (achievements and challenges) is asked at the start of P9.
+- None open. D3 answered 2026-11-17: achievements and challenges yes.
 - D1 accent/navigation (before P4), D2 update mechanism (before P3), D3 gamification (before P9).
 
 ## Next action
 
-Ask D3, record it in DECISIONS.md, then start P9 on `phase/p9-development`.
+Work through P10 on `phase/p10-release`; report at the approval gate. Pushing, tagging and publishing need the user's explicit go.
 
 ## How to resume
 
