@@ -6,6 +6,13 @@ All notable changes to AC EVO Paddock. Newest first.
 
 Changes merged to `main` that are not in a release yet. Move them under a version heading when the next release is cut.
 
+### New: driving technique
+
+- **Consistency** shows a **performance score** (pace, consistency and valid laps, with its formula), **corner rankings** (fastest, middle and slowest pass of every corner, with links) and a **driving technique** table: brake application, trail braking, brake release, apex to full throttle, throttle re-lifts, steering reversals and corrections, coasting. Each metric has its definition on hover.
+- **Session report:** a **driving style** section compares your typical pass of each corner with your fastest one and names the habits that cost time. Older reports get it with *Regenerate*.
+- **Telemetry:** the track map can show your **inputs** (braking, coasting, throttle) instead of where you gain and lose.
+- **Home:** your records show the performance score of your last 10 laps.
+
 ### Honest data: what is measured and what is not
 
 - Every reading now says where it comes from: **Measured** (checked against the game), **Unconfirmed** (read from shared memory, not checked yet), **Calculated**, **AI**, **Not available**.

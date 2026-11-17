@@ -88,7 +88,8 @@ test('consistency: technique metrics per corner, definitions and the performance
   assert.match(r.scoreFormula, /0\.5 × pace/);
   assert.equal(s.laps, N);
   assert.equal(s.validity, Math.round((valid.length / N) * 100));
-  if (s.score != null) {
+  assert.notEqual(s.score, null, `seeded laps give a score (${s.reason})`);
+  {
     assert.ok(s.score >= 0 && s.score <= 100);
     assert.ok(Math.abs(s.score - (0.5 * s.pace + 0.3 * s.consistency + 0.2 * s.validity)) <= 1, "score = weighted parts");
     assert.ok(s.medianMs >= r.idealMs, 'median clean lap is not faster than the ideal lap');

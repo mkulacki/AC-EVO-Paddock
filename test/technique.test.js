@@ -149,3 +149,22 @@ test('performance score: missing instead of a made-up number', () => {
   assert.equal(two.score, null);
   assert.match(two.reason, /3 clean laps/);
 });
+
+test('review fix: a gradual lift (100 % → 0 % over 20 m, then back) is one re-lift, not four', () => {
+  const thr = (d) => (d < 100 ? 1 : d < 200 ? 0 : d < 260 ? 1 : d < 280 ? 1 - (d - 260) / 20 : d < 300 ? (d - 280) / 20 : 1);
+  const { R, c } = corner({ thr });
+  assert.equal(techniqueMetrics(R, c).reLifts, 1);
+  // two separate gradual lifts are two
+  const two = (d) => (d < 100 ? 1 : d < 200 ? 0 : d >= 240 && d < 260 ? 0.3 : d >= 300 && d < 320 ? Math.abs(d - 310) / 10 : 1);
+  assert.equal(techniqueMetrics(corner({ thr: two }).R, corner().c).reLifts, 2);
+});
+
+test('review fix: an early tap on the straight is not taken as the braking zone', () => {
+  // a 30 % tap at 20..25 m, then the real braking: on at 100 m, full at 120 m, off at 180 m
+  const brk = (d) => (d >= 20 && d <= 25 ? 0.3 : d < 100 ? 0 : d <= 120 ? (d - 100) / 20 : d < 180 ? 1 : 0);
+  const withTap = techniqueMetrics(corner({ brk }).R, corner().c);
+  const noTap = techniqueMetrics(corner({ brk: (d) => (d < 30 ? 0 : brk(d)) }).R, corner().c);
+  assert.equal(withTap.brakeRampMs, noTap.brakeRampMs);
+  assert.equal(withTap.releaseMs, noTap.releaseMs);
+  assert.ok(withTap.brakeRampMs > 0);
+});

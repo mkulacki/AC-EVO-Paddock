@@ -161,6 +161,13 @@ export async function viewConsistency(view, params, cleanup) {
 }
 
 const tipOf = (def) => esc(def);
+// the true median (the middle two averaged), the same as the session report's "typical" value
+const median = (vals) => {
+  const v = vals.filter((x) => x != null && isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
 const valTxt = (v, unit) => (v == null ? '–' : unit === 'ms' ? (v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toFixed(2)} s`) : `${Math.round(v * 10) / 10}${unit ? ` ${unit}` : ''}`);
 
 // Performance score of the laps in view, with its formula (src/analysis.js performanceScore)
@@ -199,7 +206,7 @@ function techniqueCard(data, laps) {
   if (laps.length < 2 || !T.length) return '';
   const rows = data.corners.map((c, i) => {
     const fastest = laps.reduce((a, l) => (l.corners[i].timeMs != null && (!a || l.corners[i].timeMs < a.corners[i].timeMs) ? l : a), null);
-    return { c, i, fastest, vals: Object.fromEntries(T.map(([k]) => [k, stats(laps.map((l) => l.corners[i][k]))])) };
+    return { c, i, fastest, vals: Object.fromEntries(T.map(([k]) => [k, median(laps.map((l) => l.corners[i][k]))])) };
   });
   return `<details class="card"><summary><b>Driving technique</b> ${prov('calculated', 'From your pedals and steering, which are checked against the game.')}
     <span class="muted" style="font-size:12px">your typical value · (your fastest pass of that corner) · hover a heading for how it is measured</span></summary>
@@ -207,7 +214,7 @@ function techniqueCard(data, laps) {
     <thead><tr><th>Corner</th>${T.map(([, t]) => `<th title="${tipOf(t.def)}">${esc(t.label)}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r) => `<tr><td><b>${esc(r.c.name)}</b></td>${T.map(([k, t]) => {
       const s = r.vals[k], f = r.fastest?.corners[r.i][k];
-      return `<td title="${tipOf(t.def)}">${s ? valTxt(s.median, t.unit) : '–'} <span class="muted">(${valTxt(f, t.unit)})</span></td>`;
+      return `<td title="${tipOf(t.def)}">${valTxt(s, t.unit)} <span class="muted">(${valTxt(f, t.unit)})</span></td>`;
     }).join('')}</tr>`).join('')}</tbody></table></div>
     <p class="muted" style="font-size:12px;margin:8px 0 0">The limits are relative to each pass (its own peak brake pressure and steering lock), so they suit any car. Choose a technique metric under “Spread per corner” to see every lap.</p></details>`;
 }

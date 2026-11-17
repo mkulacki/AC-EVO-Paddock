@@ -91,10 +91,11 @@ function styleNotes(t, b) {
     out.push({ key: 'coastM', w: (t.coastM - b.coastM) / 15, text: `${t.coastM - b.coastM} m more coasting (${t.coastM} m vs ${b.coastM} m)` });
   return out.sort((x, y) => y.w - x.w);
 }
-/** typical values: the median of each metric over the passes (counts and distances rounded) */
+/** typical values: the median of each metric over the passes (times and distances rounded; counts keep a .5) */
+const COUNTS = new Set(['releaseBumps', 'reLifts', 'steerReversals', 'steerSaw']);
 function typicalOf(list) {
   const o = {};
-  for (const k of STYLE_KEYS) { const v = list.map((m) => m[k]).filter((x) => x != null); o[k] = v.length >= Math.ceil(list.length / 2) ? r0(median(v)) : null; }
+  for (const k of STYLE_KEYS) { const v = list.map((m) => m[k]).filter((x) => x != null); o[k] = v.length >= Math.ceil(list.length / 2) ? (COUNTS.has(k) ? r1(median(v)) : r0(median(v))) : null; }
   return o;
 }
 const pick = (m) => Object.fromEntries(STYLE_KEYS.map((k) => [k, m[k] ?? null]));

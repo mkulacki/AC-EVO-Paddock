@@ -232,13 +232,17 @@ export function techniqueMetrics(R, c) {
   const ms = (i, j) => (i == null || j == null ? null : Math.round(R.t[j] - R.t[i]));
   let peakLock = 0;
   for (let i = c.a; i <= c.b; i++) peakLock = Math.max(peakLock, Math.abs(R.str[i]));
-  // brakes: the braking zone is the first brake application of the segment up to the brake coming off
-  let on = null;
-  for (let i = c.a; i <= Math.min(c.b, apex + win); i++) if (R.brk[i] > 0.1) { on = i; break; }
+  // brakes: the braking zone is the application holding the segment's peak pressure (up to just after the apex), from
+  // its onset (over 10 %) to the brake coming off (under 5 %); an earlier short tap on the straight is not the zone
+  const zEnd = Math.min(c.b, apex + win);
+  let peak = c.a;
+  for (let i = c.a; i <= zEnd; i++) if (R.brk[i] > R.brk[peak]) peak = i;
+  let on = R.brk[peak] > 0.1 ? peak : null;
+  if (on != null) while (on > c.a && R.brk[on - 1] > 0.1) on--;
   let brakeRampMs = null, releaseMs = null, releaseBumps = null, trail = 0;
   if (on != null) {
-    let off = c.b, peak = on;
-    for (let i = on; i <= c.b; i++) { if (R.brk[i] < 0.05) { off = i; break; } if (R.brk[i] > R.brk[peak]) peak = i; }
+    let off = c.b;
+    for (let i = peak; i <= c.b; i++) { if (R.brk[i] < 0.05) { off = i; break; } if (R.brk[i] > R.brk[peak]) peak = i; }
     const pk = R.brk[peak];
     let reach = peak; for (let i = on; i <= peak; i++) if (R.brk[i] >= 0.9 * pk) { reach = i; break; }
     let last = peak; for (let i = peak; i <= off; i++) if (R.brk[i] >= 0.9 * pk) last = i;
@@ -255,12 +259,14 @@ export function techniqueMetrics(R, c) {
   }
   // throttle: apex to full throttle; re-lifts once the exit has started
   let full = null; for (let i = apex; i <= c.b; i++) if (R.thr[i] > 0.95) { full = i; break; }
-  let reLifts = 0, started = false, hi = 0;
+  // (rising: track the high, a fall of 20 % counts; falling: track the low, a rise of 20 % arms the next count,
+  // so one gradual lift counts once however far it goes)
+  let reLifts = 0, started = false, falling = false, ext = 0;
   for (let i = apex; i <= c.b; i++) {
     const v = R.thr[i];
-    if (!started) { if (v > 0.5) { started = true; hi = v; } continue; }
-    if (v > hi) hi = v;
-    else if (hi - v >= 0.2) { reLifts++; hi = v; }
+    if (!started) { if (v > 0.5) { started = true; ext = v; } continue; }
+    if (!falling) { if (v > ext) ext = v; else if (ext - v >= 0.2) { reLifts++; falling = true; ext = v; } }
+    else if (v < ext) ext = v; else if (v - ext >= 0.2) { falling = false; ext = v; }
   }
   let coast = 0;
   for (let i = c.a; i <= c.b; i++) if (R.thr[i] < 0.1 && R.brk[i] < 0.1 && R.spd[i] > 30) coast += step;
