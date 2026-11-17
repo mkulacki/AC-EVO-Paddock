@@ -33,7 +33,8 @@ events.addEventListener('status', (e) => {
   statusEl.querySelector('.txt').textContent = recording
     ? `Recording ${prettyName(live.car)} at ${prettyName(live.track)}, ${fmt(live.lapTimeMs)}`
     : STATUS_TEXT[state.status] || `AC EVO: ${state.status}`;
-  statusEl.title = recording ? 'Every lap you finish is saved' : '';
+  // the title also carries the text in the collapsed sidebar, where only the dot shows
+  statusEl.title = `${statusEl.querySelector('.txt').textContent}${recording ? '. Every lap you finish is saved.' : ''}`;
 });
 events.addEventListener('lap', () => { if (currentRoute === 'laps') clearTimeout(reloadT), (reloadT = setTimeout(render, 500)); });
 // a session report was just made: a dot on the Sessions tab until it is opened (the desktop app also notifies)
@@ -95,6 +96,7 @@ let renderId = 0;
 async function render() {
   cleanup.forEach((f) => f()); cleanup = [];
   const id = ++renderId;
+  const mine = cleanup; // this page's own list: if it finishes loading after you left, its timers and listeners are stopped below
   // loading: a thin bar along the top of the page while a page loads (shown only if it takes a moment)
   view.classList.add('busy');
   const [path, query] = (location.hash.slice(1) || '/').split('?');
@@ -105,17 +107,17 @@ async function render() {
   if (navKey === 'laps') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
-    if (currentRoute === 'game') await viewGame(view, cleanup);
-    else if (currentRoute === 'mods') await viewMods(view, cleanup);
-    else if (currentRoute === 'race') await viewRace(view, cleanup);
-    else if (currentRoute === 'setups') await viewSetups(view, params, cleanup);
+    if (currentRoute === 'game') await viewGame(view, mine);
+    else if (currentRoute === 'mods') await viewMods(view, mine);
+    else if (currentRoute === 'race') await viewRace(view, mine);
+    else if (currentRoute === 'setups') await viewSetups(view, params, mine);
     else if (currentRoute === 'tracks') await viewTracks(view);
-    else if (currentRoute === 'track') await viewTrack(view, params, cleanup);
-    else if (currentRoute === 'compare') await viewCompare(view, params, cleanup, { hasKey: status.hasKey });
-    else if (currentRoute === 'consistency') await viewConsistency(view, params, cleanup);
-    else if (currentRoute === 'progress') await viewProgress(view, params, cleanup);
-    else if (currentRoute === 'settings') await viewSettings(view, cleanup, { restartPaddock, setStatus: (s) => { status = s; } });
-    else if (currentRoute === 'report') await viewReport(view, params, cleanup);
+    else if (currentRoute === 'track') await viewTrack(view, params, mine);
+    else if (currentRoute === 'compare') await viewCompare(view, params, mine, { hasKey: status.hasKey });
+    else if (currentRoute === 'consistency') await viewConsistency(view, params, mine);
+    else if (currentRoute === 'progress') await viewProgress(view, params, mine);
+    else if (currentRoute === 'settings') await viewSettings(view, mine, { restartPaddock, setStatus: (s) => { status = s; } });
+    else if (currentRoute === 'report') await viewReport(view, params, mine);
     else await viewSessions(view, params, { rerender: render, entering: prevRoute !== 'laps' });
   } catch (e) {
     if (id === renderId) {
@@ -124,6 +126,7 @@ async function render() {
     }
   } finally {
     if (id === renderId) { view.classList.remove('busy'); window.dispatchEvent(new Event('paddock:rendered')); }
+    else mine.splice(0).forEach((f) => { try { f(); } catch { /* the page is gone anyway */ } });
   }
 }
 window.addEventListener('hashchange', render);

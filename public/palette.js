@@ -39,9 +39,8 @@ export function score(query, text) {
   return s + (t.startsWith(q) ? 5 : 0) - t.length * 0.01;
 }
 
-let cache = null, cacheAt = 0;
+// read fresh each time the palette opens (three small local requests): a deleted or imported lap shows at once
 async function sources() {
-  if (cache && Date.now() - cacheAt < 30000) return cache;
   const safe = (p) => api(p).catch(() => null);
   const [ov, tr, su] = await Promise.all([safe('/api/overview'), safe('/api/tracks'), safe('/api/setups')]);
   const items = [];
@@ -67,18 +66,32 @@ async function sources() {
   items.push({ kind: 'Command', label: 'Check for Paddock updates', run: async () => { const u = await post('/api/updates/check', {}); window.dispatchEvent(new Event('paddock:updates')); return u.latest ? `${u.latest.version} is out: see Settings → Updates` : u.error ? `Check failed: ${u.error}` : 'You have the newest version'; } });
   items.push({ kind: 'Command', label: 'Collapse or expand the sidebar', run: () => { toggleSide(); } });
   items.push({ kind: 'Command', label: 'Keyboard shortcuts', run: () => { setTimeout(showShortcuts, 0); } });
-  cache = items; cacheAt = Date.now();
   return items;
 }
-export const forgetSources = () => { cache = null; };
+// another dialog (the garage, a text prompt) is open: the palette and the shortcuts stay out of its way
+const otherDialog = () => !!document.querySelector('.modal-back, .palette-back');
 
 // ---------------------------------------------------------------- the dialog
 const KINDS = ['Page', 'Settings', 'Progress', 'Consistency', 'Compare', 'Session', 'Track', 'Setups', 'Command'];
+/**
+ * What the palette lists for a query. Empty: pages and recent sessions. A first word naming a kind, followed by more
+ * words ("track brands", "session monza"), keeps only that kind; a single word is always searched as text, so
+ * "tracks" finds the Tracks page.
+ */
+export function filterItems(items, q) {
+  const words = String(q || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return items.filter((it) => it.kind === 'Page' || it.kind === 'Session').slice(0, 14);
+  const kind = words.length > 1 && words[0].length >= 3 ? KINDS.find((k) => k.toLowerCase().startsWith(words[0].toLowerCase())) : null;
+  const text = kind ? words.slice(1).join(' ') : words.join(' ');
+  const pool = kind ? items.filter((it) => it.kind === kind) : items;
+  return pool.map((it) => ({ it, s: score(text, it.label) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s).slice(0, 40).map((x) => x.it);
+}
 let dlg = null;
 function open() {
-  if (dlg) return;
+  if (dlg || otherDialog()) return;
   const last = document.activeElement;
   dlg = document.createElement('div');
+  const mine = dlg;
   dlg.className = 'palette-back';
   dlg.innerHTML = `<div class="palette" role="dialog" aria-modal="true" aria-label="Search and commands">
     <input type="text" placeholder="Search pages, tracks, cars, sessions…" aria-label="Search" autocomplete="off" spellcheck="false">
@@ -87,16 +100,10 @@ function open() {
   document.body.appendChild(dlg);
   const input = dlg.querySelector('input'), list = dlg.querySelector('ul');
   let items = [], shown = [], sel = 0, note = '';
-  const close = () => { dlg?.remove(); dlg = null; last?.focus?.(); };
+  const close = () => { if (dlg !== mine) return; mine.remove(); dlg = null; last?.focus?.(); }; // only this palette (a later one may be open)
   const draw = () => {
     const q = input.value;
-    // a first word naming a kind ("track brands", "session monza") keeps only that kind
-    const [w0, ...restWords] = q.trim().split(/s+/);
-    const kind = w0 && w0.length >= 3 ? KINDS.find((k) => k.toLowerCase().startsWith(w0.toLowerCase())) : null;
-    const qq = kind ? restWords.join(' ') : q;
-    const pool = kind ? items.filter((it) => it.kind === kind) : items;
-    shown = q.trim() ? (qq.trim() ? pool.map((it) => ({ it, s: score(qq, it.label) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s).map((x) => x.it) : pool).slice(0, 40)
-      : items.filter((it) => it.kind === 'Page' || it.kind === 'Session').slice(0, 14);
+    shown = filterItems(items, q);
     sel = Math.min(sel, Math.max(0, shown.length - 1));
     list.innerHTML = note ? `<li class="palette-note">${esc(note)}</li>`
       : shown.length ? shown.map((it, i) => `<li role="option" data-i="${i}" class="${i === sel ? 'sel' : ''}" aria-selected="${i === sel}">
@@ -116,7 +123,7 @@ function open() {
     if (e.key === 'ArrowDown') { sel = Math.min(shown.length - 1, sel + 1); draw(); e.preventDefault(); }
     else if (e.key === 'ArrowUp') { sel = Math.max(0, sel - 1); draw(); e.preventDefault(); }
     else if (e.key === 'Enter') { choose(shown[sel]); e.preventDefault(); }
-    else if (e.key === 'Escape') { close(); e.preventDefault(); }
+    else if (e.key === 'Escape') { close(); e.preventDefault(); e.stopPropagation(); }
   };
   list.onclick = (e) => { const li = e.target.closest('li[data-i]'); if (li) choose(shown[+li.dataset.i]); };
   dlg.onmousedown = (e) => { if (e.target === dlg) close(); };
@@ -139,23 +146,36 @@ function scrollToSection(target) {
 }
 
 export function showShortcuts() {
-  if (document.querySelector('.palette-back')) return;
+  if (otherDialog()) return;
+  const last = document.activeElement;
   const back = document.createElement('div');
   back.className = 'palette-back';
-  back.innerHTML = `<div class="palette shortcuts" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"><h2>Keyboard shortcuts</h2>
+  back.innerHTML = `<div class="palette shortcuts" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" tabindex="-1">
+    <div class="row"><h2 style="margin:0">Keyboard shortcuts</h2><span class="spacer"></span><button class="ghost small" data-close aria-label="Close">✕</button></div>
     <table>${SHORTCUTS.map(([k, v]) => `<tr><td>${k.split(' ').map((x) => (x === '…' || x === '/' || x === '·' ? esc(x) : `<kbd>${esc(x)}</kbd>`)).join(' ')}</td><td>${esc(v)}</td></tr>`).join('')}</table>
     <p class="muted" style="margin:10px 0 0;font-size:12px">Shortcuts do nothing while you type in a field.</p></div>`;
   document.body.appendChild(back);
-  const close = () => { back.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (e) => { if (e.key === 'Escape' || e.key === '?') { close(); e.preventDefault(); e.stopPropagation(); } };
+  const box = back.querySelector('.palette');
+  const close = () => { back.remove(); document.removeEventListener('keydown', onKey, true); last?.focus?.(); };
+  // while it is open, keys do not reach the page behind it (a replay would still play on Space)
+  const onKey = (e) => {
+    if (e.key === 'Escape' || e.key === '?') { close(); e.preventDefault(); e.stopPropagation(); return; }
+    if (e.key === 'Tab') { e.preventDefault(); back.querySelector('[data-close]').focus(); }
+    else if (!(e.key === 'Enter' && e.target.matches('[data-close]'))) { e.preventDefault(); }
+    e.stopPropagation();
+  };
   document.addEventListener('keydown', onKey, true);
+  back.querySelector('[data-close]').onclick = close;
   back.onmousedown = (e) => { if (e.target === back) close(); };
+  box.focus();
 }
 
+const narrow = typeof matchMedia === 'function' ? matchMedia('(max-width: 900px)') : { matches: false, addEventListener() {} }; // (tests import this in Node)
 export function toggleSide(force) {
   const on = force ?? !document.documentElement.classList.contains('side-collapsed');
   document.documentElement.classList.toggle('side-collapsed', on);
-  try { localStorage.setItem('side.collapsed', on ? '1' : '0'); } catch { /* private mode */ }
+  // the choice is remembered for wide windows only: in a narrow one the rail is automatic
+  if (!narrow.matches) { try { localStorage.setItem('side.collapsed', on ? '1' : '0'); } catch { /* private mode */ } }
   const b = document.getElementById('sideToggle');
   if (b) { b.title = on ? 'Expand the sidebar' : 'Collapse the sidebar'; b.setAttribute('aria-label', b.title); }
 }
@@ -167,17 +187,17 @@ export function initShortcuts() {
   document.getElementById('sideToggle')?.addEventListener('click', () => toggleSide());
   toggleSide(document.documentElement.classList.contains('side-collapsed')); // titles in step with the stored state
   // narrow windows: the rail, without changing the stored choice
-  const narrow = matchMedia('(max-width: 900px)');
-  const fit = () => { if (narrow.matches) document.documentElement.classList.add('side-collapsed'); else { try { document.documentElement.classList.toggle('side-collapsed', localStorage.getItem('side.collapsed') === '1'); } catch { /* */ } } };
+  const fit =() => { if (narrow.matches) document.documentElement.classList.add('side-collapsed'); else { try { document.documentElement.classList.toggle('side-collapsed', localStorage.getItem('side.collapsed') === '1'); } catch { /* */ } } };
   narrow.addEventListener('change', fit); fit();
-  window.addEventListener('paddock:lapsaved', forgetSources);
   document.addEventListener('keydown', (e) => {
-    if (e.defaultPrevented || document.querySelector('.palette-back')) return;
+    if (e.defaultPrevented || otherDialog()) return;
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'k') { e.preventDefault(); open(); return; }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'b' && !typing(e)) { e.preventDefault(); toggleSide(); return; }
     if (typing(e)) return;
     if (e.key === '?' && !e.ctrlKey && !e.altKey) { e.preventDefault(); showShortcuts(); return; }
-    if (e.altKey && !e.ctrlKey && /^[1-7]$/.test(e.key)) { e.preventDefault(); location.hash = NAV_ORDER[+e.key - 1]; }
+    // by key position, so it also works on keyboards where the digits need Shift (AZERTY)
+    const digit = /^Digit([1-7])$/.exec(e.code)?.[1];
+    if (e.altKey && !e.ctrlKey && digit) { e.preventDefault(); location.hash = NAV_ORDER[+digit - 1]; }
   });
 }

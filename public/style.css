@@ -748,3 +748,4 @@ main.busy::before {
 .palette.shortcuts td { padding: 5px 12px 5px 0; vertical-align: top; }
 .palette.shortcuts td:first-child { white-space: nowrap; }
 .empty .row { justify-content: center; margin-top: 12px; }
+.palette:focus { outline: none; } /* the dialog takes focus so keys stay in it; its buttons keep their own focus ring */

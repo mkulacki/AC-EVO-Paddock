@@ -109,7 +109,15 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
   const MK_TEXT = { ok: 'Active', taken: '<span class="g-bad">Another program already uses this shortcut, or it is not valid.</span>', 'desktop-only': 'Works only in the desktop app.', none: '' };
   const mkShow = (st) => { $('#mkState').innerHTML = MK_TEXT[st] ?? ''; };
   mkShow(s.markKeyState);
-  const mkSave = async (accel) => { $('#markKey').value = accel; try { mkShow((await post('/api/settings', { markKey: accel })).markKeyState); } catch (err) { $('#mkState').textContent = err.message; } };
+  // Paddock's own shortcuts (public/palette.js): a brake-mark key on one of them would switch it off in the desktop app
+  const OWN_KEYS = new Set(['Ctrl+K', 'Ctrl+B', ...[1, 2, 3, 4, 5, 6, 7].map((n) => `Alt+${n}`)]);
+  const mkSave = async (accel) => {
+    $('#markKey').value = accel;
+    try {
+      mkShow((await post('/api/settings', { markKey: accel })).markKeyState);
+      if (OWN_KEYS.has(accel)) $('#mkState').insertAdjacentHTML('beforeend', ` <span class="pos">${esc(accel)} is also a Paddock shortcut: in the desktop app it now marks a brake point instead.</span>`);
+    } catch (err) { $('#mkState').textContent = err.message; }
+  };
   $('#markKey').onkeydown = (e) => {
     e.preventDefault();
     if (e.key === 'Escape' || e.key === 'Backspace') return mkSave('');

@@ -19,6 +19,19 @@ test('score: subsequence match, word starts and prefixes rank higher, no match =
   assert.ok(pal.score('BRANDS', 'brands hatch') > 0, 'case does not matter');
 });
 
+test('filterItems: empty shows pages and sessions; "kind words" filters; a single word is plain text', () => {
+  const items = [
+    { kind: 'Page', label: 'Tracks' }, { kind: 'Page', label: 'Sessions' }, { kind: 'Track', label: 'Brands Hatch Indy' },
+    { kind: 'Track', label: 'Monza GP' }, { kind: 'Session', label: 'Monza GP · Ferrari' }, { kind: 'Consistency', label: 'Monza GP · Ferrari' },
+  ];
+  assert.deepEqual(pal.filterItems(items, '').map((x) => x.kind), ['Page', 'Page', 'Session']);
+  assert.equal(pal.filterItems(items, 'tracks')[0].label, 'Tracks', 'one word: the Tracks page, not a kind filter');
+  assert.deepEqual(pal.filterItems(items, 'track monza').map((x) => x.kind), ['Track']);
+  assert.deepEqual(pal.filterItems(items, 'session   monza').map((x) => x.kind), ['Session'], 'several spaces');
+  assert.equal(pal.filterItems(items, 'con monza')[0].kind, 'Consistency');
+  assert.equal(pal.filterItems(items, 'zzz').length, 0);
+});
+
 test('Alt+1…7 follow the sidebar order', () => {
   const nav = [...html.matchAll(/<a href="(#\/[^"]*)" data-nav="/g)].map((m) => m[1]);
   assert.deepEqual(nav, pal.NAV_ORDER);

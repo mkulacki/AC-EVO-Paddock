@@ -20,6 +20,13 @@ Changes merged to `main` that are not in a release yet. Move them under a versio
 - **Diagnostics** to paste into a bug report, with private data taken out.
 - **Update check:** once a day Paddock asks GitHub whether a newer version is out and shows a link. Nothing is downloaded. It can be switched off.
 
+### New look: sidebar and search
+
+- The pages are in a **sidebar** now (it collapses to icons with Ctrl+B, and by itself in narrow windows). The lime accent stays.
+- **Search and commands (Ctrl+K):** pages, Settings sections, tracks, sessions, your car and track combos, cars with setups.
+- **Keyboard shortcuts:** ? lists them; Alt+1…7 open the pages.
+- Every page shows the same loading bar, and a clear message with *Try again* when something fails. Consistency without valid laps now says so instead of showing an error.
+
 ### Development
 
 - Automated tests: `npm test` (unit tests and an API smoke test with the mock car) and `npm run check` (syntax). See README, Contributing.
