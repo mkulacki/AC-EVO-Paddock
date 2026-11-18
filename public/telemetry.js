@@ -6,9 +6,14 @@ import { css, esc, api, post, fmt, fmtGap, gapClass, idxAt, md, aiConfidence, ge
 
 const MAX_LAPS = 3;
 const color = (i) => css(SERIES[i]); // 0 = reference, 1.. = laps
-const EXTRA = { gear: 'Gear', line: 'Racing line', rpm: 'RPM' };
-let extra = new Set();
-try { extra = new Set(JSON.parse(localStorage.getItem('tele.extra') || '[]')); } catch { /* none */ }
+// which charts are shown (checkboxes at the top of the Telemetry card), remembered per browser
+const CHARTS = { gap: 'Gap', speed: 'Speed', pedals: 'Pedals', steering: 'Steering', gear: 'Gear', rpm: 'RPM', line: 'Racing line' };
+let shown = new Set(['gap', 'speed', 'pedals', 'steering']);
+try {
+  const saved = localStorage.getItem('tele.charts');
+  if (saved) shown = new Set(JSON.parse(saved).filter((k) => k in CHARTS));
+  else for (const k of JSON.parse(localStorage.getItem('tele.extra') || '[]')) if (k in CHARTS) shown.add(k); // before 0.6: only the extra charts were optional
+} catch { /* defaults */ }
 // what colours the map: 'time' (gaining / losing against the reference) or 'inputs' (brake / throttle / coasting)
 let mapLayer = 'time';
 try { mapLayer = localStorage.getItem('tele.mapLayer') === 'inputs' ? 'inputs' : 'time'; } catch { /* default */ }
@@ -67,6 +72,9 @@ export async function mountTelemetry(root, opts, cleanup) {
     const sel = ci >= 0 ? corners[ci] : null;
     if (!sel) st.corner = null;
     const lap0 = laps[0];
+    // a chart that can't be drawn for these laps: why (shown as the checkbox's tooltip)
+    const chartOff = (k) => ((k === 'gap' || k === 'line') && !laps.length ? 'Add a lap to compare with the reference'
+      : k === 'rpm' && !data.ref.trace.rpm ? 'No RPM recorded for these laps' : '');
     const layer = lap0 ? mapLayer : 'inputs'; // without a lap to compare there is no time to colour
     const lossOf = (lap, a, b) => lap.delta[idxAt(lap.trace.d, b)] - lap.delta[idxAt(lap.trace.d, a)];
     const sessOf = (id) => choices.find((l) => l.id === id)?.session_id;
@@ -115,9 +123,9 @@ export async function mountTelemetry(root, opts, cleanup) {
             <canvas></canvas></div>
           <div class="card tele-corner"></div>
         </div>
-        <div class="card tele-charts"><div class="row" style="margin-bottom:4px"><b>Telemetry</b>
-          <span class="hint">hover to move the cursor and the cars on the map · drag to zoom · double-click for the whole lap</span><span class="spacer"></span>
-          <span class="hint">More:</span>${Object.entries(EXTRA).map(([k, v]) => `<label class="tcheck"><input type="checkbox" data-extra="${k}" ${extra.has(k) ? 'checked' : ''}>${v}</label>`).join('')}</div>
+        <div class="card tele-charts"><div class="row tpick"><b>Telemetry</b>
+          ${Object.entries(CHARTS).map(([k, v]) => { const why = chartOff(k); return `<label class="tcheck"${why ? ` title="${why}"` : ''}><input type="checkbox" data-chart="${k}" ${shown.has(k) && !why ? 'checked' : ''} ${why ? 'disabled' : ''}>${v}</label>`; }).join('')}</div>
+          <div class="hint" style="margin-bottom:4px">hover to move the cursor and the cars on the map · drag to zoom · double-click for the whole lap</div>
           <div class="tcharts"></div></div>
       </div>
       ${opts.hasKey !== undefined && lap0 ? '<div class="card tele-ai"></div>' : ''}`;
@@ -350,11 +358,24 @@ export async function mountTelemetry(root, opts, cleanup) {
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(base, 0, 0);
       if (!P) return;
       const dpr = window.devicePixelRatio || 1; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      all.forEach((L, li) => {
-        const [px, py] = P(L.trace.x[carIdx], L.trace.z[carIdx]);
-        ctx.fillStyle = color(li); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(px, py, li ? 6 : 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      });
+      const size = Math.min(1.8, Math.sqrt(mapZoom) * (view ? 1.3 : 1));
+      // the reference last, so your laps' cars sit on top
+      for (let li = all.length - 1; li >= 0; li--) drawCar(ctx, all[li].trace, carIdx, color(li), size);
+    }
+    // a top-down car pointing along the lap
+    function drawCar(ctx, t, i, fill, k) {
+      const n = t.x.length, a = Math.max(0, Math.min(n - 4, i - 2)), b = Math.min(n - 1, a + 4);
+      const [px, py] = P(t.x[i], t.z[i]), [ax, ay] = P(t.x[a], t.z[a]), [bx, by] = P(t.x[b], t.z[b]);
+      const L = 20 * k, Wd = 10 * k;
+      ctx.save(); ctx.translate(px, py); ctx.rotate(Math.atan2(by - ay, bx - ax));
+      const body = () => { ctx.beginPath(); ctx.roundRect(-L / 2, -Wd / 2, L, Wd, [Wd * 0.25, Wd * 0.45, Wd * 0.45, Wd * 0.25]); };
+      ctx.fillStyle = '#111'; // tyres
+      for (const [tx, ty] of [[-L * 0.32, -Wd / 2], [-L * 0.32, Wd / 2], [L * 0.28, -Wd / 2], [L * 0.28, Wd / 2]]) ctx.fillRect(tx - L * 0.09, ty - Wd * 0.13, L * 0.18, Wd * 0.26);
+      body(); ctx.fillStyle = fill; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = css('--surface-1'); ctx.stroke();
+      ctx.fillStyle = 'rgba(0,0,0,.55)'; // cockpit / windscreen towards the front
+      ctx.beginPath(); ctx.roundRect(-L * 0.05, -Wd * 0.28, L * 0.26, Wd * 0.56, Wd * 0.18); ctx.fill();
+      ctx.restore();
     }
     // map → cursor: the nearest point of the reference line; a click picks the corner there
     const nearest = (e) => {
@@ -422,27 +443,28 @@ export async function mountTelemetry(root, opts, cleanup) {
       return u;
     }
     const lapSeries = (label = name) => all.map((_, i) => ({ label: label(i), stroke: color(i), width: i ? 1.8 : 1.5 }));
-    if (laps.length) {
+    if (shown.has('gap') && laps.length) {
       chart('Gap to reference <span>s · rising = losing time</span>', [{ label: 'Ref', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 2.2 }))],
         [d.map(() => 0), ...laps.map((l) => l.delta)], { height: 140, labels: true, fmtV: (v) => `${v > 0 ? '+' : ''}${(+v).toFixed(2)}` });
     }
-    chart('Speed <span>km/h</span>', lapSeries(), all.map((l) => l.trace.spd), { height: 180, labels: !laps.length, fmtV: (v) => Math.round(v) });
+    if (shown.has('speed')) chart('Speed <span>km/h</span>', lapSeries(), all.map((l) => l.trace.spd), { height: 180, labels: !laps.length, fmtV: (v) => Math.round(v) });
     // throttle up, brake down: one chart for both pedals
-    chart('Pedals <span>% · throttle up, brake down</span>',
+    if (shown.has('pedals')) chart('Pedals <span>% · throttle up, brake down</span>',
       [...all.map((_, i) => ({ label: `${name(i)} gas`, stroke: color(i), width: 1.5 })), ...all.map((_, i) => ({ label: `${name(i)} brake`, stroke: color(i), width: 1.5, fill: `color-mix(in srgb, ${color(i)} 12%, transparent)` }))],
       [...all.map((l) => l.trace.thr.map((v) => v * 100)), ...all.map((l) => l.trace.brk.map((v) => -v * 100))],
       { height: 150, range: [-104, 104], fmtV: (v) => `${Math.round(Math.abs(v))}%` });
-    chart('Steering', lapSeries(), all.map((l) => l.trace.str), { height: 100, fmtV: (v) => (+v).toFixed(2) });
-    if (extra.has('gear')) chart('Gear', lapSeries(), all.map((l) => l.trace.gear), { height: 90, stepped: true, fmtV: gearTxt });
-    if (extra.has('rpm') && data.ref.trace.rpm) chart('RPM', lapSeries(), all.map((l) => l.trace.rpm), { height: 110, fmtV: (v) => Math.round(v) });
-    if (extra.has('line') && laps.length) {
+    if (shown.has('steering')) chart('Steering', lapSeries(), all.map((l) => l.trace.str), { height: 100, fmtV: (v) => (+v).toFixed(2) });
+    if (shown.has('gear')) chart('Gear', lapSeries(), all.map((l) => l.trace.gear), { height: 90, stepped: true, fmtV: gearTxt });
+    if (shown.has('rpm') && data.ref.trace.rpm) chart('RPM', lapSeries(), all.map((l) => l.trace.rpm), { height: 110, fmtV: (v) => Math.round(v) });
+    if (shown.has('line') && laps.length) {
       const sgn = mirror ? -1 : 1;
       chart('Racing line <span>m from the reference · above zero = left on the map</span>', [{ label: 'Ref', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 1.5 }))],
         [d.map(() => 0), ...laps.map((l) => l.offset.map((v) => v * sgn))], { height: 110, fmtV: (v) => sideTxt(v * sgn, mirror) });
     }
-    root.querySelectorAll('[data-extra]').forEach((cb) => cb.onchange = () => {
-      cb.checked ? extra.add(cb.dataset.extra) : extra.delete(cb.dataset.extra);
-      try { localStorage.setItem('tele.extra', JSON.stringify([...extra])); } catch { /* ignore */ }
+    if (!charts.length) holder.innerHTML = '<p class="muted">No charts selected: tick one above.</p>';
+    root.querySelectorAll('[data-chart]').forEach((cb) => cb.onchange = () => {
+      cb.checked ? shown.add(cb.dataset.chart) : shown.delete(cb.dataset.chart);
+      try { localStorage.setItem('tele.charts', JSON.stringify([...shown])); } catch { /* ignore */ }
       draw();
     });
     // double-click resets the zoom (uPlot), and also leaves the corner

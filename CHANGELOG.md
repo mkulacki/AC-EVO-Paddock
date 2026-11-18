@@ -11,7 +11,8 @@ Nothing yet.
 ### New: back to Paddock when the game closes
 
 - When you close AC EVO, Paddock comes to the front on the session you just drove (its telemetry, report and laps). Nothing opens if no laps were saved while the game was open. Turn it off in Settings (*When the game closes*).
-- Session and Compare pages: a bigger track map next to slightly narrower telemetry. The car always shows on the map (where the cursor last was), and **+ / −** zoom the map in up to 8×, following the car as you move along the charts.
+- Session and Compare pages: a bigger track map next to slightly narrower telemetry. A car icon, pointing the way you drive, always shows on the map (where the cursor last was), and **+ / −** zoom the map in up to 8×, following the car as you move along the charts.
+- Telemetry: tick which charts to show (gap, speed, pedals, steering, gear, RPM, racing line) at the top of the card. Paddock remembers the choice.
 
 ### New: goals, challenges, achievements and race weekends
 
