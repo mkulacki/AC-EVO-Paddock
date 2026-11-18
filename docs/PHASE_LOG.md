@@ -362,8 +362,11 @@
     - secret scans clean (the only key-scan hit is CLAUDE.md quoting the pattern);
     - `electron-builder --win dir`;
     - packaged exe on a throwaway data dir: 200, title "AC EVO Paddock", version 0.6.0-beta.1, clean log, no `dist/win-unpacked/data`;
-    - zip `release/AC-EVO-Paddock-v0.6.0-beta.1-win64.zip` (676 entries, 155.8 MB): no data, settings, db or race.json entries, and neither the key prefix nor the driver name in the staged folder. SHA-256 `BFA36F50169D2B183C37ABC480CA32C8BA370340D9539F4AA7B1AFA7A1B2E4F0`.
+    - zip `release/AC-EVO-Paddock-v0.6.0-beta.1-win64.zip` (676 entries, 155.8 MB): no data, settings, db or race.json entries, and neither the key prefix nor the driver name in the staged folder. SHA-256 `BFA36F50169D2B183C37ABC480CA32C8BA370340D9539F4AA7B1AFA7A1B2E4F0` (replaced after the test round, see below).
   - Release notes drafted in `release/notes-v0.6.0-beta.1.md` (gitignored).
   - The installed app runs the 0.6.0-beta.1 build.
-- **Not done (needs the user's go):** merge to `main`, push, tag `v0.6.0-beta.1`, GitHub pre-release, overtake.gg update.
-- **User approval:** pending.
+- **User test round (2026-11-18), changes asked for and made on `feature/open-last-session`, merged here:**
+  - Paddock comes to the front on the session just driven when AC EVO closes (Settings switch, on by default; only a session with saved laps from that game run).
+  - Session/Compare telemetry: a bigger track map, see-through race-car icons (each car on its own layer, 50–80 % opaque by car count), **+ / −** map zoom up to 8× that follows the car, and checkboxes for every chart.
+  - Re-run: check 93/93, tests 137/137, packaged smoke test on a throwaway data dir (200, clean log, no `dist/win-unpacked/data`). Zip rebuilt and re-verified (676 entries, 155.8 MB, no data/settings/db/race.json, no key prefix or driver name). New SHA-256 `3571634D8BC77CC2F3C9F884636F419249F70CDC49D979A2AFED1355FD04F62E`.
+- **User approval:** **APPROVED** 2026-11-18 ("you may release changes on github and overtake"). Merged into `main`, pushed, tagged `v0.6.0-beta.1`, GitHub pre-release, overtake.gg update.

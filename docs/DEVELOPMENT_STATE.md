@@ -1,10 +1,10 @@
 # Development state
 
-_Last updated: 2026-11-17_
+_Last updated: 2026-11-18_
 
-**Status:** P0–P9 approved and merged into local `main`. **P10 done on `phase/p10-release`, waiting for approval and the go to publish.**
-**Current phase:** P10, final regression and release preparation.
-**Branch:** `phase/p10-release` (local, not pushed).
+**Status:** P0–P10 approved and merged into `main`. **0.6.0-beta.1 released 2026-11-18.**
+**Current phase:** none (roadmap done).
+**Branch:** `main`.
 
 ## Phases
 
@@ -20,11 +20,11 @@ _Last updated: 2026-11-17_
 | P7 | Setup history and comparison | Done, approved 2026-11-17 |
 | P8 | AI coach upgrade | Done, approved 2026-11-17 |
 | P9 | Driver development | Done, approved 2026-11-17 (D3: yes) |
-| P10 | Final regression and release prep | Done, waiting for approval |
+| P10 | Final regression and release prep | Done, approved 2026-11-18, released |
 
 ## Current task
 
-The user is testing the 0.6.0-beta.1 build locally (installed in the `AC EVO Paddock` folder on drive E) and will give **go / no-go** in a new chat. P10 is not merged into `main` yet. Nothing is pushed, tagged or released (no local tag either).
+None. 0.6.0-beta.1 (with the 2026-11-18 test-round changes) is published. SHA-256 of the zip: `3571634D8BC77CC2F3C9F884636F419249F70CDC49D979A2AFED1355FD04F62E`.
 
 ## Known problems
 
@@ -41,14 +41,7 @@ The user is testing the 0.6.0-beta.1 build locally (installed in the `AC EVO Pad
 
 ## Next action
 
-- **No-go (changes wanted):** fix on `phase/p10-release` (or a branch from it), run `npm test` and `npm run check`, redeploy (stop the app only if the game is not running, `rm -rf dist && npx electron-builder --win dir`, `node desktop/deploy.mjs`, clear `ELECTRON_RUN_AS_NODE`, start the installed exe). Then rebuild and re-verify the release zip (CLAUDE.md steps 5–7): the SHA-256 changes, so update it in `release/notes-v0.6.0-beta.1.md` and in PHASE_LOG P10. Add the changes to the CHANGELOG under 0.6.0-beta.1.
-- **Go:** confirm each public step with the user, then:
-  1. merge `phase/p10-release` into `main` (`--no-ff`), and mark P10 approved in PHASE_LOG and here;
-  2. push `main`;
-  3. tag `v0.6.0-beta.1` (annotated) and push the tag;
-  4. `gh release create v0.6.0-beta.1 release/AC-EVO-Paddock-v0.6.0-beta.1-win64.zip -R mkulacki/ac-evo-paddock --prerelease --title "AC EVO Paddock v0.6.0-beta.1" --notes-file release/notes-v0.6.0-beta.1.md`, then check that the asset state is `uploaded`;
-  5. optional: the overtake.gg update (`.claude/overtake/README.md`).
-- **Before publishing,** check that the zip is unchanged: SHA-256 `BFA36F50169D2B183C37ABC480CA32C8BA370340D9539F4AA7B1AFA7A1B2E4F0` (`Get-FileHash`).
+- 0.6.0-beta.1 is released (GitHub pre-release and overtake.gg). Nothing is in progress: wait for the next request, and start each feature on its own branch from `main`.
 
 ## How to resume
 
