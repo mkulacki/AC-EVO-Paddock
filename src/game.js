@@ -77,6 +77,8 @@ export function status() {
     launch: { order: o ? { kind: o.kind, summary: o.summary, issued: o.issued } : null, events: launch.events.slice(-14) } };
 }
 
+// cached (tasklist at most every 2 s), cheap enough to poll
+export function isRunning() { return checkRunning(); }
 // a fresh answer before starting anything (the cached one may predate the first tasklist reply)
 export function isRunningNow() { return runningNow(); }
 function runningNow() {

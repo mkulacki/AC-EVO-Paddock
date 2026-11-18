@@ -1,10 +1,10 @@
 # Development state
 
-_Last updated: 2026-11-17_
+_Last updated: 2026-11-18_
 
-**Status:** P0–P9 approved and merged into local `main`. **P10 in progress.**
-**Current phase:** P10, final regression and release preparation.
-**Branch:** `phase/p10-release` (local, not pushed).
+**Status:** P0–P10 approved and merged into `main`. **0.6.0-beta.1 released 2026-11-18.**
+**Current phase:** none (roadmap done).
+**Branch:** `main`.
 
 ## Phases
 
@@ -20,11 +20,11 @@ _Last updated: 2026-11-17_
 | P7 | Setup history and comparison | Done, approved 2026-11-17 |
 | P8 | AI coach upgrade | Done, approved 2026-11-17 |
 | P9 | Driver development | Done, approved 2026-11-17 (D3: yes) |
-| P10 | Final regression and release prep | Pending |
+| P10 | Final regression and release prep | Done, approved 2026-11-18, released |
 
 ## Current task
 
-P10: full regression, release preparation (no push, tag or publish without asking).
+None. 0.6.0-beta.1 (with the 2026-11-18 test-round changes) is published. SHA-256 of the zip: `3571634D8BC77CC2F3C9F884636F419249F70CDC49D979A2AFED1355FD04F62E`.
 
 ## Known problems
 
@@ -32,7 +32,7 @@ P10: full regression, release preparation (no push, tag or publish without askin
 
 ## Test results
 
-- `npm run check` 93/93; `npm test` 137/137. Development page and Home checked in headless Edge (0 JS errors).
+- `npm run check` 93/93; `npm test` 137/137. Packaged exe smoke test passed; release zip verified (no data, no secrets).
 
 ## Pending user decisions
 
@@ -41,7 +41,7 @@ P10: full regression, release preparation (no push, tag or publish without askin
 
 ## Next action
 
-Work through P10 on `phase/p10-release`; report at the approval gate. Pushing, tagging and publishing need the user's explicit go.
+- 0.6.0-beta.1 is released (GitHub pre-release and overtake.gg). Nothing is in progress: wait for the next request, and start each feature on its own branch from `main`.
 
 ## How to resume
 
