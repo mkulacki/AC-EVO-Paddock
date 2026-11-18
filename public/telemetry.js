@@ -12,6 +12,10 @@ try { extra = new Set(JSON.parse(localStorage.getItem('tele.extra') || '[]')); }
 // what colours the map: 'time' (gaining / losing against the reference) or 'inputs' (brake / throttle / coasting)
 let mapLayer = 'time';
 try { mapLayer = localStorage.getItem('tele.mapLayer') === 'inputs' ? 'inputs' : 'time'; } catch { /* default */ }
+// map zoom (+ / − on the map): above 1× the map follows the car (the cursor position)
+const MAP_ZOOMS = [1, 1.5, 2, 3, 4, 6, 8];
+let mapZoom = 1;
+try { const z = +localStorage.getItem('tele.mapZoom'); if (MAP_ZOOMS.includes(z)) mapZoom = z; } catch { /* default */ }
 // one input state per grid point, the same limits as the technique metrics (src/analysis.js)
 const INPUTS = [
   { k: 'brake', label: 'Braking', v: '--critical', is: (L, i) => L.brk[i] > 0.1 },
@@ -104,7 +108,8 @@ export async function mountTelemetry(root, opts, cleanup) {
               <button class="small${layer === 'time' ? ' on' : ''}" data-layer="time" ${lap0 ? 'title="Where your lap gains or loses time against the reference"' : 'disabled title="Add a lap to compare with the reference"'}>Time</button>
               <button class="small${layer === 'inputs' ? ' on' : ''}" data-layer="inputs" title="Where ${lap0 ? 'your lap' : 'the reference'} brakes, coasts and is on the throttle">Inputs</button></span>
             <span class="spacer"></span>
-            ${sel ? '<button class="small ghost" data-whole>Whole lap</button>' : ''}</div>
+            ${sel ? '<button class="small ghost" data-whole>Whole lap</button>' : ''}
+            <span class="seg map-zoom" role="group" aria-label="Map zoom"><button class="small" data-zoom="-1" title="Zoom out">−</button><span class="zlvl"></span><button class="small" data-zoom="1" title="Zoom in: the map follows the car">+</button></span></div>
             <div class="hint map-legend">${layer === 'inputs' ? INPUTS.map((s) => `<i class="sw" style="background:var(${s.v})"></i>${s.label}`).join(' ')
               : lap0 ? '<i class="sw" style="background:var(--slower)"></i>losing <i class="sw" style="background:var(--faster)"></i>gaining' : ''}</div>
             <canvas></canvas></div>
@@ -240,6 +245,21 @@ export async function mountTelemetry(root, opts, cleanup) {
     const all = [data.ref, ...laps];
     const base = document.createElement('canvas');
     let P = null, cursorIdx = null, view = null; // view: [i0, i1] of the zoomed part
+    let carIdx = 0; // where the car is shown: the cursor, or where it last was (start line at first)
+    const follow = all[Math.min(1, all.length - 1)].trace; // the car the zoomed map follows: your lap, else the reference
+    let baseQueued = false;
+    const redrawSoon = () => { if (baseQueued) return; baseQueued = true; requestAnimationFrame(() => { baseQueued = false; drawBase(); }); };
+    const zoomShow = () => {
+      q('.map-zoom .zlvl').textContent = `${mapZoom}×`;
+      q('[data-zoom="-1"]').disabled = mapZoom === MAP_ZOOMS[0]; q('[data-zoom="1"]').disabled = mapZoom === MAP_ZOOMS[MAP_ZOOMS.length - 1];
+    };
+    root.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => {
+      const i = Math.max(0, Math.min(MAP_ZOOMS.length - 1, MAP_ZOOMS.indexOf(mapZoom) + +b.dataset.zoom));
+      mapZoom = MAP_ZOOMS[i];
+      try { localStorage.setItem('tele.mapZoom', String(mapZoom)); } catch { /* not remembered */ }
+      zoomShow(); drawBase();
+    }));
+    zoomShow();
     function drawBase() {
       const dpr = window.devicePixelRatio || 1;
       const W = canvas.clientWidth, H = canvas.clientHeight;
@@ -248,8 +268,12 @@ export async function mountTelemetry(root, opts, cleanup) {
       const ctx = base.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
       const { x, z } = data.ref.trace;
       view = sel ? [idxAt(d, Math.max(0, sel.start - 60)), idxAt(d, Math.min(d[d.length - 1], sel.end + 60))] : null;
-      P = view ? fitProjection(x.slice(view[0], view[1] + 1), z.slice(view[0], view[1] + 1), W, H, 30, mirror) : fitProjection(x, z, W, H, 22, mirror);
-      const zoomK = view ? 2.2 : 1;
+      const P0 = view ? fitProjection(x.slice(view[0], view[1] + 1), z.slice(view[0], view[1] + 1), W, H, 30, mirror) : fitProjection(x, z, W, H, 22, mirror);
+      if (mapZoom > 1) { // centred on the car
+        const [fx, fy] = P0(follow.x[carIdx], follow.z[carIdx]);
+        P = (a, b) => { const [u, v] = P0(a, b); return [(u - fx) * mapZoom + W / 2, (v - fy) * mapZoom + H / 2]; };
+      } else P = P0;
+      const zoomK = (view ? 2.2 : 1) * Math.sqrt(mapZoom);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       const band = data.band;
       if (band?.source?.left === 'track') {
@@ -324,10 +348,10 @@ export async function mountTelemetry(root, opts, cleanup) {
     function paint() {
       const ctx = canvas.getContext('2d');
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(base, 0, 0);
-      if (cursorIdx == null || !P) return;
+      if (!P) return;
       const dpr = window.devicePixelRatio || 1; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       all.forEach((L, li) => {
-        const [px, py] = P(L.trace.x[cursorIdx], L.trace.z[cursorIdx]);
+        const [px, py] = P(L.trace.x[carIdx], L.trace.z[carIdx]);
         ctx.fillStyle = color(li); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(px, py, li ? 6 : 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       });
@@ -342,7 +366,8 @@ export async function mountTelemetry(root, opts, cleanup) {
       for (let i = i0; i <= i1; i++) { const [px, py] = P(x[i], z[i]); const dd = (px - mx) ** 2 + (py - my) ** 2; if (dd < bd) { bd = dd; best = i; } }
       return best;
     };
-    canvas.onmousemove = (e) => { const i = nearest(e); canvas.style.cursor = i == null ? '' : 'pointer'; if (i != null) setCursor(i, true); };
+    // zoomed in, the map follows the car, so hovering it would chase itself: the charts move the car then
+    canvas.onmousemove = (e) => { if (mapZoom > 1) { canvas.style.cursor = nearest(e) == null ? '' : 'pointer'; return; } const i = nearest(e); canvas.style.cursor = i == null ? '' : 'pointer'; if (i != null) setCursor(i, true); };
     canvas.onmouseleave = () => setCursor(null, true);
     canvas.onclick = (e) => {
       const i = nearest(e); if (i == null) return;
@@ -389,7 +414,7 @@ export async function mountTelemetry(root, opts, cleanup) {
             if (key !== 'x' || syncing) return;
             syncing = true; for (const c of charts) if (c !== uu) c.setScale('x', { min: uu.scales.x.min, max: uu.scales.x.max }); syncing = false;
           }],
-          setCursor: [(uu) => { if (fromMap) return; const i = uu.cursor.idx; if (i !== cursorIdx) { cursorIdx = i; paint(); } }],
+          setCursor: [(uu) => { if (fromMap) return; const i = uu.cursor.idx; if (i !== cursorIdx) moveCar(i); }],
         },
       }, [d, ...values], el);
       if (xRange) u.setScale('x', { min: xRange[0], max: xRange[1] });
@@ -424,8 +449,15 @@ export async function mountTelemetry(root, opts, cleanup) {
     holder.addEventListener('dblclick', () => { if (st.corner) select(null); });
 
     // the cursor from the map: put it on every chart
+    // the cars on the map: kept where the cursor last was; zoomed in, the map re-centres on the car
+    function moveCar(i) {
+      cursorIdx = i;
+      if (i == null || i === carIdx) return;
+      carIdx = i;
+      if (mapZoom > 1) redrawSoon(); else paint();
+    }
     function setCursor(i, fromMapEvt) {
-      cursorIdx = i; paint();
+      moveCar(i);
       if (!fromMapEvt) return;
       fromMap = true;
       for (const u of charts) {
