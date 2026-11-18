@@ -362,19 +362,31 @@ export async function mountTelemetry(root, opts, cleanup) {
       // the reference last, so your laps' cars sit on top
       for (let li = all.length - 1; li >= 0; li--) drawCar(ctx, all[li].trace, carIdx, color(li), size);
     }
-    // a top-down car pointing along the lap
+    // a top-down closed-wheel race car (prototype shape) pointing along the lap, see-through so the lines under it show
     function drawCar(ctx, t, i, fill, k) {
       const n = t.x.length, a = Math.max(0, Math.min(n - 4, i - 2)), b = Math.min(n - 1, a + 4);
       const [px, py] = P(t.x[i], t.z[i]), [ax, ay] = P(t.x[a], t.z[a]), [bx, by] = P(t.x[b], t.z[b]);
-      const L = 20 * k, Wd = 10 * k;
-      ctx.save(); ctx.translate(px, py); ctx.rotate(Math.atan2(by - ay, bx - ax));
-      const body = () => { ctx.beginPath(); ctx.roundRect(-L / 2, -Wd / 2, L, Wd, [Wd * 0.25, Wd * 0.45, Wd * 0.45, Wd * 0.25]); };
-      ctx.fillStyle = '#111'; // tyres
-      for (const [tx, ty] of [[-L * 0.32, -Wd / 2], [-L * 0.32, Wd / 2], [L * 0.28, -Wd / 2], [L * 0.28, Wd / 2]]) ctx.fillRect(tx - L * 0.09, ty - Wd * 0.13, L * 0.18, Wd * 0.26);
-      body(); ctx.fillStyle = fill; ctx.fill();
-      ctx.lineWidth = 1.5; ctx.strokeStyle = css('--surface-1'); ctx.stroke();
-      ctx.fillStyle = 'rgba(0,0,0,.55)'; // cockpit / windscreen towards the front
-      ctx.beginPath(); ctx.roundRect(-L * 0.05, -Wd * 0.28, L * 0.26, Wd * 0.56, Wd * 0.18); ctx.fill();
+      const L = 26 * k, Wd = 12 * k;
+      ctx.save(); ctx.translate(px, py); ctx.rotate(Math.atan2(by - ay, bx - ax)); ctx.scale(L, Wd);
+      ctx.globalAlpha = 0.72;
+      // body, nose to tail (x: -0.5 rear … 0.5 nose, y: ±0.5): splitter, front wheel arch, sidepod, rear wheel arch, diffuser
+      const half = [[0.5, 0.26], [0.47, 0.38], [0.4, 0.47], [0.24, 0.48], [0.16, 0.37], [0.0, 0.36], [-0.12, 0.42], [-0.18, 0.48], [-0.38, 0.48], [-0.46, 0.4]];
+      ctx.beginPath(); ctx.moveTo(0.5, 0);
+      for (const [x, y] of half) ctx.lineTo(x, y);
+      for (let j = half.length - 1; j >= 0; j--) ctx.lineTo(half[j][0], -half[j][1]);
+      ctx.closePath();
+      ctx.lineJoin = 'round';
+      ctx.fillStyle = fill; ctx.fill();
+      ctx.save(); ctx.scale(1 / L, 1 / Wd); ctx.lineWidth = 1.4; ctx.strokeStyle = css('--surface-1'); ctx.stroke(); ctx.restore(); // an even outline
+      ctx.fillStyle = 'rgba(0,0,0,.35)'; // shading over the wheel arches
+      for (const ax of [0.32, -0.28]) for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(ax, s * 0.4, 0.09, 0.06, 0, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = 'rgba(0,0,0,.5)';
+      ctx.fillRect(-0.4, -0.04, 0.32, 0.08); // engine cover fin
+      ctx.beginPath(); ctx.moveTo(0.24, 0); ctx.quadraticCurveTo(0.2, 0.17, 0.0, 0.16); ctx.lineTo(-0.1, 0.1); ctx.lineTo(-0.1, -0.1); ctx.lineTo(0.0, -0.16); ctx.quadraticCurveTo(0.2, -0.17, 0.24, 0); ctx.fill(); // canopy
+      ctx.fillStyle = 'rgba(255,255,255,.4)'; // windscreen glint
+      ctx.beginPath(); ctx.moveTo(0.2, -0.08); ctx.quadraticCurveTo(0.22, 0, 0.2, 0.08); ctx.lineTo(0.15, 0.07); ctx.quadraticCurveTo(0.17, 0, 0.15, -0.07); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(-0.53, -0.52, 0.08, 1.04); // rear wing
+      ctx.fillStyle = fill; ctx.fillRect(-0.55, -0.52, 0.03, 0.06); ctx.fillRect(-0.55, 0.46, 0.03, 0.06); // wing end plates
       ctx.restore();
     }
     // map → cursor: the nearest point of the reference line; a click picks the corner there
