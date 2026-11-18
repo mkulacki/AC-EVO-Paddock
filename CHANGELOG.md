@@ -8,6 +8,10 @@ Nothing yet.
 
 ## 0.6.0-beta.1
 
+### New: back to Paddock when the game closes
+
+- When you close AC EVO, Paddock comes to the front on the session you just drove (its telemetry, report and laps). Nothing opens if no laps were saved while the game was open. Turn it off in Settings (*When the game closes*).
+
 ### New: goals, challenges, achievements and race weekends
 
 - **Development** page (sidebar, after Sessions): your goals and challenges, challenges suggested from your laps, a session planner, your achievements and your race weekends.
