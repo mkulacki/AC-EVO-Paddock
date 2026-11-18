@@ -253,7 +253,8 @@ export async function mountTelemetry(root, opts, cleanup) {
     const all = [data.ref, ...laps];
     const base = document.createElement('canvas');
     let P = null, cursorIdx = null, view = null; // view: [i0, i1] of the zoomed part
-    const carLayer = document.createElement('canvas'), CAR_ALPHA = 0.5;
+    const carLayer = document.createElement('canvas');
+    const carAlpha = (n) => Math.min(0.8, 0.5 + 0.1 * (n - 1)); // 1 car 50 %, +10 % per extra car, at most 80 %
     let carIdx = 0; // where the car is shown: the cursor, or where it last was (start line at first)
     const follow = all[Math.min(1, all.length - 1)].trace; // the car the zoomed map follows: your lap, else the reference
     let baseQueued = false;
@@ -360,12 +361,17 @@ export async function mountTelemetry(root, opts, cleanup) {
       if (!P) return;
       const dpr = window.devicePixelRatio || 1; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const size = Math.min(1.8, Math.sqrt(mapZoom) * (view ? 1.3 : 1));
-      // cars drawn solid on their own layer, then laid over the map see-through as a whole (details and all)
+      // each car drawn solid on its own layer, then laid over the map see-through (details and all), so a car under
+      // another still shows. More cars: each a bit more opaque, so every one stays easy to pick out.
       if (carLayer.width !== canvas.width || carLayer.height !== canvas.height) { carLayer.width = canvas.width; carLayer.height = canvas.height; }
       const lc = carLayer.getContext('2d');
-      lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, carLayer.width, carLayer.height); lc.setTransform(dpr, 0, 0, dpr, 0, 0);
-      for (let li = all.length - 1; li >= 0; li--) drawCar(lc, all[li].trace, carIdx, color(li), size); // the reference first, so your laps' cars sit on top
-      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = CAR_ALPHA; ctx.drawImage(carLayer, 0, 0); ctx.globalAlpha = 1;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = carAlpha(all.length);
+      for (let li = all.length - 1; li >= 0; li--) { // the reference first, so your laps' cars sit on top
+        lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, carLayer.width, carLayer.height); lc.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawCar(lc, all[li].trace, carIdx, color(li), size);
+        ctx.drawImage(carLayer, 0, 0);
+      }
+      ctx.globalAlpha = 1;
     }
     // a top-down closed-wheel race car (prototype shape) pointing along the lap, see-through so the lines under it show
     function drawCar(ctx, t, i, fill, k) {
