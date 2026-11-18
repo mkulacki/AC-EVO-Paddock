@@ -253,6 +253,7 @@ export async function mountTelemetry(root, opts, cleanup) {
     const all = [data.ref, ...laps];
     const base = document.createElement('canvas');
     let P = null, cursorIdx = null, view = null; // view: [i0, i1] of the zoomed part
+    const carLayer = document.createElement('canvas'), CAR_ALPHA = 0.5;
     let carIdx = 0; // where the car is shown: the cursor, or where it last was (start line at first)
     const follow = all[Math.min(1, all.length - 1)].trace; // the car the zoomed map follows: your lap, else the reference
     let baseQueued = false;
@@ -359,8 +360,12 @@ export async function mountTelemetry(root, opts, cleanup) {
       if (!P) return;
       const dpr = window.devicePixelRatio || 1; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const size = Math.min(1.8, Math.sqrt(mapZoom) * (view ? 1.3 : 1));
-      // the reference last, so your laps' cars sit on top
-      for (let li = all.length - 1; li >= 0; li--) drawCar(ctx, all[li].trace, carIdx, color(li), size);
+      // cars drawn solid on their own layer, then laid over the map see-through as a whole (details and all)
+      if (carLayer.width !== canvas.width || carLayer.height !== canvas.height) { carLayer.width = canvas.width; carLayer.height = canvas.height; }
+      const lc = carLayer.getContext('2d');
+      lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, carLayer.width, carLayer.height); lc.setTransform(dpr, 0, 0, dpr, 0, 0);
+      for (let li = all.length - 1; li >= 0; li--) drawCar(lc, all[li].trace, carIdx, color(li), size); // the reference first, so your laps' cars sit on top
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = CAR_ALPHA; ctx.drawImage(carLayer, 0, 0); ctx.globalAlpha = 1;
     }
     // a top-down closed-wheel race car (prototype shape) pointing along the lap, see-through so the lines under it show
     function drawCar(ctx, t, i, fill, k) {
@@ -368,7 +373,6 @@ export async function mountTelemetry(root, opts, cleanup) {
       const [px, py] = P(t.x[i], t.z[i]), [ax, ay] = P(t.x[a], t.z[a]), [bx, by] = P(t.x[b], t.z[b]);
       const L = 26 * k, Wd = 12 * k;
       ctx.save(); ctx.translate(px, py); ctx.rotate(Math.atan2(by - ay, bx - ax)); ctx.scale(L, Wd);
-      ctx.globalAlpha = 0.72;
       // body, nose to tail (x: -0.5 rear … 0.5 nose, y: ±0.5): splitter, front wheel arch, sidepod, rear wheel arch, diffuser
       const half = [[0.5, 0.26], [0.47, 0.38], [0.4, 0.47], [0.24, 0.48], [0.16, 0.37], [0.0, 0.36], [-0.12, 0.42], [-0.18, 0.48], [-0.38, 0.48], [-0.46, 0.4]];
       ctx.beginPath(); ctx.moveTo(0.5, 0);
