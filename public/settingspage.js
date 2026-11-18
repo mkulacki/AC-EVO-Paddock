@@ -24,6 +24,8 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
       <div class="hint">Free key: <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>. Only a compact per-corner summary is sent, never raw telemetry.</div>
       <label>Gemini model</label><div class="row"><select id="geminiModel" style="flex:1"><option>${esc(s.geminiModel)}</option></select><button id="loadModels">Load available models</button></div>
       <label>Coach language</label><input id="language" value="${esc(s.language)}" placeholder="English">
+      <label>When the game closes</label><label class="row"><input type="checkbox" id="openLast" ${s.openLastSession !== false ? 'checked' : ''}> Open the session I just drove<span id="openLastSaved" class="muted"></span></label>
+      <div class="hint">Desktop app: Paddock comes to the front on that session's page (telemetry, report, laps). Only if laps were saved while the game was open.</div>
       <label>AC EVO folder</label><input id="gamePath" value="${esc(s.gamePath || '')}" placeholder="found automatically through Steam">
       <div class="hint">Track data (maps, edges, corners) is read from the game's content.kspkg in this folder, read-only.</div>
       <label>Game files folder</label><input id="aceDir" value="${esc(s.aceDir || '')}" placeholder="${esc(s.aceAuto || 'found automatically')}">
@@ -103,6 +105,9 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
       else $('#mbName').textContent = r.devices.length ? 'No button pressed. Try again.' : 'No wheel or controller found.';
     } catch (err) { $('#mbName').textContent = err.message; }
     btn.disabled = false;
+  };
+  $('#openLast').onchange = async (e) => {
+    try { await post('/api/settings', { openLastSession: e.target.checked }); $('#openLastSaved').textContent = ' Saved ✓'; } catch (err) { $('#openLastSaved').textContent = ' ' + err.message; }
   };
   $('#mbClear').onclick = async () => { await post('/api/settings', { markButton: null }); mbShow(null); };
   // keyboard shortcut: press the keys in the box; saved straight away

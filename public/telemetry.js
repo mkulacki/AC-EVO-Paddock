@@ -6,12 +6,21 @@ import { css, esc, api, post, fmt, fmtGap, gapClass, idxAt, md, aiConfidence, ge
 
 const MAX_LAPS = 3;
 const color = (i) => css(SERIES[i]); // 0 = reference, 1.. = laps
-const EXTRA = { gear: 'Gear', line: 'Racing line', rpm: 'RPM' };
-let extra = new Set();
-try { extra = new Set(JSON.parse(localStorage.getItem('tele.extra') || '[]')); } catch { /* none */ }
+// which charts are shown (checkboxes at the top of the Telemetry card), remembered per browser
+const CHARTS = { gap: 'Gap', speed: 'Speed', pedals: 'Pedals', steering: 'Steering', gear: 'Gear', rpm: 'RPM', line: 'Racing line' };
+let shown = new Set(['gap', 'speed', 'pedals', 'steering']);
+try {
+  const saved = localStorage.getItem('tele.charts');
+  if (saved) shown = new Set(JSON.parse(saved).filter((k) => k in CHARTS));
+  else for (const k of JSON.parse(localStorage.getItem('tele.extra') || '[]')) if (k in CHARTS) shown.add(k); // before 0.6: only the extra charts were optional
+} catch { /* defaults */ }
 // what colours the map: 'time' (gaining / losing against the reference) or 'inputs' (brake / throttle / coasting)
 let mapLayer = 'time';
 try { mapLayer = localStorage.getItem('tele.mapLayer') === 'inputs' ? 'inputs' : 'time'; } catch { /* default */ }
+// map zoom (+ / − on the map): above 1× the map follows the car (the cursor position)
+const MAP_ZOOMS = [1, 1.5, 2, 3, 4, 6, 8];
+let mapZoom = 1;
+try { const z = +localStorage.getItem('tele.mapZoom'); if (MAP_ZOOMS.includes(z)) mapZoom = z; } catch { /* default */ }
 // one input state per grid point, the same limits as the technique metrics (src/analysis.js)
 const INPUTS = [
   { k: 'brake', label: 'Braking', v: '--critical', is: (L, i) => L.brk[i] > 0.1 },
@@ -63,6 +72,9 @@ export async function mountTelemetry(root, opts, cleanup) {
     const sel = ci >= 0 ? corners[ci] : null;
     if (!sel) st.corner = null;
     const lap0 = laps[0];
+    // a chart that can't be drawn for these laps: why (shown as the checkbox's tooltip)
+    const chartOff = (k) => ((k === 'gap' || k === 'line') && !laps.length ? 'Add a lap to compare with the reference'
+      : k === 'rpm' && !data.ref.trace.rpm ? 'No RPM recorded for these laps' : '');
     const layer = lap0 ? mapLayer : 'inputs'; // without a lap to compare there is no time to colour
     const lossOf = (lap, a, b) => lap.delta[idxAt(lap.trace.d, b)] - lap.delta[idxAt(lap.trace.d, a)];
     const sessOf = (id) => choices.find((l) => l.id === id)?.session_id;
@@ -104,15 +116,16 @@ export async function mountTelemetry(root, opts, cleanup) {
               <button class="small${layer === 'time' ? ' on' : ''}" data-layer="time" ${lap0 ? 'title="Where your lap gains or loses time against the reference"' : 'disabled title="Add a lap to compare with the reference"'}>Time</button>
               <button class="small${layer === 'inputs' ? ' on' : ''}" data-layer="inputs" title="Where ${lap0 ? 'your lap' : 'the reference'} brakes, coasts and is on the throttle">Inputs</button></span>
             <span class="spacer"></span>
-            ${sel ? '<button class="small ghost" data-whole>Whole lap</button>' : ''}</div>
+            ${sel ? '<button class="small ghost" data-whole>Whole lap</button>' : ''}
+            <span class="seg map-zoom" role="group" aria-label="Map zoom"><button class="small" data-zoom="-1" title="Zoom out">−</button><span class="zlvl"></span><button class="small" data-zoom="1" title="Zoom in: the map follows the car">+</button></span></div>
             <div class="hint map-legend">${layer === 'inputs' ? INPUTS.map((s) => `<i class="sw" style="background:var(${s.v})"></i>${s.label}`).join(' ')
               : lap0 ? '<i class="sw" style="background:var(--slower)"></i>losing <i class="sw" style="background:var(--faster)"></i>gaining' : ''}</div>
             <canvas></canvas></div>
           <div class="card tele-corner"></div>
         </div>
-        <div class="card tele-charts"><div class="row" style="margin-bottom:4px"><b>Telemetry</b>
-          <span class="hint">hover to move the cursor and the cars on the map · drag to zoom · double-click for the whole lap</span><span class="spacer"></span>
-          <span class="hint">More:</span>${Object.entries(EXTRA).map(([k, v]) => `<label class="tcheck"><input type="checkbox" data-extra="${k}" ${extra.has(k) ? 'checked' : ''}>${v}</label>`).join('')}</div>
+        <div class="card tele-charts"><div class="row tpick"><b>Telemetry</b>
+          ${Object.entries(CHARTS).map(([k, v]) => { const why = chartOff(k); return `<label class="tcheck"${why ? ` title="${why}"` : ''}><input type="checkbox" data-chart="${k}" ${shown.has(k) && !why ? 'checked' : ''} ${why ? 'disabled' : ''}>${v}</label>`; }).join('')}</div>
+          <div class="hint" style="margin-bottom:4px">hover to move the cursor and the cars on the map · drag to zoom · double-click for the whole lap</div>
           <div class="tcharts"></div></div>
       </div>
       ${opts.hasKey !== undefined && lap0 ? '<div class="card tele-ai"></div>' : ''}`;
@@ -240,6 +253,23 @@ export async function mountTelemetry(root, opts, cleanup) {
     const all = [data.ref, ...laps];
     const base = document.createElement('canvas');
     let P = null, cursorIdx = null, view = null; // view: [i0, i1] of the zoomed part
+    const carLayer = document.createElement('canvas');
+    const carAlpha = (n) => Math.min(0.8, 0.5 + 0.1 * (n - 1)); // 1 car 50 %, +10 % per extra car, at most 80 %
+    let carIdx = 0; // where the car is shown: the cursor, or where it last was (start line at first)
+    const follow = all[Math.min(1, all.length - 1)].trace; // the car the zoomed map follows: your lap, else the reference
+    let baseQueued = false;
+    const redrawSoon = () => { if (baseQueued) return; baseQueued = true; requestAnimationFrame(() => { baseQueued = false; drawBase(); }); };
+    const zoomShow = () => {
+      q('.map-zoom .zlvl').textContent = `${mapZoom}×`;
+      q('[data-zoom="-1"]').disabled = mapZoom === MAP_ZOOMS[0]; q('[data-zoom="1"]').disabled = mapZoom === MAP_ZOOMS[MAP_ZOOMS.length - 1];
+    };
+    root.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => {
+      const i = Math.max(0, Math.min(MAP_ZOOMS.length - 1, MAP_ZOOMS.indexOf(mapZoom) + +b.dataset.zoom));
+      mapZoom = MAP_ZOOMS[i];
+      try { localStorage.setItem('tele.mapZoom', String(mapZoom)); } catch { /* not remembered */ }
+      zoomShow(); drawBase();
+    }));
+    zoomShow();
     function drawBase() {
       const dpr = window.devicePixelRatio || 1;
       const W = canvas.clientWidth, H = canvas.clientHeight;
@@ -248,8 +278,12 @@ export async function mountTelemetry(root, opts, cleanup) {
       const ctx = base.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
       const { x, z } = data.ref.trace;
       view = sel ? [idxAt(d, Math.max(0, sel.start - 60)), idxAt(d, Math.min(d[d.length - 1], sel.end + 60))] : null;
-      P = view ? fitProjection(x.slice(view[0], view[1] + 1), z.slice(view[0], view[1] + 1), W, H, 30, mirror) : fitProjection(x, z, W, H, 22, mirror);
-      const zoomK = view ? 2.2 : 1;
+      const P0 = view ? fitProjection(x.slice(view[0], view[1] + 1), z.slice(view[0], view[1] + 1), W, H, 30, mirror) : fitProjection(x, z, W, H, 22, mirror);
+      if (mapZoom > 1) { // centred on the car
+        const [fx, fy] = P0(follow.x[carIdx], follow.z[carIdx]);
+        P = (a, b) => { const [u, v] = P0(a, b); return [(u - fx) * mapZoom + W / 2, (v - fy) * mapZoom + H / 2]; };
+      } else P = P0;
+      const zoomK = (view ? 2.2 : 1) * Math.sqrt(mapZoom);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       const band = data.band;
       if (band?.source?.left === 'track') {
@@ -324,13 +358,46 @@ export async function mountTelemetry(root, opts, cleanup) {
     function paint() {
       const ctx = canvas.getContext('2d');
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(base, 0, 0);
-      if (cursorIdx == null || !P) return;
+      if (!P) return;
       const dpr = window.devicePixelRatio || 1; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      all.forEach((L, li) => {
-        const [px, py] = P(L.trace.x[cursorIdx], L.trace.z[cursorIdx]);
-        ctx.fillStyle = color(li); ctx.strokeStyle = css('--surface-1'); ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(px, py, li ? 6 : 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      });
+      const size = Math.min(1.8, Math.sqrt(mapZoom) * (view ? 1.3 : 1));
+      // each car drawn solid on its own layer, then laid over the map see-through (details and all), so a car under
+      // another still shows. More cars: each a bit more opaque, so every one stays easy to pick out.
+      if (carLayer.width !== canvas.width || carLayer.height !== canvas.height) { carLayer.width = canvas.width; carLayer.height = canvas.height; }
+      const lc = carLayer.getContext('2d');
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = carAlpha(all.length);
+      for (let li = all.length - 1; li >= 0; li--) { // the reference first, so your laps' cars sit on top
+        lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, carLayer.width, carLayer.height); lc.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawCar(lc, all[li].trace, carIdx, color(li), size);
+        ctx.drawImage(carLayer, 0, 0);
+      }
+      ctx.globalAlpha = 1;
+    }
+    // a top-down closed-wheel race car (prototype shape) pointing along the lap, see-through so the lines under it show
+    function drawCar(ctx, t, i, fill, k) {
+      const n = t.x.length, a = Math.max(0, Math.min(n - 4, i - 2)), b = Math.min(n - 1, a + 4);
+      const [px, py] = P(t.x[i], t.z[i]), [ax, ay] = P(t.x[a], t.z[a]), [bx, by] = P(t.x[b], t.z[b]);
+      const L = 26 * k, Wd = 12 * k;
+      ctx.save(); ctx.translate(px, py); ctx.rotate(Math.atan2(by - ay, bx - ax)); ctx.scale(L, Wd);
+      // body, nose to tail (x: -0.5 rear … 0.5 nose, y: ±0.5): splitter, front wheel arch, sidepod, rear wheel arch, diffuser
+      const half = [[0.5, 0.26], [0.47, 0.38], [0.4, 0.47], [0.24, 0.48], [0.16, 0.37], [0.0, 0.36], [-0.12, 0.42], [-0.18, 0.48], [-0.38, 0.48], [-0.46, 0.4]];
+      ctx.beginPath(); ctx.moveTo(0.5, 0);
+      for (const [x, y] of half) ctx.lineTo(x, y);
+      for (let j = half.length - 1; j >= 0; j--) ctx.lineTo(half[j][0], -half[j][1]);
+      ctx.closePath();
+      ctx.lineJoin = 'round';
+      ctx.fillStyle = fill; ctx.fill();
+      ctx.save(); ctx.scale(1 / L, 1 / Wd); ctx.lineWidth = 1.4; ctx.strokeStyle = css('--surface-1'); ctx.stroke(); ctx.restore(); // an even outline
+      ctx.fillStyle = 'rgba(0,0,0,.35)'; // shading over the wheel arches
+      for (const ax of [0.32, -0.28]) for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(ax, s * 0.4, 0.09, 0.06, 0, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = 'rgba(0,0,0,.5)';
+      ctx.fillRect(-0.4, -0.04, 0.32, 0.08); // engine cover fin
+      ctx.beginPath(); ctx.moveTo(0.24, 0); ctx.quadraticCurveTo(0.2, 0.17, 0.0, 0.16); ctx.lineTo(-0.1, 0.1); ctx.lineTo(-0.1, -0.1); ctx.lineTo(0.0, -0.16); ctx.quadraticCurveTo(0.2, -0.17, 0.24, 0); ctx.fill(); // canopy
+      ctx.fillStyle = 'rgba(255,255,255,.4)'; // windscreen glint
+      ctx.beginPath(); ctx.moveTo(0.2, -0.08); ctx.quadraticCurveTo(0.22, 0, 0.2, 0.08); ctx.lineTo(0.15, 0.07); ctx.quadraticCurveTo(0.17, 0, 0.15, -0.07); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(-0.53, -0.52, 0.08, 1.04); // rear wing
+      ctx.fillStyle = fill; ctx.fillRect(-0.55, -0.52, 0.03, 0.06); ctx.fillRect(-0.55, 0.46, 0.03, 0.06); // wing end plates
+      ctx.restore();
     }
     // map → cursor: the nearest point of the reference line; a click picks the corner there
     const nearest = (e) => {
@@ -342,7 +409,8 @@ export async function mountTelemetry(root, opts, cleanup) {
       for (let i = i0; i <= i1; i++) { const [px, py] = P(x[i], z[i]); const dd = (px - mx) ** 2 + (py - my) ** 2; if (dd < bd) { bd = dd; best = i; } }
       return best;
     };
-    canvas.onmousemove = (e) => { const i = nearest(e); canvas.style.cursor = i == null ? '' : 'pointer'; if (i != null) setCursor(i, true); };
+    // zoomed in, the map follows the car, so hovering it would chase itself: the charts move the car then
+    canvas.onmousemove = (e) => { if (mapZoom > 1) { canvas.style.cursor = nearest(e) == null ? '' : 'pointer'; return; } const i = nearest(e); canvas.style.cursor = i == null ? '' : 'pointer'; if (i != null) setCursor(i, true); };
     canvas.onmouseleave = () => setCursor(null, true);
     canvas.onclick = (e) => {
       const i = nearest(e); if (i == null) return;
@@ -389,7 +457,7 @@ export async function mountTelemetry(root, opts, cleanup) {
             if (key !== 'x' || syncing) return;
             syncing = true; for (const c of charts) if (c !== uu) c.setScale('x', { min: uu.scales.x.min, max: uu.scales.x.max }); syncing = false;
           }],
-          setCursor: [(uu) => { if (fromMap) return; const i = uu.cursor.idx; if (i !== cursorIdx) { cursorIdx = i; paint(); } }],
+          setCursor: [(uu) => { if (fromMap) return; const i = uu.cursor.idx; if (i !== cursorIdx) moveCar(i); }],
         },
       }, [d, ...values], el);
       if (xRange) u.setScale('x', { min: xRange[0], max: xRange[1] });
@@ -397,35 +465,43 @@ export async function mountTelemetry(root, opts, cleanup) {
       return u;
     }
     const lapSeries = (label = name) => all.map((_, i) => ({ label: label(i), stroke: color(i), width: i ? 1.8 : 1.5 }));
-    if (laps.length) {
+    if (shown.has('gap') && laps.length) {
       chart('Gap to reference <span>s · rising = losing time</span>', [{ label: 'Ref', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 2.2 }))],
         [d.map(() => 0), ...laps.map((l) => l.delta)], { height: 140, labels: true, fmtV: (v) => `${v > 0 ? '+' : ''}${(+v).toFixed(2)}` });
     }
-    chart('Speed <span>km/h</span>', lapSeries(), all.map((l) => l.trace.spd), { height: 180, labels: !laps.length, fmtV: (v) => Math.round(v) });
+    if (shown.has('speed')) chart('Speed <span>km/h</span>', lapSeries(), all.map((l) => l.trace.spd), { height: 180, labels: !laps.length, fmtV: (v) => Math.round(v) });
     // throttle up, brake down: one chart for both pedals
-    chart('Pedals <span>% · throttle up, brake down</span>',
+    if (shown.has('pedals')) chart('Pedals <span>% · throttle up, brake down</span>',
       [...all.map((_, i) => ({ label: `${name(i)} gas`, stroke: color(i), width: 1.5 })), ...all.map((_, i) => ({ label: `${name(i)} brake`, stroke: color(i), width: 1.5, fill: `color-mix(in srgb, ${color(i)} 12%, transparent)` }))],
       [...all.map((l) => l.trace.thr.map((v) => v * 100)), ...all.map((l) => l.trace.brk.map((v) => -v * 100))],
       { height: 150, range: [-104, 104], fmtV: (v) => `${Math.round(Math.abs(v))}%` });
-    chart('Steering', lapSeries(), all.map((l) => l.trace.str), { height: 100, fmtV: (v) => (+v).toFixed(2) });
-    if (extra.has('gear')) chart('Gear', lapSeries(), all.map((l) => l.trace.gear), { height: 90, stepped: true, fmtV: gearTxt });
-    if (extra.has('rpm') && data.ref.trace.rpm) chart('RPM', lapSeries(), all.map((l) => l.trace.rpm), { height: 110, fmtV: (v) => Math.round(v) });
-    if (extra.has('line') && laps.length) {
+    if (shown.has('steering')) chart('Steering', lapSeries(), all.map((l) => l.trace.str), { height: 100, fmtV: (v) => (+v).toFixed(2) });
+    if (shown.has('gear')) chart('Gear', lapSeries(), all.map((l) => l.trace.gear), { height: 90, stepped: true, fmtV: gearTxt });
+    if (shown.has('rpm') && data.ref.trace.rpm) chart('RPM', lapSeries(), all.map((l) => l.trace.rpm), { height: 110, fmtV: (v) => Math.round(v) });
+    if (shown.has('line') && laps.length) {
       const sgn = mirror ? -1 : 1;
       chart('Racing line <span>m from the reference · above zero = left on the map</span>', [{ label: 'Ref', stroke: css('--axis'), width: 1 }, ...laps.map((l, i) => ({ label: name(i + 1), stroke: color(i + 1), width: 1.5 }))],
         [d.map(() => 0), ...laps.map((l) => l.offset.map((v) => v * sgn))], { height: 110, fmtV: (v) => sideTxt(v * sgn, mirror) });
     }
-    root.querySelectorAll('[data-extra]').forEach((cb) => cb.onchange = () => {
-      cb.checked ? extra.add(cb.dataset.extra) : extra.delete(cb.dataset.extra);
-      try { localStorage.setItem('tele.extra', JSON.stringify([...extra])); } catch { /* ignore */ }
+    if (!charts.length) holder.innerHTML = '<p class="muted">No charts selected: tick one above.</p>';
+    root.querySelectorAll('[data-chart]').forEach((cb) => cb.onchange = () => {
+      cb.checked ? shown.add(cb.dataset.chart) : shown.delete(cb.dataset.chart);
+      try { localStorage.setItem('tele.charts', JSON.stringify([...shown])); } catch { /* ignore */ }
       draw();
     });
     // double-click resets the zoom (uPlot), and also leaves the corner
     holder.addEventListener('dblclick', () => { if (st.corner) select(null); });
 
     // the cursor from the map: put it on every chart
+    // the cars on the map: kept where the cursor last was; zoomed in, the map re-centres on the car
+    function moveCar(i) {
+      cursorIdx = i;
+      if (i == null || i === carIdx) return;
+      carIdx = i;
+      if (mapZoom > 1) redrawSoon(); else paint();
+    }
     function setCursor(i, fromMapEvt) {
-      cursorIdx = i; paint();
+      moveCar(i);
       if (!fromMapEvt) return;
       fromMap = true;
       for (const u of charts) {

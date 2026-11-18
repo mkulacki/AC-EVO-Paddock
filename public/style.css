@@ -650,12 +650,15 @@ nav a .nav-dot { display: inline-block; width: 7px; height: 7px; border-radius: 
 .cseg.str { background: var(--surface-2); color: var(--text-muted); cursor: default; }
 button.cseg:hover { box-shadow: inset 0 0 0 2px var(--text-primary); }
 .cseg.sel { box-shadow: inset 0 0 0 3px var(--text-primary); }
-.tele-grid { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px; align-items: start; }
+.tele-grid { display: grid; grid-template-columns: minmax(360px, 42%) 1fr; gap: 16px; align-items: start; }
 .tele-side { position: sticky; top: 16px; }
 .tele-map { padding: 12px 14px; }
-.tele-map canvas { width: 100%; height: 300px; display: block; margin-top: 6px; }
+.tele-map canvas { width: 100%; height: clamp(360px, 52vh, 600px); display: block; margin-top: 6px; }
 .tele-map .sw { display: inline-block; width: 10px; height: 4px; margin: 0 4px 2px 8px; vertical-align: middle; }
 .tele-map .seg button { padding: 3px 10px; }
+.tele-map .map-zoom { margin-left: 8px; align-items: center; }
+.tele-map .map-zoom button { padding: 3px 9px; font-weight: 700; }
+.tele-map .map-zoom .zlvl { min-width: 34px; text-align: center; font-size: var(--fs-xs); color: var(--text-secondary); }
 .tele-map .map-legend { margin-top: 6px; min-height: 16px; }
 .tele-map .map-legend .sw:first-child { margin-left: 0; }
 table.technique td { white-space: nowrap; }
@@ -672,6 +675,9 @@ table.technique td { white-space: nowrap; }
 .loss-row > * { text-align: left; }
 .tele-charts { padding: 12px 14px; min-width: 0; }
 .tele-charts .tcheck { display: inline-flex; gap: 4px; align-items: center; font-size: var(--fs-xs); color: var(--text-secondary); margin-left: 8px; }
+.tele-charts .tpick { flex-wrap: wrap; row-gap: 4px; margin-bottom: 2px; }
+.tele-charts .tpick b { margin-right: 4px; }
+.tele-charts .tcheck:has(input:disabled) { opacity: .5; }
 .tchart { margin-top: 6px; }
 .tchart .chart-title { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); }
 .tchart .chart-title span { text-transform: none; font-weight: 400; color: var(--text-muted); letter-spacing: 0; margin-left: 4px; }

@@ -213,6 +213,7 @@ recorder.on('discarded', (e) => console.log(`[lap discarded] ${e.reason}`));
 // end of a session: keep its conditions, then the session report (needs a few laps and a valid one)
 recorder.on('sessionEnd', (s) => {
   if (!s.id) return;
+  try { if (db.lapsOfSession(s.id).length) drivenSession = s.id; } catch { /* not opened on game exit */ }
   setTimeout(() => checkGoals(s), 400); // the session is no longer "being driven" by then
   try { const c = setupTracker.conditions(); if (c) db.setSessionConditions(s.id, c); } catch (e) { console.log(`[report] conditions not saved: ${e.message}`); }
   setTimeout(() => {
@@ -227,6 +228,25 @@ recorder.on('sessionEnd', (s) => {
     } catch (e) { console.log(`[report] session ${s.id}: ${e.message}`); }
   }, 300);
 });
+
+// when AC EVO closes: bring the desktop app to the front on the session driven in that game run (Settings
+// switch, on by default). Only a session with saved laps; nothing if the game was closed from the menus.
+let drivenSession = null, gameWasRunning = false;
+setInterval(() => {
+  const on = game.isRunning();
+  if (on && !gameWasRunning) drivenSession = null; // a new game run: sessions from the last one don't count
+  if (!on && gameWasRunning) {
+    recorder.endSession(); // usually done already (packets stopped); finalizes the last lap otherwise
+    setTimeout(() => { // after the session report (made 300 ms after the session ends)
+      if (drivenSession && settings.get().openLastSession !== false) {
+        console.log(`[game] closed: opening session ${drivenSession}`);
+        globalThis.__paddockOpen?.(`#/report?session=${drivenSession}`);
+      }
+      drivenSession = null;
+    }, 1500);
+  }
+  gameWasRunning = on;
+}, 2000).unref?.();
 
 let lastPacket = null, lastPacketChange = Date.now(), stale = false;
 setInterval(() => {

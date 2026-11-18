@@ -176,13 +176,15 @@ app.whenReady().then(async () => {
     try { if (globalShortcut.register(accel, onPress)) { markKey = accel; return true; } } catch { /* invalid accelerator */ }
     return false;
   };
+  // bring the window to the front on a page (src/server.js: the last session when the game closes)
+  globalThis.__paddockOpen = (hash) => { showMain(); if (hash) win?.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {}); };
   // "Session report ready" (src/server.js, end of a session): a Windows notification; a click opens the report
   const notes = new Set(); // keep a reference, or the click handler is garbage-collected with the notification
   globalThis.__paddockNotify = ({ title, body, hash }) => {
     if (!Notification.isSupported()) return;
     const n = new Notification({ title, body, icon: ICON, silent: false });
     notes.add(n);
-    n.on('click', () => { showMain(); if (hash) win?.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {}); notes.delete(n); });
+    n.on('click', () => { globalThis.__paddockOpen(hash); notes.delete(n); });
     n.on('close', () => notes.delete(n));
     n.show();
   };
