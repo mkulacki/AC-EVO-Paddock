@@ -115,7 +115,7 @@ export async function viewCar(view, params) {
       <td>${r.pbs}</td><td class="muted">${esc(ago(r.lastAt))}</td>
       <td style="white-space:nowrap">${r.bestLapId ? `<a href="#/compare?laps=${r.bestLapId}&ref=ideal">Best lap ›</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
 
-  view.innerHTML = `${head}${tiles}<div class="grid-2">${style}${records}</div>`;
+  view.innerHTML = `${head}${tiles}${records}${style}`;
 }
 
 // distance compared with real trips, milestones and other fun facts

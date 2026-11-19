@@ -120,7 +120,7 @@ export async function mountTelemetry(root, opts, cleanup) {
               <button class="small${layer === 'inputs' ? ' on' : ''}" data-layer="inputs" title="Where ${lap0 ? 'your lap' : 'the reference'} brakes, coasts and is on the throttle">Inputs</button></span>
             <span class="spacer"></span>
             ${sel ? '<button class="small ghost" data-whole>Whole lap</button>' : ''}
-            ${data.band?.ideal ? `<label class="map-toggle" title="The game's own racing line (the line the AI follows)"><input type="checkbox" data-racing ${racingLine ? 'checked' : ''}> Racing line</label>` : ''}
+            ${data.band?.ideal ? `<label class="map-toggle" title="The game's own ideal line (the line the AI follows)"><input type="checkbox" data-racing ${racingLine ? 'checked' : ''}> Ideal line</label>` : ''}
             <span class="seg map-zoom" role="group" aria-label="Map zoom"><button class="small" data-zoom="-1" title="Zoom out">−</button><span class="zlvl"></span><button class="small" data-zoom="1" title="Zoom in: the map follows the car">+</button></span></div>
             <div class="hint map-legend">${layer === 'inputs' ? INPUTS.map((s) => `<i class="sw" style="background:var(${s.v})"></i>${s.label}`).join(' ')
               : lap0 ? '<i class="sw" style="background:var(--slower)"></i>losing <i class="sw" style="background:var(--faster)"></i>gaining' : ''}</div>
