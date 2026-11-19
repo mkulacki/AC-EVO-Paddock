@@ -200,7 +200,14 @@ test('application management routes: export, diagnostics without private data, u
   assert.equal(typeof u.current, 'string');
   const c = await (await fetch(base + '/api/updates/check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
   assert.match(c.error, /mock/, 'no network call from a mock run');
-  assert.deepEqual((await json('/api/backup')).backups, []);
+  const bk = await json('/api/backup');
+  assert.deepEqual(bk.backups, []);
+  assert.deepEqual(bk.parts.map((p) => p.id), ['laps', 'settings', 'race', 'setupNotes']);
+  // Cars tab
+  const cs = await json('/api/cars/stats');
+  assert.ok(Array.isArray(cs.cars) && Array.isArray(cs.unknown));
+  assert.equal((await fetch(base + '/api/cars/detail?car=no_such_car')).status, 404);
+  await get('/cars.js');
   // the mock car is on track: a backup would stall the recording
   const b = await fetch(base + '/api/backup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   assert.equal(b.status, 409);

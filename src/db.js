@@ -86,6 +86,17 @@ export function vacuumInto(file) {
   fs.rmSync(file, { force: true });
   db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
 }
+/** The database handle, for modules that keep their own small tables (carstats.js: lap_stats). */
+export const raw = db;
+/** Bytes per table (indexes counted with their table), or null when SQLite has no dbstat. */
+export function tableSizes() {
+  try {
+    const idx = new Map(db.prepare("SELECT name, tbl_name FROM sqlite_master WHERE type = 'index'").all().map((r) => [r.name, r.tbl_name]));
+    const out = {};
+    for (const r of db.prepare('SELECT name, SUM(pgsize) AS s FROM dbstat GROUP BY name').all()) { const t = idx.get(r.name) || r.name; out[t] = (out[t] || 0) + Number(r.s); }
+    return out;
+  } catch { return null; }
+}
 export const counts = () => ({
   laps: db.prepare('SELECT COUNT(*) AS n FROM laps').get().n,
   sessions: db.prepare('SELECT COUNT(*) AS n FROM sessions').get().n,

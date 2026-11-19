@@ -7,8 +7,11 @@ import { openGarage, openTrackPicker, thumbUrl, variantOf, specTiles, badges, mo
 const ago = (t) => { const s = (Date.now() - t) / 1000; return s < 3600 ? `${Math.max(1, Math.round(s / 60))} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const LS = 'race.form2';
+const LS_RANDCOND = 'race.randomConditions';
+// "Random conditions" next to the dice: on by default, remembered
+const randCond = () => { try { return localStorage.getItem(LS_RANDCOND) !== '0'; } catch { return true; } };
 
-export async function viewRace(view, cleanup) {
+export async function viewRace(view, cleanup, params = new URLSearchParams()) {
   let data = await api('/api/race');
   let cat = data.catalogue;
   const M = cat.model, D = M.defaults, LIM = M.limits;
@@ -49,6 +52,8 @@ export async function viewRace(view, cleanup) {
   const trackOf = (t) => { const tr = cat.tracks.find((x) => x.id === t?.id); return tr ? { t: tr, l: tr.layouts.find((x) => x.key === t.layout) || tr.layouts[0] } : null; };
   const offered = (l, m = st.mode) => l.modes[m] !== false;   // false = the game has no such layout for this session type
   const gridMax = () => { const tl = trackOf(st.track); const n = tl?.l.modes[st.mode]; return typeof n === 'number' && n > 1 ? n - 1 : 40; };
+  // #/race?car=<id> (Cars tab "Drive it"): that car, the rest as it was
+  if (params.get('car') && carById(params.get('car')) && st.car?.id !== params.get('car')) { st.kind = 'solo'; st.car = { id: params.get('car'), mech: null, visual: null }; remember(); }
 
   view.innerHTML = `
     <div class="race-head"><div><h1>Race</h1><div class="sub" id="rInfo"></div></div><span class="spacer"></span>
@@ -66,7 +71,7 @@ export async function viewRace(view, cleanup) {
   }
   const msg = (text, bad) => { const el = $('#rMsg'); if (el) el.innerHTML = `<span class="${bad ? 'error' : 'muted'}">${esc(text)}</span>`; };
 
-  let game = data.game, lastScanDone = null, hidden = null, firstPoll = true;
+  let game = data.game, lastScanDone = null, shownError = null, firstPoll = true;
   async function poll() {
     if (!document.body.contains(view) || !$('#rLaunch')) return;
     let g; try { g = await api('/api/race/status'); } catch { return; }
@@ -74,16 +79,17 @@ export async function viewRace(view, cleanup) {
     const L = g.launch, box = $('#rLaunch');
     if (!box) return;
     const waiting = !g.running ? 'Waiting for the game to start…' : g.inSession ? 'A session is running in the game. Leave it (Esc, then Quit session) and the Paddock HUD carries on.' : 'Waiting for the Paddock HUD on the game\'s menu…';
-    box.innerHTML = L.order || L.events.length ? `<div class="card" style="margin:0">
-      ${L.order ? `<div class="row"><span class="spinner"></span><b>${L.order.kind === 'solo' || L.order.kind === 'mp' ? 'Starting' : 'Reading the game'}</b><span class="muted">${esc(L.order.summary || '')}</span>
-        <span class="spacer"></span><button class="small ghost" id="rCancel">Cancel</button></div>` : '<div class="row"><b>Last start</b><span class="spacer"></span><button class="small ghost" id="rHide">Hide</button></div>'}
+    // only while a start is in progress: no "last start" panel afterwards (a failed start still says why, next to Start)
+    box.innerHTML = L.order ? `<div class="card" style="margin:0">
+      <div class="row"><span class="spinner"></span><b>${L.order.kind === 'solo' || L.order.kind === 'mp' ? 'Starting' : 'Reading the game'}</b><span class="muted">${esc(L.order.summary || '')}</span>
+        <span class="spacer"></span><button class="small ghost" id="rCancel">Cancel</button></div>
       ${L.events.length ? `<ol>${L.events.map((e) =>
         `<li class="${e.step === 'error' ? 'g-bad' : e.step === 'warn' ? 'pos' : e.step === 'started' || e.step === 'scandone' ? 'g-ok' : ''}">${esc(e.msg || e.step)}</li>`).join('')}</ol>`
         : `<div class="muted" style="margin-top:6px">${waiting}</div>`}
     </div>` : '';
     if ($('#rCancel')) $('#rCancel').onclick = async () => { await post('/api/game/cancel', {}); poll(); };
-    if ($('#rHide')) $('#rHide').onclick = () => { box.innerHTML = ''; hidden = L.events.at(-1)?.at; };
-    if (!L.order && hidden && L.events.at(-1)?.at === hidden) box.innerHTML = '';
+    const lastEv = L.events.at(-1);
+    if (!L.order && lastEv?.step === 'error' && lastEv.at !== shownError) { if (!firstPoll) msg(lastEv.msg || 'The start failed', true); shownError = lastEv.at; }
     // game data read while this page is open: reload the catalogue (which layouts each session type offers)
     const doneAt = L.events.find((e) => e.step === 'scandone' || e.step === 'started')?.at ?? null;
     if (!firstPoll && doneAt && doneAt !== lastScanDone) setTimeout(reload, 2500);
@@ -190,7 +196,8 @@ export async function viewRace(view, cleanup) {
       <div class="actionbar">
         <div class="summary"><b id="rSummary"></b><span id="rMsg">${blocked ? `<span class="error">The game does not offer ${esc(tl.t.name)} ${esc(tl.l.name)} for ${esc(m.label)}: pick another layout or session type.</span>` : ''}</span></div><span class="spacer"></span>
         <select id="rRandMode" title="what the dice may pick"><option value="any">Any car &amp; track</option><option value="driven">Combos I've driven</option><option value="new">New combos only</option></select>
-        <button id="rRand" title="random car, track, time and weather">🎲 Random</button>
+        <button id="rRand" title="random car and track (and conditions, if ticked)">🎲 Random</button>
+        <label class="rand-cond" title="also pick a random time of day and weather; unticked keeps the conditions set above"><input type="checkbox" id="rRandCond" ${randCond() ? 'checked' : ''}> Random conditions</label>
         <button id="rSave">Save preset</button>
         <button class="primary big" id="rGo" ${blocked ? 'disabled' : ''}>Start ${esc(m.label)}</button>
       </div>
@@ -226,6 +233,7 @@ export async function viewRace(view, cleanup) {
     record(); summary();
     $('#rGo').onclick = () => launch(spec());
     $('#rRand').onclick = () => randomize($('#rRandMode').value);
+    $('#rRandCond').onchange = (e) => { try { localStorage.setItem(LS_RANDCOND, e.target.checked ? '1' : '0'); } catch { /* ignore */ } };
     $('#rSave').onclick = savePreset;
     bindPresets(); bindRecent();
   }
@@ -303,8 +311,10 @@ export async function viewRace(view, cleanup) {
         break;
       }
     }
-    st.time = `${String(8 + Math.floor(Math.random() * 11)).padStart(2, '0')}:${pick(['00', '15', '30', '45'])}`;
-    st.weather = pick(M.weather.slice(0, 4).concat(M.weather)).id; // dry weather twice as likely
+    if (randCond()) { // unticked: the conditions already set stay as they are
+      st.time = `${String(8 + Math.floor(Math.random() * 11)).padStart(2, '0')}:${pick(['00', '15', '30', '45'])}`;
+      st.weather = pick(M.weather.slice(0, 4).concat(M.weather)).id; // dry weather twice as likely
+    }
     remember(); body();
   }
 

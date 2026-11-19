@@ -5,7 +5,7 @@ import { esc, api, post, prettyName } from './util.js';
 
 const PAGES = [
   ['Home', '#/home', 'Your driving at a glance'], ['Race', '#/race', 'Set up and start a session'], ['Sessions', '#/', 'Your sessions by track and car'], ['Sessions by date', '#/?by=date', 'Newest first'], ['Development', '#/development', 'Goals, challenges, achievements and race weekends'],
-  ['Tracks', '#/tracks', 'Maps, corners and brake points'], ['Coach', '#/coach', 'AI coach, training plan and braking points per track and car'], ['Setups', '#/setups', 'Your saved setups and the AI engineer'],
+  ['Tracks', '#/tracks', 'Maps, corners and brake points'], ['Cars', '#/cars', 'Every car, with your distance, records and driving style per car'], ['Coach', '#/coach', 'AI coach, training plan and braking points per track and car'], ['Setups', '#/setups', 'Your saved setups and the AI engineer'],
   ['Game', '#/game', 'AC EVO, App Loader and HUD status'], ['Mods', '#/mods', 'Install, disable and remove mods'], ['Settings', '#/settings', 'Driver, Gemini, folders'],
 ];
 // Settings sections: [label, element id or heading text on the Settings page]
@@ -15,12 +15,12 @@ const SECTIONS = [
   ['Setup recognition (check readings against the game)', null, '#/setups'],
 ];
 export const SHORTCUTS = [
-  ['Ctrl K', 'Search and commands'], ['?', 'This list'], ['Alt 1 … 9', 'Home, Race, Sessions, Development, Tracks, Setups, Game, Mods, Settings'],
+  ['Ctrl K', 'Search and commands'], ['?', 'This list'], ['Alt 1 … 9, 0', 'Home, Race, Sessions, Development, Tracks, Cars, Setups, Game, Mods, Settings'],
   ['Ctrl B', 'Collapse or expand the sidebar'], ['Esc', 'Close a dialog'],
   ['← / →', 'Telemetry: previous or next lap of the session; Replay: step (Shift: 10 samples)'], ['Space', 'Replay: play or pause'], ['[ / ]', 'Replay: previous or next corner'],
   ['F8', 'In game: switch the HUD reference (best, ideal, session best)'], ['F5 · F11 · F12', 'Desktop app: reload, full screen, developer tools'],
 ];
-export const NAV_ORDER = ['#/home', '#/race', '#/', '#/development', '#/tracks', '#/setups', '#/game', '#/mods', '#/settings'];
+export const NAV_ORDER = ['#/home', '#/race', '#/', '#/development', '#/tracks', '#/cars', '#/setups', '#/game', '#/mods', '#/settings'];
 
 // subsequence match with bonuses for word starts and runs; -1 = no match
 export function score(query, text) {
@@ -202,7 +202,7 @@ export function initShortcuts() {
     if (typing(e)) return;
     if (e.key === '?' && !e.ctrlKey && !e.altKey) { e.preventDefault(); showShortcuts(); return; }
     // by key position, so it also works on keyboards where the digits need Shift (AZERTY)
-    const digit = /^Digit([1-9])$/.exec(e.code)?.[1];
-    if (e.altKey && !e.ctrlKey && digit) { e.preventDefault(); location.hash = NAV_ORDER[+digit - 1]; }
+    const digit = /^Digit([0-9])$/.exec(e.code)?.[1];
+    if (e.altKey && !e.ctrlKey && digit) { e.preventDefault(); location.hash = NAV_ORDER[digit === '0' ? 9 : +digit - 1]; }
   });
 }

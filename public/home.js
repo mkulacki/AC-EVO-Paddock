@@ -1,7 +1,7 @@
 // Home (#/home, where Paddock opens): your driving at a glance, built only from your own laps and reports
 // (src/service.js dashboard): what needs attention, totals, recent sessions, open practice targets, the best lap per
 // driving day for your most driven cars and tracks, and your records. Every number links to where it comes from.
-import { esc, api, fmt, fmtGap, prettyName, emptyHtml } from './util.js';
+import { esc, api, post, fmt, fmtGap, prettyName, emptyHtml } from './util.js';
 
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const dayTxt = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -77,11 +77,26 @@ export async function viewHome(view, cleanup) {
       <td>${c.bestMs != null ? `<b class="best">${fmt(c.bestMs)}</b>` : '<span class="muted">no valid lap</span>'}</td>
       <td>${c.idealMs ? fmt(c.idealMs) : '–'}</td><td>${c.idealMs && c.bestMs ? fmtGap(c.bestMs - c.idealMs) : '–'}</td>
       <td>${scoreCell(c)}</td><td>${c.validLaps}<span class="muted"> / ${c.laps}</span></td><td class="muted">${esc(ago(c.lastAt))}</td>
-      <td style="white-space:nowrap"><a href="#/progress?combo=${encodeURIComponent(c.key)}">Progress</a>${c.bestLapId && c.idealMs ? ` · <a href="#/compare?laps=${c.bestLapId}&ref=ideal">Best against ideal</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
+      <td style="white-space:nowrap"><button class="small primary beat" data-beat="${esc(c.key)}" title="Start a hotlap on this car and track in AC EVO now (clear weather, optimum grip)">Beat it ▸</button>
+        <a href="#/progress?combo=${encodeURIComponent(c.key)}">Progress</a>${c.bestLapId && c.idealMs ? ` · <a href="#/compare?laps=${c.bestLapId}&ref=ideal">Best against ideal</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
 
   view.innerHTML = `<div class="race-head"><div><h1>Home</h1><div class="sub">Your driving at a glance, from your own laps.</div></div><span class="spacer"></span><a href="#/race"><button class="primary">Set up a session</button></a></div>
     ${warnings}${tiles}<div class="grid-2">${sessions}<div>${targets}${goals}</div></div>${trends}${records}`;
   bindSparks(view, d.trends, cleanup);
+  // "Beat it": this car and track as a hotlap in the game, right now; progress shows on the Race tab
+  view.querySelectorAll('[data-beat]').forEach((b) => {
+    b.onclick = async () => {
+      const c = d.records.find((x) => x.key === b.dataset.beat);
+      if (!c) return;
+      b.disabled = true;
+      try {
+        let g = null; try { g = await api('/api/race/status'); } catch { /* unknown: just try */ }
+        if (g?.inSession && !confirm('A session is running in the game.\n\nEnd it and start a hotlap?')) { b.disabled = false; return; }
+        await post('/api/race/hotlap', { track: c.track, layout: c.layout, car: c.car, endSession: !!g?.inSession });
+        location.hash = '#/race';
+      } catch (e) { b.disabled = false; alert(`Could not start the hotlap: ${e.message}`); }
+    };
+  });
 }
 
 // ---------------------------------------------------------------- sparkline: one line, the day's best lap

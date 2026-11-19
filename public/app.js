@@ -6,6 +6,7 @@ import { viewCoach } from './coach.js';
 import { viewDevelopment } from './development.js';
 import { viewTracks, viewTrack } from './tracks.js';
 import { viewRace } from './race.js';
+import { viewCars, viewCar } from './cars.js';
 import { viewProgress } from './progress.js';
 import { viewMods } from './mods.js';
 import { viewSetups } from './setups.js';
@@ -113,8 +114,8 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/home').split('?'); // Paddock opens on Home; #/ is Sessions
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/coach': 'coach', '/development': 'development', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/report': 'report' }[path] || 'laps';
-  const navKey = currentRoute === 'track' ? 'tracks' : ['home', 'settings', 'game', 'mods', 'race', 'setups', 'tracks', 'development'].includes(currentRoute) ? currentRoute : 'laps';
+  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/coach': 'coach', '/development': 'development', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/cars': 'cars', '/car': 'car', '/report': 'report' }[path] || 'laps';
+  const navKey = currentRoute === 'track' ? 'tracks' : currentRoute === 'car' ? 'cars' : ['home', 'settings', 'game', 'mods', 'race', 'setups', 'tracks', 'cars', 'development'].includes(currentRoute) ? currentRoute : 'laps';
   if (navKey === 'laps') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
   if (navKey === 'development') document.querySelector('nav a[data-nav=development] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
@@ -122,9 +123,11 @@ async function render() {
     if (currentRoute === 'home') await viewHome(view, mine);
     else if (currentRoute === 'game') await viewGame(view, mine);
     else if (currentRoute === 'mods') await viewMods(view, mine);
-    else if (currentRoute === 'race') await viewRace(view, mine);
+    else if (currentRoute === 'race') await viewRace(view, mine, params);
     else if (currentRoute === 'setups') await viewSetups(view, params, mine);
     else if (currentRoute === 'tracks') await viewTracks(view);
+    else if (currentRoute === 'cars') await viewCars(view);
+    else if (currentRoute === 'car') await viewCar(view, params);
     else if (currentRoute === 'track') await viewTrack(view, params, mine);
     else if (currentRoute === 'compare') await viewCompare(view, params, mine, { hasKey: status.hasKey });
     else if (currentRoute === 'consistency') await viewConsistency(view, params, mine);

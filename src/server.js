@@ -23,6 +23,7 @@ import * as mods from './mods.js';
 import * as hudInstall from './hudinstall.js';
 import * as loaderInstall from './loaderinstall.js';
 import * as setups from './setups.js';
+import * as carstats from './carstats.js';
 import * as carsetup from './carsetup.js';
 import { createSetupTracker } from './setupmatch.js';
 import * as setupmatch from './setupmatch.js';
@@ -381,6 +382,9 @@ async function route(req, res) {
 
   // ---- cars, from AC EVO's own files
   if (p === '/api/cars') return send(res, 200, cars.catalog());
+  // Cars tab: every car with what you did with it, and one car's statistics
+  if (p === '/api/cars/stats') { try { return send(res, 200, carstats.overview()); } catch (e) { return send(res, 500, { error: e.message }); } }
+  if (p === '/api/cars/detail') { try { return send(res, 200, carstats.detail(url.searchParams.get('car'))); } catch (e) { return send(res, e.status || 500, { error: e.message }); } }
   if (p === '/api/cars/thumb') {
     const q = url.searchParams;
     const file = await cars.thumbnail(q.get('car'), q.get('mech'), q.get('visual'));
@@ -444,11 +448,11 @@ async function route(req, res) {
       if (p === '/api/setups' && m === 'GET') {
         const car = q.get('car');
         const track = q.get('track') ? { id: q.get('track'), layout: q.get('layout') || null } : null;
-        return send(res, 200, { cars: setups.cars(), list: car ? setups.list(car, track) : [], ...setups.status() });
+        return send(res, 200, { cars: setups.cars(), list: car ? setups.list(car, track) : [], game: car ? setups.gameList(car) : [], ...setups.status() });
       }
       if (p === '/api/setups/meta') return send(res, 200, { groups: carsetup.GROUPS, corners: carsetup.CORNER_LABEL });
       // edited values: {id, values: {name: value}, asName?} -> saved over the file, or as a new file when asName is given
-      if (p === '/api/setups/values' && m === 'POST') { const { id, values, asName, notes, from } = await readJson(req); return send(res, 200, setups.saveValues(id, values, { asName: asName ?? null, notes, from: from === 'ai' ? 'ai' : 'paddock' })); }
+      if (p === '/api/setups/values' && m === 'POST') { const { id, values, asName, notes, from, track } = await readJson(req); return send(res, 200, setups.saveValues(id, values, { asName: asName ?? null, notes, from: from === 'ai' ? 'ai' : 'paddock', trackId: track || null })); }
       if (p === '/api/setups/copy' && m === 'POST') { const { id, track } = await readJson(req); return send(res, 200, setups.copyTo(id, track)); }
       // the AI setup engineer: proposes changes (nothing is saved until the driver saves them as a new setup)
       if (p === '/api/setups/ai' && m === 'POST') {
@@ -576,7 +580,7 @@ async function route(req, res) {
       const r = carreport.build(Number(url.searchParams.get('session')));
       if (r.combo) { // ids the Setups page knows, for "Ask the AI engineer"
         const h = trackdata.find(r.combo.track, r.combo.layout);
-        r.links = { car: cars.match(r.combo.car)?.id ?? null, track: h?.track.id ?? null, layout: h?.layout.key ?? null };
+        r.links = { car: cars.match(r.combo.car)?.id ?? null, track: h?.track.id ?? null, layout: h?.layout.key ?? null, setup: setups.setupOfSession(Number(url.searchParams.get('session'))) };
       }
       return send(res, 200, r);
     } catch (e) { return send(res, 400, { error: e.message }); }
@@ -596,11 +600,11 @@ async function route(req, res) {
   if (p.startsWith('/api/backup')) {
     const busy = () => (inSession() ? send(res, 409, { error: 'You are on track: back up or restore when you are in the menus or AC EVO is closed (it would stall the lap recording).' }) : null);
     try {
-      if (p === '/api/backup' && m === 'GET') return send(res, 200, { backups: backup.listBackups(), pending: backup.pending(), restored: db.restoreResult, folder: backup.BACKUP_DIR });
+      if (p === '/api/backup' && m === 'GET') return send(res, 200, { backups: backup.listBackups(), parts: backup.parts(), pending: backup.pending(), restored: db.restoreResult, folder: backup.BACKUP_DIR });
       if (p === '/api/backup' && m === 'POST') {
         if (busy()) return;
-        const { includeSecrets = false } = await readJson(req);
-        return send(res, 200, await backup.create({ includeSecrets: includeSecrets === true, appVersion: VERSION }));
+        const { includeSecrets = false, parts = null } = await readJson(req);
+        return send(res, 200, await backup.create({ includeSecrets: includeSecrets === true, parts: Array.isArray(parts) ? parts.map(String) : null, appVersion: VERSION }));
       }
       if (p === '/api/backup/file' && m === 'GET') {
         const name = url.searchParams.get('name');

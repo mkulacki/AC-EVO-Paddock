@@ -28,7 +28,8 @@ export async function viewSetups(view, params, cleanup) {
   const st = {
     car: params.get('car') || saved.car || null,
     track: params.get('track') ? { id: params.get('track'), layout: params.get('layout') || null } : saved.track || null,
-    open: params.get('id') || null, cars: [], list: [], folder: '', setup: null,
+    open: params.get('id') || null, cars: [], list: [], game: [], folder: '', setup: null,
+    toAi: params.get('ai') === '1', // from "Ask the AI engineer": open a setup and go straight to the engineer
     edit: null,   // {name: stored value} while values are being changed
     ai: null,     // {busy, problem, result, error, pick: Set of names}
   };
@@ -78,8 +79,13 @@ export async function viewSetups(view, params, cleanup) {
   // ---------------------------------------------------------------- list
   function listHtml() {
     if (!st.car) return '<div class="card empty"><p>Choose a car to see its setups.</p></div>';
-    if (!st.list.length) return `<div class="card empty"><p>No saved setups for the ${esc(carLabel(st.car))} yet.</p>
-      <p class="muted">Save one in AC EVO's setup screen (in the pits: <b>Setup</b>, then <b>Save</b>), or import a shared <code>.carsetup</code> file.</p></div>`;
+    // the car's own stock setup(s) from the game files: a starting point without saving one in the game first
+    const gameCard = st.game.length ? `<h3 style="margin:18px 0 6px">From the game</h3>
+      <table class="setups"><thead><tr><th>Setup</th><th>Notes</th><th></th></tr></thead><tbody>${st.game.map((g) => `<tr class="${g.id === st.open ? 'on' : ''}" data-open="${esc(g.id)}">
+        <td><b>${esc(g.name)}</b> <span class="badge">stock</span></td><td class="muted" style="font-size:12.5px">The setup the car comes with. Open it to change it, then save it as your own.</td><td></td></tr>`).join('')}</tbody></table>` : '';
+    if (!st.list.length) return `<div class="card"><div class="row"><h2 style="margin:0">${esc(carLabel(st.car))}</h2><span class="muted">no saved setups yet</span></div>
+      ${gameCard}
+      <p class="muted" style="margin:12px 0 0">${st.game.length ? 'Start from the game default above, or save' : 'Save'} one in AC EVO's setup screen (in the pits: <b>Setup</b>, then <b>Save</b>), or import a shared <code>.carsetup</code> file.</p></div>`;
     const here = st.list.filter((s) => s.forTrack), byTrack = new Map();
     for (const s of st.list.filter((x) => !x.forTrack)) { if (!byTrack.has(s.track.name)) byTrack.set(s.track.name, []); byTrack.get(s.track.name).push(s); }
     const row = (s) => `<tr class="${s.id === st.open ? 'on' : ''}" data-open="${esc(s.id)}">
@@ -94,6 +100,7 @@ export async function viewSetups(view, params, cleanup) {
       <div class="row"><h2 style="margin:0">${esc(carLabel(st.car))}</h2><span class="muted">${st.list.length} setup${st.list.length === 1 ? '' : 's'}</span></div>
       ${tl ? table(`For ${tl.t.name}`, here) + (here.length ? '' : '<p class="muted" style="margin:4px 0 0">No setup saved for this track yet. Open one from another track below and use <b>Copy to track…</b>: the game lists only the current track\'s setups.</p>') : ''}
       ${[...byTrack].sort((a, b) => a[0].localeCompare(b[0])).map(([k, items]) => table(tl ? `From ${k}` : k, items)).join('')}
+      ${gameCard}
     </div>`;
   }
   function bindList() {
@@ -133,7 +140,7 @@ export async function viewSetups(view, params, cleanup) {
     const label = (name) => { const v = s.values.find((x) => x.name === name); return v ? `${v.label}${v.corner ? ` ${CORNER[v.corner] || v.corner}` : ''}` : name; };
     const val = (name, x) => { const v = s.values.find((y) => y.name === name); return v ? `${show(v, x)} ${v.unit}` : x; };
     return `<div class="card plain" style="margin-top:16px">
-      <div class="row"><h2 style="margin:0">AI setup engineer</h2><span class="spacer"></span><span class="muted" style="font-size:12px">Gemini, using your laps with this car at ${esc((trackOf(st.track)?.t.id === s.track.id && trackOf(st.track)?.t.name) || s.track.name)}</span></div>
+      <div class="row"><h2 style="margin:0">AI setup engineer</h2><span class="spacer"></span><span class="muted" style="font-size:12px">Gemini, using your laps with this car at ${esc(((!s.track.id || trackOf(st.track)?.t.id === s.track.id) && trackOf(st.track)?.t.name) || s.track.name)}</span></div>
       <p class="muted" style="margin:6px 0 8px;font-size:13px">Describe what the car does (e.g. "understeer in slow corners, rear steps out on throttle at T6"). The engineer proposes a few changes; nothing is saved until you save them as a new setup.</p>
       <textarea id="aiProblem" rows="3" style="width:100%" placeholder="What should be better? Leave empty for a baseline for this track.">${esc(a.problem || '')}</textarea>
       <div class="row" style="margin-top:8px"><span class="spacer"></span><button id="aiAsk" ${a.busy ? 'disabled' : ''}>${a.busy ? '<span class="spinner"></span> Thinking…' : res ? 'Ask again' : 'Ask the engineer'}</button></div>
@@ -174,7 +181,7 @@ export async function viewSetups(view, params, cleanup) {
       main();
       try {
         const tr = trackOf(st.track);
-        const result = await post('/api/setups/ai', { id: s.id, problem: st.ai.problem || '', track: s.track.id || tr?.t.id, layout: tr && tr.t.id === s.track.id ? tr.l.key : null });
+        const result = await post('/api/setups/ai', { id: s.id, problem: st.ai.problem || '', track: s.track.id || tr?.t.id, layout: tr && (!s.track.id || tr.t.id === s.track.id) ? tr.l.key : null });
         if (st.setup?.id !== s.id) return;
         st.ai = { ...st.ai, busy: false, result, pick: new Set(result.changes.map((c) => c.name)) };
       } catch (e) { st.ai = { ...st.ai, busy: false, error: e.message }; }
@@ -198,6 +205,7 @@ export async function viewSetups(view, params, cleanup) {
   }
   function detailHtml() {
     const s = st.setup, n = changedCount();
+    if (s.builtin) return builtinHtml(s, n);
     return `<div class="card plain setup-detail">
       <div class="row"><button class="small ghost" data-close>All setups</button><span class="spacer"></span>
         ${s.from && FROM[s.from] ? `<span class="badge">${esc(FROM[s.from])}</span>` : ''}<span class="muted" style="font-size:12px">saved ${esc(ago(s.updatedAt))}</span></div>
@@ -220,10 +228,32 @@ export async function viewSetups(view, params, cleanup) {
       </div></div>
       ${s.values ? aiHtml() : ''}`;
   }
+  // the game's own setup (from the car files): read-only; saved as a new file of your own for a track
+  function builtinHtml(s, n) {
+    const tl = trackOf(st.track);
+    return `<div class="card plain setup-detail">
+      <div class="row"><button class="small ghost" data-close>All setups</button><span class="spacer"></span><span class="badge">stock, from the game files</span></div>
+      <h2 style="margin:12px 0 4px">${esc(s.name)}</h2>
+      <p class="muted" style="margin:0;font-size:13px">${esc(s.carName)}: the setup the car comes with. Change any value (or ask the AI engineer below), then save it as your own setup${tl ? ` for <b>${esc(tl.t.name)}</b>` : ' for a track'}. The game lists it in its setup screen's <b>Load</b> list there.</p>
+      <div class="row" style="margin-top:16px"><h2 style="margin:0">Values</h2><span class="spacer"></span><span class="muted" style="font-size:12.5px">${n ? `${n} changed, not saved yet` : 'change any value, then save'}</span></div>
+      ${s.values ? valuesHtml(s.values) : `<p class="error">${esc(s.error || 'The values could not be read.')}</p>`}
+      <div class="actionbar">
+        <button class="ghost" id="eCopy" title="save it unchanged as your own setup for a track">Save unchanged to a track…</button>
+        <button class="ghost" id="eExport">Share</button>
+        <span class="spacer"></span>
+        <button class="ghost" id="eReset" ${n ? '' : 'disabled'}>Undo changes</button>
+        <button class="primary" id="eNew" ${n ? '' : 'disabled'}>Save as new setup…</button>
+      </div></div>
+      ${s.values ? aiHtml() : ''}`;
+  }
+  // the track a game setup is saved for: the chosen one, or ask
+  const trackFor = () => (st.track?.id ? Promise.resolve(st.track.id)
+    : new Promise((res) => openTrackPicker({ tracks: cat.tracks, selected: null, onPick: (t) => { st.track = { id: t.id, layout: t.layout || null }; remember(); res(t.id); } })));
   async function saveValues(asName) {
     const s = st.setup;
     try {
-      const d = await post('/api/setups/values', { id: s.id, values: st.edit, asName, notes: asName && st.ai?.result ? aiNote(st.ai) : null, from: st.ai?.result ? 'ai' : 'paddock' });
+      const track = s.builtin ? await trackFor() : null;
+      const d = await post('/api/setups/values', { id: s.id, values: st.edit, asName, track, notes: asName && st.ai?.result ? aiNote(st.ai) : null, from: st.ai?.result ? 'ai' : 'paddock' });
       st.edit = null; st.setup = d; st.open = d.id;
       if (asName) st.ai = null;
       await load(false); main();
@@ -234,11 +264,18 @@ export async function viewSetups(view, params, cleanup) {
   function bindDetail() {
     const s = st.setup;
     $('[data-close]').onclick = () => { st.open = null; st.setup = null; st.edit = null; st.ai = null; main(); };
-    $('#eRename').onclick = async () => {
-      try { st.setup = await api(`/api/setups/file?id=${encodeURIComponent(s.id)}`, { method: 'PUT', body: JSON.stringify({ name: $('#eName').value }) }); st.open = st.setup.id; await load(false); main(); msg('Renamed.'); } catch (e) { msg(e.message, true); }
-    };
-    let notesT = null;
-    $('#eNotes').oninput = (e) => { clearTimeout(notesT); notesT = setTimeout(() => api(`/api/setups/file?id=${encodeURIComponent(s.id)}`, { method: 'PUT', body: JSON.stringify({ notes: e.target.value }) }).catch((err) => msg(err.message, true)), 600); };
+    if (!s.builtin) { // the game's own setups are read-only: no rename, notes, overwrite or delete
+      $('#eRename').onclick = async () => {
+        try { st.setup = await api(`/api/setups/file?id=${encodeURIComponent(s.id)}`, { method: 'PUT', body: JSON.stringify({ name: $('#eName').value }) }); st.open = st.setup.id; await load(false); main(); msg('Renamed.'); } catch (e) { msg(e.message, true); }
+      };
+      let notesT = null;
+      $('#eNotes').oninput = (e) => { clearTimeout(notesT); notesT = setTimeout(() => api(`/api/setups/file?id=${encodeURIComponent(s.id)}`, { method: 'PUT', body: JSON.stringify({ notes: e.target.value }) }).catch((err) => msg(err.message, true)), 600); };
+      $('#eOver').onclick = () => { if (confirm(`Replace the values of "${s.name}"? To keep it as it is, use "Save as new setup…".`)) saveValues(null); };
+      $('#eDel').onclick = async () => {
+        if (!confirm(`Delete the setup "${s.name}"? This deletes the game's setup file.`)) return;
+        try { await api(`/api/setups/file?id=${encodeURIComponent(s.id)}`, { method: 'DELETE' }); st.open = null; st.setup = null; st.edit = null; st.ai = null; load(); } catch (e) { msg(e.message, true); }
+      };
+    }
     view.querySelectorAll('[data-v]').forEach((el) => {
       el.onchange = () => {
         const v = s.values.find((x) => x.name === el.dataset.v);
@@ -249,20 +286,15 @@ export async function viewSetups(view, params, cleanup) {
       };
     });
     $('#eReset').onclick = () => { st.edit = null; main(); };
-    $('#eOver').onclick = () => { if (confirm(`Replace the values of "${s.name}"? To keep it as it is, use "Save as new setup…".`)) saveValues(null); };
     $('#eNew').onclick = async () => {
       const name = await askText('Name of the new setup', st.ai?.result?.name || `${s.name} v2`);
       if (name) saveValues(name);
     };
     $('#eExport').onclick = () => { location.href = `/api/setups/export?id=${encodeURIComponent(s.id)}`; };
     $('#eCopy').onclick = () => openTrackPicker({ tracks: cat.tracks, selected: st.track, onPick: async (t) => {
-      try { const d = await post('/api/setups/copy', { id: s.id, track: t.id }); st.track = { id: t.id, layout: t.layout || null }; remember(); st.setup = d; st.open = d.id; st.edit = null; await load(false); main(); msg(`Copied as "${d.name}" for ${d.track.name}.`); }
+      try { const d = await post('/api/setups/copy', { id: s.id, track: t.id }); st.track = { id: t.id, layout: t.layout || null }; remember(); st.setup = d; st.open = d.id; st.edit = null; await load(false); main(); msg(`${s.builtin ? 'Saved' : 'Copied'} as "${d.name}" for ${d.track.name}. In the game it is in the setup screen's Load list there.`); }
       catch (e) { msg(e.message, true); }
     } });
-    $('#eDel').onclick = async () => {
-      if (!confirm(`Delete the setup "${s.name}"? This deletes the game's setup file.`)) return;
-      try { await api(`/api/setups/file?id=${encodeURIComponent(s.id)}`, { method: 'DELETE' }); st.open = null; st.setup = null; st.edit = null; st.ai = null; load(); } catch (e) { msg(e.message, true); }
-    };
     if (s.values) bindAi();
   }
 
@@ -277,12 +309,24 @@ export async function viewSetups(view, params, cleanup) {
     if (st.car) q.set('car', st.car);
     if (st.track?.id) { q.set('track', st.track.id); if (st.track.layout) q.set('layout', st.track.layout); }
     const r = await api(`/api/setups?${q}`);
-    st.cars = r.cars; st.list = r.list; st.folder = r.folder;
+    st.cars = r.cars; st.list = r.list; st.game = r.game || []; st.folder = r.folder;
     if (!st.car && r.cars[0]?.carId) { st.car = r.cars[0].carId; return load(render); }
     if (!render) return;
-    if (st.open && st.list.some((s) => s.id === st.open)) return openSetup(st.open);
+    const known = (id) => st.list.some((s) => s.id === id) || st.game.some((g) => g.id === id);
+    if (st.toAi) { // "Ask the AI engineer": the session's setup, else the newest one for this track, else the game default
+      st.toAi = false;
+      const id = (st.open && known(st.open) && st.open) || st.list.find((s) => s.forTrack)?.id || st.game[0]?.id || st.list[0]?.id;
+      if (id) { await openSetup(id); return goToAi(); }
+    }
+    if (st.open && known(st.open)) return openSetup(st.open);
     st.open = null; st.setup = null;
     main();
+  }
+  function goToAi() {
+    const box = $('#aiProblem');
+    if (!box) return;
+    box.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    box.focus({ preventScroll: true });
   }
 
   // ---------------------------------------------------------------- import: the game's own .carsetup files
