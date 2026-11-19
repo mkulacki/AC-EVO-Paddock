@@ -180,7 +180,6 @@ export async function viewRace(view, cleanup, params = new URLSearchParams()) {
           ${m.race ? `<label>Race length</label><div>${seg('raceType', [{ id: 'laps', label: 'Laps' }, { id: 'time', label: 'Time' }], st.race.type)}</div>
             <label></label>${st.race.type === 'time' ? num('fRaceMin', 'minutes', LIM.raceMin, 'minutes', 'race') : num('fRaceLaps', 'laps', LIM.raceLaps, 'laps', 'race')}` : ''}
           ${m.startPos ? `<label>You start</label><div><select id="fStart"><option value="0">Random place</option>${Array.from({ length: st.ai.count + 1 }, (_, i) => `<option value="${i + 1}" ${Number(st.race.startPos) === i + 1 ? 'selected' : ''}>P${i + 1}${i === 0 ? ' (pole)' : i === st.ai.count ? ' (last)' : ''}</option>`).join('')}</select></div>` : ''}
-          ${m.id === 'hotlap' ? '<label>Length</label><div class="muted">One hour of flying laps, set by the game.</div>' : ''}
         </div></div>
         ${m.ai ? `<div class="card"><h2>AI opponents</h2><div class="fields">
           <label>Opponents</label>${num('fCount', 'count', [1, gridMax()], `cars (up to ${gridMax()} here)`, 'ai')}

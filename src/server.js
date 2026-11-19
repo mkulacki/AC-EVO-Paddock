@@ -845,14 +845,14 @@ async function route(req, res) {
     } catch (e) { return send(res, e.status || 500, { error: e.message }); }
   }
   if (p === '/api/achievements/seen' && m === 'POST') { achievements.markSeen(); return send(res, 200, { ok: true }); }
-  // session planner: a driven car + track, a Race tab preset (or hotlap / practice), optionally for a goal
+  // session planner: a driven car + track, a Race tab preset (or a quick / 30-minute practice), optionally for a goal
   if (p === '/api/development/start' && m === 'POST') {
     const q = await readJson(req);
     try {
       const [track, layout, car] = String(q.key || '').split('|');
       const base = race.hotlapSpec(track, layout ?? '', car ?? '');
       let spec;
-      if (!q.preset || q.preset === 'hotlap') spec = base;
+      if (!q.preset || q.preset === 'hotlap' || q.preset === 'quick') spec = base; // 'hotlap': planners saved before 2026-11-19
       else if (q.preset === 'practice') spec = { ...base, mode: 'practice', practiceMin: 30 };
       else {
         const pr = race.lists().presets.find((x) => x.id === q.preset);
