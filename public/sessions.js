@@ -1,4 +1,4 @@
-// Sessions page (the home page, #/): sessions by track & car or by date, imports, start hotlap. Split from app.js.
+// Sessions page (the home page, #/): sessions by track & car or by date, imports, start practice. Split from app.js.
 import { $, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES } from './util.js';
 import { lapsBlock, bindLaps } from './reports.js';
 
@@ -168,18 +168,18 @@ export async function viewSessions(view, params, shell) {
   });
 }
 
-// one click: this combo in Hotlap mode, clear weather, optimum grip; progress shows on the Race tab
+// one click: this combo as a 90-minute Practice, clear weather, optimum grip; progress shows on the Race tab
 async function startHotlap(c) {
   try {
     let g = null; try { g = await api('/api/race/status'); } catch { /* unknown: just try */ }
     let endSession = false;
     if (g?.inSession) {
-      if (!confirm('A session is running in the game.\n\nEnd it and start a hotlap?')) return;
+      if (!confirm('A session is running in the game.\n\nEnd it and start a practice session?')) return;
       endSession = true;
     }
     await post('/api/race/hotlap', { track: c.track, layout: c.layout, car: c.car, endSession });
     location.hash = '#/race';
-  } catch (e) { alert(`Could not start the hotlap: ${e.message}`); }
+  } catch (e) { alert(`Could not start the session: ${e.message}`); }
 }
 
 // By track & car: one card per car and track with its sessions, newest first (imported laps have no session: listed below)
@@ -195,7 +195,7 @@ function comboCard(c, laps, summaries) {
       <div class="stat"><span class="k">Ideal lap</span><span class="v">${fmt(c.idealMs)} <small class="secondary">${gapIdeal != null ? fmtGap(gapIdeal) : ''}</small></span></div>
       <div class="stat"><span class="k">Valid laps</span><span class="v">${c.validLaps}<small class="muted"> of ${c.laps}</small></span></div>
       <span class="spacer"></span>
-      <button class="primary" data-hotlap title="Start AC EVO in Hotlap mode with this track and car: clear weather, optimum grip">Start hotlap</button>
+      <button class="primary" data-hotlap title="Start AC EVO in Practice with this track and car: 90 minutes, clear weather, optimum grip">Start practice</button>
     </div>
     <div class="row" style="margin-bottom:12px">
       ${c.validLaps >= 1 ? `<a href="#/progress?combo=${encodeURIComponent(c.key)}"><button>Progress</button></a>` : ''}

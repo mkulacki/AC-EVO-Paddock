@@ -2,7 +2,7 @@
 // Server side: src/updates.js, src/backup.js, src/dataexport.js, src/diagnostics.js.
 import { $, esc, api, post } from './util.js';
 
-const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const size = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(2)} GB` : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const when = (t) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const plural = (n, w) => `${esc(String(n ?? '?'))} ${w}${n === 1 ? '' : 's'}`;
 const REASON = { 'before-restore': 'made before a restore' };
@@ -49,32 +49,57 @@ async function updatesCard() {
   try { draw(await api('/api/updates')); } catch (e) { box.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
+const LS_PARTS = 'backup.parts';
+const partLabel = (b) => (id) => (b.parts || []).find((p) => p.id === id)?.label || id;
 async function backupCard(onRestart) {
   const box = $('#sysBackup .sys-body');
   let msg = '';
+  // what to back up: everything until the driver unticks something
+  let chosen = new Set(['laps', 'settings', 'race', 'setupNotes']);
+  try { const s = JSON.parse(localStorage.getItem(LS_PARTS) || 'null'); if (Array.isArray(s)) chosen = new Set(s); } catch { /* default */ }
   const draw = async () => {
     let b; try { b = await api('/api/backup'); } catch (e) { box.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
     const r = b.restored;
     box.innerHTML = `
-      <p class="muted">A backup holds your laps, sessions, reports, brake points, saved AI answers, Race tab presets and settings, as one zip in <code>${esc(b.folder)}</code>.
+      <p class="muted">A backup is one zip in <code>${esc(b.folder)}</code>, holding the parts you tick below. Restoring it brings back only those parts.
         Track and car caches are left out (Paddock rebuilds them), and so are disabled mods. Copy backups somewhere safe, for example another drive.</p>
       ${r ? `<p class="${r.ok ? 'neg' : 'error'}" style="margin:0 0 8px">${r.ok ? `Restored at the last start: ${esc(r.files.join(', '))}.` : `The last restore failed: ${esc(r.error)}. Your data from before is in the backup “made before a restore”.`}</p>` : ''}
       ${b.pending ? `<p class="note-warn card plain" style="margin:0 0 8px">A restore is waiting for Paddock to restart. <button class="small" id="bkRestart">Restart now</button> <button class="small ghost" id="bkCancel">Cancel the restore</button></p>` : ''}
-      <div class="row" style="margin-bottom:8px"><button class="primary" id="bkMake">Back up now</button>
+      <h3 style="margin:4px 0 6px">What to back up</h3>
+      <div class="bk-parts">${(b.parts || []).map((p) => `<label class="bk-part${p.exists ? '' : ' off'}">
+        <input type="checkbox" data-part="${esc(p.id)}" ${p.exists && chosen.has(p.id) ? 'checked' : ''} ${p.exists ? '' : 'disabled'}>
+        <span class="bk-txt"><b>${esc(p.label)}</b>${p.counts ? ` <span class="muted">${plural(p.counts.laps, 'lap')}, ${plural(p.counts.sessions, 'session')}</span>` : ''}
+          <span class="muted bk-hint">${esc(p.hint)}</span>
+          ${p.breakdown ? `<span class="muted bk-hint">${p.breakdown.filter((x) => x.size > 0).map((x) => `${esc(x.label)} ${size(x.size)}`).join(' · ')}</span>` : ''}</span>
+        <span class="bk-size">${p.exists ? size(p.size) : '<span class="muted">none yet</span>'}</span></label>`).join('')}</div>
+      <div class="row" style="margin:8px 0"><button class="primary" id="bkMake">Back up now</button><span class="muted" id="bkTotal"></span>
         <label class="row" title="The key and passwords stay on this PC unless you tick this. Untick it for a backup you give to someone else."><input type="checkbox" id="bkSecrets"> Include my Gemini key and server passwords</label>
         <span class="spacer"></span><button id="bkPick" title="A backup from another PC or an older copy">Add a backup file…</button><input type="file" id="bkUpload" accept=".zip" hidden></div>
       <p id="bkMsg" class="muted" style="margin:0 0 8px">${esc(msg)}</p>
-      ${b.backups.length ? `<div class="tablewrap"><table><thead><tr><th>Backup</th><th>Laps</th><th>Size</th><th></th></tr></thead><tbody>${b.backups.map((x) => `<tr>
+      ${b.backups.length ? `<div class="tablewrap"><table><thead><tr><th>Backup</th><th>Contents</th><th>Size</th><th></th></tr></thead><tbody>${b.backups.map((x) => `<tr>
         <td>${x.ok ? esc(when(x.createdAt)) : esc(x.name)}${x.reason && REASON[x.reason] ? ` <span class="muted">(${REASON[x.reason]})</span>` : ''}${x.includesSecrets ? ' <span class="badge" title="Contains your Gemini key and server passwords">with key</span>' : ''}
           ${x.ok ? `<div class="muted" style="font-size:12px">${esc(x.name)}${x.app ? `, Paddock ${esc(x.app)}` : ''}</div>` : `<div class="error" style="font-size:12px">${esc(x.error)}</div>`}</td>
-        <td>${x.counts ? `${plural(x.counts.laps, 'lap')}, ${plural(x.counts.sessions, 'session')}` : '–'}</td><td>${size(x.size)}</td>
+        <td>${x.counts ? `${plural(x.counts.laps, 'lap')}, ${plural(x.counts.sessions, 'session')}` : x.ok ? '<span class="muted">no laps</span>' : '–'}
+          ${x.ok && x.parts && x.parts.length < (b.parts || []).length ? `<div class="muted" style="font-size:12px">${esc(x.parts.map(partLabel(b)).join(', '))}</div>` : ''}</td><td>${size(x.size)}</td>
         <td style="white-space:nowrap"><a href="/api/backup/file?name=${encodeURIComponent(x.name)}" download><button class="small ghost">Save as…</button></a>
           ${x.ok ? `<button class="small" data-restore="${esc(x.name)}">Restore</button>` : ''}<button class="small ghost" data-del="${esc(x.name)}" aria-label="Delete backup">Delete</button></td></tr>`).join('')}</tbody></table></div>`
         : '<p class="muted" style="margin:0">No backups yet.</p>'}`;
     const say = (t, cls = 'muted') => { msg = t; $('#bkMsg').className = cls; $('#bkMsg').textContent = t; };
+    // the chosen parts: remembered; the total shows what the backup will roughly hold (before zip compression)
+    const total = () => {
+      const on = (b.parts || []).filter((p) => p.exists && chosen.has(p.id));
+      $('#bkTotal').textContent = on.length ? `${size(on.reduce((s, p) => s + p.size, 0))} of data` : 'nothing chosen';
+      $('#bkMake').disabled = !on.length;
+    };
+    box.querySelectorAll('[data-part]').forEach((cb) => { cb.onchange = () => {
+      if (cb.checked) chosen.add(cb.dataset.part); else chosen.delete(cb.dataset.part);
+      try { localStorage.setItem(LS_PARTS, JSON.stringify([...chosen])); } catch { /* not remembered */ }
+      total();
+    }; });
+    total();
     $('#bkMake').onclick = async (e) => {
       e.currentTarget.disabled = true; say('Backing up…');
-      try { const x = await post('/api/backup', { includeSecrets: $('#bkSecrets').checked }); msg = `Backed up: ${x.name} (${size(x.size)}).`; draw(); }
+      try { const x = await post('/api/backup', { includeSecrets: $('#bkSecrets').checked, parts: [...chosen] }); msg = `Backed up: ${x.name} (${size(x.size)}).`; draw(); }
       catch (err) { say(err.message, 'error'); e.currentTarget.disabled = false; }
     };
     $('#bkPick').onclick = () => $('#bkUpload').click();
@@ -93,7 +118,8 @@ async function backupCard(onRestart) {
     }; });
     box.querySelectorAll('[data-restore]').forEach((btn) => { btn.onclick = async () => {
       const x = b.backups.find((y) => y.name === btn.dataset.restore);
-      if (!confirm(`Restore the backup of ${when(x.createdAt)}${x.counts ? ` (${plural(x.counts.laps, 'lap')})` : ''}?\n\nYour current laps, sessions and settings are replaced by the ones in the backup. `
+      const what = (x.parts || []).map(partLabel(b)).join(', ') || 'laps, sessions and settings';
+      if (!confirm(`Restore the backup of ${when(x.createdAt)}${x.counts ? ` (${plural(x.counts.laps, 'lap')})` : ''}?\n\nIt brings back: ${what}. These are replaced by the ones in the backup; anything else stays as it is. `
         + 'Paddock first makes a backup of your current data (listed as "made before a restore"), then restarts.')) return;
       btn.disabled = true; say('Checking the backup and backing up your current data…');
       try { await post('/api/backup/restore', { name: x.name }); say('Restarting to restore…'); onRestart?.(btn); }

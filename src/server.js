@@ -23,9 +23,12 @@ import * as mods from './mods.js';
 import * as hudInstall from './hudinstall.js';
 import * as loaderInstall from './loaderinstall.js';
 import * as setups from './setups.js';
+import * as carstats from './carstats.js';
 import * as carsetup from './carsetup.js';
 import { createSetupTracker } from './setupmatch.js';
 import * as setupmatch from './setupmatch.js';
+import { createAidsTracker } from './aids.js';
+import { createLeaderboard } from './leaderboard.js';
 import * as report from './report.js';
 import * as carreport from './carreport.js';
 import * as setuphistory from './setuphistory.js';
@@ -59,11 +62,15 @@ if (mockIdx >= 0) {
 const recorder = new Recorder(() => settings.get().driverName, () => setupTracker.current());
 const setupTracker = createSetupTracker({ recorder, launchConditions: game.launchConditions });
 const hud = new LiveHud(recorder);
+// (the leaderboard target is connected below, once the leaderboard exists)
+// TC / ABS / ESC levels and assists per lap, reported by the in-game HUD (src/aids.js)
+const aidsTracker = createAidsTracker({ recorder });
 const hudSnapshot = () => ({ ...hud.snapshot(), cfg: settings.hudConfig() }); // live data + the HUD's look (parts, size, opacity)
 // in-game HUD: data via the live slot files, commands via the game log (the game's UI cannot do HTTP)
 const runCommand = (c) => {
   try {
     if (c.cmd === 'ref') hud.setMode(c.arg || 'cycle');
+    if (c.cmd === 'aids') aidsTracker.onCommand(c.arg); // a few per lap at most
     // a part / size / opacity changed in the in-game settings window: Paddock keeps the one copy
     if (c.cmd === 'hud' && c.arg && typeof c.arg === 'object') {
       const cur = settings.hudConfig();
@@ -79,6 +86,10 @@ if (mockIdx < 0 || process.env.ACE_BRIDGE) {
 }
 // this Paddock's version, and the daily update check (never in mock runs or tests, unless PADDOCK_UPDATE_CHECK is set)
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+// online leaderboard: each lap's own conditions, and the best laps sent when sharing is on (src/leaderboard.js)
+const board = createLeaderboard({ recorder, launchInfo: () => setupTracker.conditions()?.launch ?? null, gameVersion: () => { try { return game.gameVersion(); } catch { return null; } }, appVersion: VERSION,
+  notify: (n) => { broadcast('board', n); globalThis.__paddockNotify?.(n); } });
+hud.targetSource = (s) => board.target(s); // the HUD's leaderboard target (src/leaderboard.js)
 updates.setCurrent(VERSION);
 if (mockIdx < 0 || process.env.PADDOCK_UPDATE_CHECK) updates.schedule(VERSION);
 if (db.restoreResult) console.log(`[backup] restore at start: ${db.restoreResult.ok ? `done (${db.restoreResult.files.join(', ')})` : `FAILED: ${db.restoreResult.error}`}`);
@@ -263,6 +274,7 @@ setInterval(() => {
     }
     recorder.onFrame(f);
     setupTracker.onFrame(f);
+    board.onFrame(f);
     hud.onFrame(f);
     marker.onFrame(f);
     spotter.tick(hud.nextBrake());
@@ -381,6 +393,9 @@ async function route(req, res) {
 
   // ---- cars, from AC EVO's own files
   if (p === '/api/cars') return send(res, 200, cars.catalog());
+  // Cars tab: every car with what you did with it, and one car's statistics
+  if (p === '/api/cars/stats') { try { return send(res, 200, carstats.overview()); } catch (e) { return send(res, 500, { error: e.message }); } }
+  if (p === '/api/cars/detail') { try { return send(res, 200, carstats.detail(url.searchParams.get('car'))); } catch (e) { return send(res, e.status || 500, { error: e.message }); } }
   if (p === '/api/cars/thumb') {
     const q = url.searchParams;
     const file = await cars.thumbnail(q.get('car'), q.get('mech'), q.get('visual'));
@@ -444,11 +459,11 @@ async function route(req, res) {
       if (p === '/api/setups' && m === 'GET') {
         const car = q.get('car');
         const track = q.get('track') ? { id: q.get('track'), layout: q.get('layout') || null } : null;
-        return send(res, 200, { cars: setups.cars(), list: car ? setups.list(car, track) : [], ...setups.status() });
+        return send(res, 200, { cars: setups.cars(), list: car ? setups.list(car, track) : [], game: car ? setups.gameList(car) : [], ...setups.status() });
       }
       if (p === '/api/setups/meta') return send(res, 200, { groups: carsetup.GROUPS, corners: carsetup.CORNER_LABEL });
       // edited values: {id, values: {name: value}, asName?} -> saved over the file, or as a new file when asName is given
-      if (p === '/api/setups/values' && m === 'POST') { const { id, values, asName, notes, from } = await readJson(req); return send(res, 200, setups.saveValues(id, values, { asName: asName ?? null, notes, from: from === 'ai' ? 'ai' : 'paddock' })); }
+      if (p === '/api/setups/values' && m === 'POST') { const { id, values, asName, notes, from, track } = await readJson(req); return send(res, 200, setups.saveValues(id, values, { asName: asName ?? null, notes, from: from === 'ai' ? 'ai' : 'paddock', trackId: track || null })); }
       if (p === '/api/setups/copy' && m === 'POST') { const { id, track } = await readJson(req); return send(res, 200, setups.copyTo(id, track)); }
       // the AI setup engineer: proposes changes (nothing is saved until the driver saves them as a new setup)
       if (p === '/api/setups/ai' && m === 'POST') {
@@ -568,7 +583,7 @@ async function route(req, res) {
   // ---- setup fingerprint check (Setups tab): what Paddock reads in the pits against the saved setups
   if (p === '/api/setupcheck' && m === 'GET') {
     return send(res, 200, { live: setupTracker.live(), current: setupTracker.current(), conditions: setupTracker.conditions(),
-      probe: source.lastRaw?.frame?.probe ?? null, carData: source.lastRaw?.frame?.carData ?? null, inSession: inSession(), confirmed: channels.trusted('setupProbe'), channels: channels.list() });
+      probe: source.lastRaw?.frame?.probe ?? null, carData: source.lastRaw?.frame?.carData ?? null, inSession: inSession(), confirmed: channels.trusted('setupProbe'), channels: channels.list(), aids: aidsTracker.live() });
   }
   // car & setup report of a session (tyres, brakes, suspension, balance): Car & setup tab
   if (p === '/api/carreport' && m === 'GET') {
@@ -576,7 +591,7 @@ async function route(req, res) {
       const r = carreport.build(Number(url.searchParams.get('session')));
       if (r.combo) { // ids the Setups page knows, for "Ask the AI engineer"
         const h = trackdata.find(r.combo.track, r.combo.layout);
-        r.links = { car: cars.match(r.combo.car)?.id ?? null, track: h?.track.id ?? null, layout: h?.layout.key ?? null };
+        r.links = { car: cars.match(r.combo.car)?.id ?? null, track: h?.track.id ?? null, layout: h?.layout.key ?? null, setup: setups.setupOfSession(Number(url.searchParams.get('session'))) };
       }
       return send(res, 200, r);
     } catch (e) { return send(res, 400, { error: e.message }); }
@@ -596,11 +611,11 @@ async function route(req, res) {
   if (p.startsWith('/api/backup')) {
     const busy = () => (inSession() ? send(res, 409, { error: 'You are on track: back up or restore when you are in the menus or AC EVO is closed (it would stall the lap recording).' }) : null);
     try {
-      if (p === '/api/backup' && m === 'GET') return send(res, 200, { backups: backup.listBackups(), pending: backup.pending(), restored: db.restoreResult, folder: backup.BACKUP_DIR });
+      if (p === '/api/backup' && m === 'GET') return send(res, 200, { backups: backup.listBackups(), parts: backup.parts(), pending: backup.pending(), restored: db.restoreResult, folder: backup.BACKUP_DIR });
       if (p === '/api/backup' && m === 'POST') {
         if (busy()) return;
-        const { includeSecrets = false } = await readJson(req);
-        return send(res, 200, await backup.create({ includeSecrets: includeSecrets === true, appVersion: VERSION }));
+        const { includeSecrets = false, parts = null } = await readJson(req);
+        return send(res, 200, await backup.create({ includeSecrets: includeSecrets === true, parts: Array.isArray(parts) ? parts.map(String) : null, appVersion: VERSION }));
       }
       if (p === '/api/backup/file' && m === 'GET') {
         const name = url.searchParams.get('name');
@@ -786,12 +801,62 @@ async function route(req, res) {
     if (b) settings.update({ markButton: b });
     return send(res, 200, { binding: b, devices: wheel.devices().map((d) => d.name) });
   }
+  // ---- online leaderboard (src/leaderboard.js; the server is leaderboard/worker.js)
+  if (p === '/api/board/status') return send(res, 200, board.status());
+  if (p === '/api/board/settings' && m === 'POST') {
+    const b = await readJson(req), patch = {};
+    if (typeof b.share === 'boolean') patch.boardShare = b.share;
+    if (typeof b.auto === 'boolean') patch.boardAuto = b.auto;
+    if (typeof b.tel === 'boolean') patch.boardTel = b.tel;
+    if (['next', 'p1', 'off'].includes(b.target)) patch.boardTarget = b.target;
+    if (typeof b.url === 'string') patch.boardUrl = b.url.trim();
+    // a login belongs to one server: a new address needs a new sign-in
+    const oldUrl = board.status().url;
+    settings.update(patch);
+    if (board.status().url !== oldUrl) settings.update({ boardToken: '', boardSteam: null });
+    if (settings.get().boardShare) board.sync().catch(() => {});
+    return send(res, 200, board.status());
+  }
+  if (p === '/api/board/login' && m === 'POST') {
+    try { return send(res, 200, { url: board.loginUrl(`http://127.0.0.1:${port}/api/board/callback`) }); } catch (e) { return send(res, 400, { error: e.message }); }
+  }
+  if (p === '/api/board/logout' && m === 'POST') { await board.logout(); return send(res, 200, board.status()); }
+  if (p === '/api/board/callback') {
+    // the browser comes back here from the Steam sign-in (see src/leaderboard.js)
+    const r = await board.finishLogin({ code: url.searchParams.get('code') || '', state: url.searchParams.get('state') || '' });
+    if (r.ok) broadcast('board', { signedIn: true });
+    const e = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    return send(res, r.ok ? 200 : 400, `<!doctype html><meta charset="utf-8"><title>AC EVO Paddock</title><body style="font:16px system-ui,sans-serif;background:#15181c;color:#e8eaed;display:grid;place-items:center;height:90vh;margin:0"><div style="max-width:440px;padding:16px">${r.ok
+      ? `<h2>Signed in as ${e(r.name)}</h2><p>You can close this tab and go back to Paddock.</p>`
+      : `<h2>Sign-in failed</h2><p>${e(r.error)}</p>`}</div></body>`, 'text/html; charset=utf-8');
+  }
+  if (p === '/api/board/profile') { const r = await board.checkRanks().catch(() => null); return send(res, 200, { profile: r, status: board.status() }); }
+  if (p === '/api/board/driver') { const r = await board.driver(url.searchParams.get('id') || ''); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
+  if (p === '/api/board/compare' && m === 'POST') {
+    // another driver's lap: downloaded once, then opened next to your own best on that track (same car if you have it)
+    try {
+      const { lapId } = await readJson(req);
+      const id = await board.fetchOnline(Number(lapId));
+      const o = db.getLapMeta(id);
+      const own = db.listLaps().filter((l) => l.source === 'local' && l.valid && l.track === o.track && l.layout === o.layout);
+      const best = (ls) => (ls.length ? ls.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a)) : null);
+      const mine = best(own.filter((l) => l.car === o.car)) || best(own);
+      return send(res, 200, { online: id, mine: mine?.id ?? null });
+    } catch (e) { return send(res, 502, { error: e.message }); }
+  }
+  if (p === '/api/board/report' && m === 'POST') { const b = await readJson(req); const r = await board.report(Number(b.lapId), String(b.reason || '').slice(0, 200)); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
+  if (p === '/api/board/admin/reports') { const r = await board.adminReports(); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
+  if (p === '/api/board/admin/hide' && m === 'POST') { const b = await readJson(req); const r = await board.adminHide(Number(b.lapId), !!b.hidden); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
+  if (p === '/api/board/sync' && m === 'POST') { const r = await board.sync({ force: !!(await readJson(req)).force, manual: true }); return send(res, 200, { ...r, status: board.status() }); }
+  if (p === '/api/board/combos') { const r = await board.call('/v1/combos'); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
+  if (p === '/api/board/versions') { const r = await board.call(`/v1/versions?${url.searchParams}`); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
+  if (p === '/api/board/table') { const r = await board.table(Object.fromEntries(url.searchParams)); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/settings') {
     if (m === 'POST') {
       const body = await readJson(req);
       if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.startsWith('••••')) delete body.geminiApiKey;
       if (body.markButton !== undefined && body.markButton !== null) delete body.markButton; // set only by /api/wheel/capture
-      delete body.channelChecks; delete body.probeConfirmed; // set only by /api/setupcheck/confirm
+      delete body.channelChecks; delete body.probeConfirmed; delete body.boardToken; delete body.boardSteam; // set only by the Steam sign-in // set only by /api/setupcheck/confirm
       const oldPath = settings.get().gamePath, oldKey = settings.get().markKey;
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
@@ -841,14 +906,14 @@ async function route(req, res) {
     } catch (e) { return send(res, e.status || 500, { error: e.message }); }
   }
   if (p === '/api/achievements/seen' && m === 'POST') { achievements.markSeen(); return send(res, 200, { ok: true }); }
-  // session planner: a driven car + track, a Race tab preset (or hotlap / practice), optionally for a goal
+  // session planner: a driven car + track, a Race tab preset (or a quick / 30-minute practice), optionally for a goal
   if (p === '/api/development/start' && m === 'POST') {
     const q = await readJson(req);
     try {
       const [track, layout, car] = String(q.key || '').split('|');
       const base = race.hotlapSpec(track, layout ?? '', car ?? '');
       let spec;
-      if (!q.preset || q.preset === 'hotlap') spec = base;
+      if (!q.preset || q.preset === 'hotlap' || q.preset === 'quick') spec = base; // 'hotlap': planners saved before 2026-11-19
       else if (q.preset === 'practice') spec = { ...base, mode: 'practice', practiceMin: 30 };
       else {
         const pr = race.lists().presets.find((x) => x.id === q.preset);

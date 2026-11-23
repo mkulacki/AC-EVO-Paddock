@@ -64,7 +64,8 @@ export async function mountCarSetup(box, sessionId) {
   const firm = sug.filter((s) => s.confirmed !== false), weak = sug.filter((s) => s.confirmed === false);
   const sugList = (list, cls = '') => `<ol class="sugs ${cls}">${list.map((s) => `<li><span class="lvl l${s.level}" title="${['', 'worth a look', 'worth trying', 'important'][s.level]}"></span><span class="tag">${esc(s.area.toUpperCase())}</span>
         <div><b>${esc(s.text)}</b><div class="hint">${esc(s.why)}</div></div></li>`).join('')}</ol>`;
-  const setupLink = r.links?.car ? `#/setups?car=${encodeURIComponent(r.links.car)}${r.links.track ? `&track=${encodeURIComponent(r.links.track)}${r.links.layout ? `&layout=${encodeURIComponent(r.links.layout)}` : ''}` : ''}` : '#/setups';
+  // straight to the AI engineer, on the setup this session was driven on (or the car's game default setup)
+  const setupLink = r.links?.car ? `#/setups?${new URLSearchParams({ car: r.links.car, ...(r.links.track ? { track: r.links.track } : {}), ...(r.links.layout ? { layout: r.links.layout } : {}), ...(r.links.setup ? { id: r.links.setup } : {}), ai: '1' })}` : '#/setups';
 
   box.innerHTML = `
     ${anyUnconfirmed ? `<div class="card plain note-warn">Readings marked ${prov('unverified')} come from the game's shared memory but have not been checked against what the game shows.

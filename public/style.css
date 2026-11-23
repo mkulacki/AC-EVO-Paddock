@@ -23,6 +23,7 @@
   --border: rgba(255, 255, 255, 0.08); --border-strong: rgba(255, 255, 255, 0.16);
   --text-primary: #eceeea; --text-secondary: #a7aeab; --text-muted: #757d7a;
   --grid: #252a30; --axis: #363d45;
+  --track-edge: #0c0e11; --racing-line: #c8ff1e; /* track map: road edges, the game's racing line */
   /* selected states: inverted, like the highlighted row on a timing screen */
   --sel-bg: #eceeea; --sel-fg: #15181c;
   /* timing language (same as the Paddock HUD) */
@@ -55,6 +56,7 @@
     --border: rgba(12, 16, 20, 0.1); --border-strong: rgba(12, 16, 20, 0.2);
     --text-primary: #12161a; --text-secondary: #4a5157; --text-muted: #7b8288;
     --grid: #e4e7ea; --axis: #cdd2d7;
+    --track-edge: #8b939b; --racing-line: #4e7d00;
     --sel-bg: #12161a; --sel-fg: #ffffff;
     --t-best: #7b2fe0; --t-best-soft: rgba(123, 47, 224, 0.1);
     --t-pb: #11884a; --t-pb-soft: rgba(17, 136, 74, 0.1);
@@ -420,7 +422,7 @@ tr.clickable:hover td { background: var(--surface-2); }
 .launch-box .card { border-left: 3px solid var(--text-primary); }
 .launch-box ol { margin: 8px 0 0 18px; padding: 0; color: var(--text-secondary); }
 
-.setup { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; align-items: start; }
+.setup { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; align-items: stretch; }
 @media (max-width: 1000px) { .setup { grid-template-columns: 1fr; } }
 .pick { position: relative; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
 .pick-media { position: relative; background: var(--tile); aspect-ratio: 16 / 9; overflow: hidden; cursor: pointer; }
@@ -437,7 +439,8 @@ tr.clickable:hover td { background: var(--surface-2); }
 .pick-media .change { position: absolute; top: 14px; right: 14px; pointer-events: auto; background: rgba(8, 9, 11, .65); border-color: rgba(255, 255, 255, .22); color: #fff; }
 .pick-media .change:hover:not(:disabled) { background: #fff; color: #111; border-color: transparent; }
 .pick-media .empty-pick { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-muted); font-weight: 600; font-size: var(--fs-lg); text-align: center; padding: 20px; }
-.pick-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 12px; }
+.pick-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.rand-cond { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-secondary); white-space: nowrap; cursor: pointer; }
 
 .specs { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); }
 .spec { background: var(--surface-1); padding: 8px 10px; }
@@ -855,3 +858,44 @@ table.plan-table td.c span { font-weight: 700; }
 table.wk-table { margin-top: 6px; }
 .home-ach { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
 .home-ach span { white-space: nowrap; }
+.home-rec .beat { margin-right: 8px; }
+.map-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-secondary); margin-right: 8px; cursor: pointer; white-space: nowrap; }
+.bk-parts { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.bk-part { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; background: var(--surface-1); cursor: pointer; }
+.bk-part.off { opacity: .55; cursor: default; }
+.bk-part input { margin-top: 3px; }
+.bk-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bk-hint { font-size: var(--fs-xs); }
+.bk-size { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+/* Cars tab */
+.cars-filters .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.cars-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.cars-grid .car-card { color: inherit; text-decoration: none; }
+.cars-grid .car-card:hover { border-color: var(--text-muted); }
+.car-mine { display: flex; gap: 10px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-secondary); border-top: 1px solid var(--border); padding-top: 6px; }
+.car-mine b { color: var(--accent-text); font-variant-numeric: tabular-nums; }
+.car-hero { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; align-items: start; }
+.car-hero .pick-media { cursor: default; }
+.car-side .card { margin: 0; }
+@media (max-width: 1000px) { .car-hero { grid-template-columns: 1fr; } }
+.style-row { display: flex; align-items: center; gap: 12px; margin: 8px 0; font-size: var(--fs-sm); }
+.style-row > span:first-child { width: 190px; flex: none; color: var(--text-secondary); }
+.style-row b { width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
+.style-bar { flex: 1; height: 8px; background: var(--surface-3); overflow: hidden; }
+.style-bar i { display: block; height: 100%; background: var(--accent); }
+.car-trip { font-size: var(--fs-md); margin: 0 0 10px; }
+.milestones { display: flex; flex-wrap: wrap; gap: 6px; }
+.milestones .ms { font-size: var(--fs-xs); padding: 2px 9px; border: 1px solid var(--border-strong); color: var(--text-muted); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.milestones .ms.done { background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 700; }
+.ms-next { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+
+/* Leaderboards tab */
+table.lb td.mono, table.lb-mine td.mono { font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.lb tr.lb-me td { background: var(--surface-2, rgba(127,127,127,.12)); }
+table.lb td.lb-best { color: var(--accent-text); font-weight: 600; }
+table.lb-mine { margin-top: 14px; font-size: 13px; }
+table.lb td.lb-act { white-space: nowrap; text-align: right; }
+table.lb td .lb-lose, .lb-analysis .lb-lose { color: var(--slower); }
+table.lb td .lb-gain, .lb-analysis .lb-gain { color: var(--good); }
+.lb-analysis { margin-top: 12px; font-size: 13px; display: grid; gap: 4px; }
+ul.lb-notes { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }

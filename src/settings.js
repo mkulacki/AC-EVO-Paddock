@@ -13,11 +13,18 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   probeConfirmed: false, // the driver checked in game that the setup fingerprint / temperatures read right (Setups tab; before 0.6)
   openLastSession: true, // desktop app: when AC EVO closes, bring Paddock to the front on the session just driven (src/server.js)
   updateCheck: true, // once a day, ask GitHub whether a newer Paddock is out (nothing is downloaded; src/updates.js)
-  channelChecks: null }; // per telemetry group, whether the readings match the game: {group: true|false} (src/channels.js)
+  channelChecks: null, // per telemetry group, whether the readings match the game: {group: true|false} (src/channels.js)
+  boardShare: false, // send the best lap per track / car to the online leaderboard (src/leaderboard.js)
+  boardAuto: true, // with sharing on: send right after each lap (off = only with Send now)
+  boardTel: true, // send the light telemetry of shared laps too (others can compare with them)
+  boardTarget: 'next', // the HUD's leaderboard target: 'next' (the driver just ahead), 'p1' or 'off'
+  boardUrl: '', // leaderboard server; empty = the default
+  boardToken: '', // Steam sign-in on the leaderboard: the login token (secret: never sent to the page)
+  boardSteam: null }; // who that sign-in is: {steamId, name}
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
 export const HUD_PARTS = ['lap', 'ref', 'delta', 'current', 'speed', 'predicted', 'best', 'session', 'last', 'cues', 'ideal', 'corners', 'footer',
-  'shift', 'inputs', 'sectors', 'fuel'];
+  'shift', 'inputs', 'sectors', 'fuel', 'target'];
 const HUD_OFF = new Set(['speed']);
 export const HUD_DEFAULTS = { parts: Object.fromEntries(HUD_PARTS.map((k) => [k, !HUD_OFF.has(k)])), scale: 100, opacity: 85 };
 const clampNum = (v, lo, hi, d) => (v !== null && v !== '' && Number.isFinite(+v) ? Math.max(lo, Math.min(hi, Math.round(+v))) : d);
@@ -57,4 +64,4 @@ export function update(patch) {
   return current;
 }
 // settings safe to send to the browser
-export const publicView = () => ({ ...current, hud, spotter, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey });
+export const publicView = () => ({ ...current, hud, spotter, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey, boardToken: undefined });

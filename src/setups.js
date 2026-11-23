@@ -75,6 +75,48 @@ export function scan(force = false) {
 }
 export const byId = (id) => scan().find((f) => f.id === id) || null;
 
+// ---------------------------------------------------------------- the game's own setups, inside the car files
+// Every car ships with one or more stock setups (content\cars\<car>\data\setup\*.carsetup). They are read-only:
+// open one, change it and "Save as new setup", or copy it to a track, and it becomes a file of your own. So a car
+// can be worked on before any setup was saved in the game.
+const GAME = 'game:';
+const isGame = (id) => String(id || '').startsWith(GAME);
+const carFolderOf = (car) => scan().find((f) => f.carId === car.id)?.carFolder || SAFE(`${car.brand} ${car.name}`);
+// "ks_audi_r8_lms_gt2_wet.carsetup" -> "Game default (Wet)": the words that tell a car's stock setups apart
+function gameNames(car, files) {
+  const words = (f) => path.win32.basename(f, EXT).toLowerCase().split(/[_\s-]+/).filter(Boolean);
+  const carWords = new Set([...car.id.toLowerCase().split('_'), ...`${car.brand} ${car.name}`.toLowerCase().split(/[\s_-]+/)]);
+  const lists = files.map(words);
+  const common = new Set(lists[0]?.filter((w) => lists.every((l) => l.includes(w))) || []);
+  return lists.map((l) => {
+    const rest = files.length > 1 ? l.filter((w) => !carWords.has(w) && !common.has(w)).join(' ') : '';
+    return rest ? `Game default (${rest.replace(/\b\w/g, (c) => c.toUpperCase())})` : 'Game default';
+  });
+}
+/** The stock setups of a car, dry ones first: [{id, file, car, pack, name}] */
+export function gameSetups(carId) {
+  const car = carsDb.byId(carId);
+  const pack = car && carsDb.packOf(car);
+  if (!pack) return [];
+  let files = [];
+  try { files = pack.list(['content', 'cars', car.id, 'data', 'setup', ''].join('\\')).filter((f) => f.toLowerCase().endsWith(EXT)); } catch { /* none */ }
+  const names = gameNames(car, files);
+  const rank = (n) => (n === 'Game default' ? 0 : /wet/i.test(n) ? 2 : 1);
+  return files.map((file, i) => ({ id: `${GAME}${car.id}:${idOf(file)}`, file, car, pack, name: names[i] }))
+    .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+}
+function gameById(id) {
+  if (!isGame(id)) return null;
+  const carId = String(id).slice(GAME.length).split(':')[0];
+  return gameSetups(carId).find((g) => g.id === id) || null;
+}
+const gameBuf = (g) => { const b = g.pack.read(g.file); if (!b) throw new Error('The game setup could not be read from the car files'); return b; };
+function describeGame(g) {
+  return { id: g.id, rel: null, name: g.name, carId: g.car.id, carName: `${g.car.brand} ${g.car.name}`, carFolder: carFolderOf(g.car), track: { id: null, name: 'any track', folder: null },
+    notes: '', from: 'game', basedOn: null, updatedAt: null, forTrack: false, builtin: true };
+}
+const readOnly = () => Object.assign(new Error("This is the game's own setup and can't be changed. Save it as a new setup first."), { status: 400 });
+
 function describeFile(f, track) {
   const m = meta.files[f.rel] || {};
   return { id: f.id, rel: f.rel, name: f.name, carId: f.carId, carName: f.carName, carFolder: f.carFolder, track: { id: f.trackId, name: f.trackName, folder: f.trackFolder },
@@ -87,6 +129,19 @@ export function list(carId, track = null) {
   items.sort((a, b) => (b.forTrack - a.forTrack) || (a.forTrack ? 0 : a.track.name.localeCompare(b.track.name)) || b.updatedAt - a.updatedAt);
   return items;
 }
+/** The saved setup most laps of a session were driven on (its id), or null ("Standard", or the file is gone). */
+export function setupOfSession(sessionId) {
+  const count = new Map();
+  for (const l of db.lapsOfSession(sessionId)) {
+    let rel = null; try { rel = JSON.parse(l.setup_info || 'null')?.rel || null; } catch { /* none */ }
+    if (rel) count.set(rel, (count.get(rel) || 0) + 1);
+  }
+  const files = scan();
+  for (const [rel] of [...count].sort((a, b) => b[1] - a[1])) { const f = files.find((x) => x.rel === rel); if (f) return f.id; }
+  return null;
+}
+/** The car's stock setups from the game files (always there, also when nothing was saved yet). */
+export const gameList = (carId) => gameSetups(carId).map(describeGame);
 /** Cars that have setups: [{carId, carName, count}] */
 export function cars() {
   const m = new Map();
@@ -95,6 +150,12 @@ export function cars() {
 }
 /** A setup with its values as the game's setup screen shows them (null values: this car's limits are unknown). */
 export function detail(id) {
+  const g = gameById(id);
+  if (g) {
+    let r = { values: null, preset: null };
+    try { r = cs.read(gameBuf(g), g.car.id); } catch (e) { r.error = e.message; }
+    return { ...describeGame(g), preset: r.preset, values: r.values && r.values.map((v) => ({ ...v, tip: cs.tipFor(v) || undefined })), error: r.error || (r.values ? null : "This car's setup limits were not found in the game files") };
+  }
   const f = byId(id);
   if (!f) return null;
   let r = { values: null, preset: null };
@@ -106,6 +167,7 @@ export function detail(id) {
 function moveMeta(fromRel, toRel) { if (meta.files[fromRel]) { meta.files[toRel] = meta.files[fromRel]; delete meta.files[fromRel]; saveMeta(); } }
 
 export function update(id, { name, notes } = {}) {
+  if (isGame(id)) throw readOnly();
   let f = byId(id);
   if (!f) throw new Error('Setup not found');
   if (notes !== undefined) { metaFor(f.rel).notes = String(notes).slice(0, 4000); saveMeta(); }
@@ -121,6 +183,7 @@ export function update(id, { name, notes } = {}) {
   return detail(f.id);
 }
 export function remove(id) {
+  if (isGame(id)) throw readOnly();
   const f = byId(id);
   if (!f) throw new Error('Setup not found');
   fs.rmSync(f.file, { force: true });
@@ -143,6 +206,8 @@ function writeSetup(carFolder, trackFolder, wanted, buf) {
 
 // ---------------------------------------------------------------- sharing: the game's own file
 export function exportFile(id) {
+  const g = gameById(id);
+  if (g) return { buf: gameBuf(g), filename: `${carFolderOf(g.car)} - ${g.name}${EXT}` };
   const f = byId(id);
   if (!f) throw new Error('Setup not found');
   return { buf: fs.readFileSync(f.file), filename: `${f.carFolder} - ${f.trackFolder} - ${f.name}${EXT}` };
@@ -169,7 +234,18 @@ export function importFile(buf, { filename = '', trackId = null } = {}) {
  * Change values of a setup: {name: value} in stored units (as detail().values gives them). Saved as a new file
  * next to it (asName), or over the file itself when asName is not given. -> the saved setup's detail
  */
-export function saveValues(id, changes, { asName = null, notes = null, from = 'paddock' } = {}) {
+export function saveValues(id, changes, { asName = null, notes = null, from = 'paddock', trackId = null } = {}) {
+  const g = gameById(id);
+  if (g) { // a stock setup: only as a new file of your own, for a track (the game lists setups per track)
+    if (asName == null) throw readOnly();
+    const track = trackdata.catalog().find((t) => t.id === trackId);
+    if (!track) throw new Error('Pick the track this setup is for');
+    const { buf, changed } = cs.write(gameBuf(g), g.car.id, changes || {});
+    const w = writeSetup(carFolderOf(g.car), track.name, asName, buf);
+    Object.assign(metaFor(w.rel), { from, basedOn: g.name, changes: changed, ...(notes ? { notes: String(notes).slice(0, 4000) } : {}) });
+    saveMeta();
+    return detail(idOf(w.rel));
+  }
   const f = byId(id);
   if (!f) throw new Error('Setup not found');
   const { buf, changed } = cs.write(fs.readFileSync(f.file), f.carId, changes);
@@ -193,9 +269,17 @@ export function saveValues(id, changes, { asName = null, notes = null, from = 'p
 
 /** The game lists and loads only the current track's setups: a copy for another track, as "<name> [<from track>]". */
 export function copyTo(id, trackId) {
+  const g = gameById(id);
+  const track = trackdata.catalog().find((t) => t.id === trackId);
+  if (g) { // the stock setup as your own file for this track, unchanged
+    if (!track) throw new Error('Pick a track');
+    const w = writeSetup(carFolderOf(g.car), track.name, g.name, gameBuf(g));
+    Object.assign(metaFor(w.rel), { from: 'copy', basedOn: g.name });
+    saveMeta();
+    return detail(idOf(w.rel));
+  }
   const f = byId(id);
   if (!f) throw new Error('Setup not found');
-  const track = trackdata.catalog().find((t) => t.id === trackId);
   if (!track) throw new Error('Pick a track');
   if (norm(track.name) === norm(f.trackFolder)) throw new Error(`"${f.name}" is already a ${track.name} setup`);
   const w = writeSetup(f.carFolder, track.name, `${f.name} [${f.trackFolder}]`, fs.readFileSync(f.file));

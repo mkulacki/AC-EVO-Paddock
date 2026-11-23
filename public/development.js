@@ -109,7 +109,7 @@ function drawForm(box, d, done) {
   };
 }
 
-// ---- session planner: a car + track you drove, how (hotlap, practice or a Race tab preset), and the goal it is for
+// ---- session planner: a car + track you drove, how (a 90 or 30-minute practice, or a Race tab preset), and the goal it is for
 function drawPlanner(box, d) {
   const startable = d.combos.filter((c) => c.canStart);
   if (!startable.length) { box.innerHTML = '<h2>Plan a session</h2><p class="muted" style="margin:0">None of your cars and tracks is in the game\'s track list, so Paddock cannot start them.</p>'; return; }
@@ -117,7 +117,7 @@ function drawPlanner(box, d) {
     <div class="goal-form">
       <label>Car and track<select id="spCombo">${startable.map((c) => `<option value="${esc(c.key)}">${esc(prettyName(c.track))} ${esc(prettyName(c.layout))} · ${esc(prettyName(c.car))}</option>`).join('')}</select></label>
       <label>For goal<select id="spGoal"></select></label>
-      <label>Session<select id="spPreset"><option value="hotlap">Hotlap: clear weather, optimum grip</option><option value="practice">Practice: 30 minutes, clear, optimum grip</option>
+      <label>Session<select id="spPreset"><option value="quick">Practice: 90 minutes, clear, optimum grip</option><option value="practice">Practice: 30 minutes, clear, optimum grip</option>
         ${d.presets.length ? `<optgroup label="Your Race tab presets">${d.presets.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</optgroup>` : ''}</select></label>
       <p class="muted s" style="margin:0">A preset keeps its session type, weather and AI; the car and track are the ones picked here.</p>
       <div class="row"><button class="primary" id="spStart">Start in AC EVO</button><span class="pos s" id="spErr"></span></div></div>`;

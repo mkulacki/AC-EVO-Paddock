@@ -26,6 +26,7 @@ export class LiveHud {
     this.rec = recorder;
     this.mode = 'best';
     this.refs = null;        // loaded references for the current combo
+    this.targetSource = null; // (session) -> the leaderboard driver to beat {rank, of, name, lapMs, sectors} (src/leaderboard.js)
     this.refsKey = null;
     this.cur = null;         // per-lap tracking (corner crossings)
     this.ring = [];          // [{at, delta}] for the trend
@@ -364,6 +365,19 @@ export class LiveHud {
       const cur = this.cur;
       out.sectors = { n: S.n, k: cur && live ? cur.sk : null, cur: cur ? cur.secs.slice() : [], prev: this.lastSectors || [],
         best: S.best, sess: S.sess };
+    }
+    // leaderboard target: the driver to beat, the predicted gap to their time, and the split after each sector
+    const tg = s && this.targetSource ? this.targetSource(s) : null;
+    if (tg) {
+      const t = { rank: tg.rank, of: tg.of, name: tg.name, lapMs: tg.lapMs, gapMs: null, splitMs: null, splitK: null };
+      if (out.delta && live && lap?.full) t.gapMs = Math.round(out.delta.predictedMs - tg.lapMs);
+      const cur = this.cur, k = cur && live ? cur.secs.length : 0;
+      if (k > 0 && Array.isArray(tg.sectors) && S && tg.sectors.length === S.n && k <= S.n) {
+        const sum = (a) => a.slice(0, k).reduce((x, y) => x + y, 0);
+        t.splitMs = Math.round(sum(cur.secs) - sum(tg.sectors));
+        t.splitK = k;
+      }
+      out.target = t;
     }
     return out;
   }

@@ -9,9 +9,9 @@
 //   SetGameModeParameters {mode, sessions}   durations, start times, AI ...
 //   SetWeather {weather_data}           one of the presets in GameModeParameters.weather_data
 //   Start
-// Session types the game accepts: PRACTICE (1 session), HOTLAP (1 session, not shown in the game's own
-// menu but answered OK), INSTANT_RACE (1 race session) and RACE_WEEKEND (practice, qualifying, warm-up,
-// race). An order is a list of steps (see mod/trainerhud/trainerhud.js, STEP); the values and limits
+// Session types the game accepts: PRACTICE (1 session), INSTANT_RACE (1 race session) and RACE_WEEKEND (practice, qualifying, warm-up,
+// race). HOTLAP also exists and is answered OK, but the game's own menu does not offer it: Paddock does not use it
+// (user decision 2026-11-19; it also always starts in the pits). Old presets saying 'hotlap' start as Practice. An order is a list of steps (see mod/trainerhud/trainerhud.js, STEP); the values and limits
 // below are the ones of the game's own sliders.
 //
 // The HUD also sends back what it reads ("[TrainerHUD-cat] {scan, part, i, n, d}" log lines, reassembled
@@ -46,7 +46,6 @@ const clamp = (v, lo, hi, dflt) => { const n = Number(v); return Number.isFinite
 export const MODEL = {
   modes: [
     { id: 'practice', label: 'Practice', type: 'GameModeType_PRACTICE', hint: 'Free running, alone on track', practice: true },
-    { id: 'hotlap', label: 'Hotlap', type: 'GameModeType_HOTLAP', hint: 'Flying laps against the clock' },
     { id: 'race', label: 'Quick race', type: 'GameModeType_INSTANT_RACE', hint: 'One race against the AI', race: true, ai: true, startPos: true },
     { id: 'weekend', label: 'Race weekend', type: 'GameModeType_RACE_WEEKEND', hint: 'Practice, qualifying, warm-up, race', practice: true, qualifying: true, warmup: true, race: true, ai: true },
   ],
@@ -202,7 +201,7 @@ export function buildOrder(spec) {
     return order;
   }
 
-  const mode = modeOf(spec.mode);
+  const mode = modeOf(spec.mode === 'hotlap' ? 'practice' : spec.mode);
   if (!mode) throw new Error('Pick a session type');
   const t = cat.tracks.find((x) => x.id === spec.track?.id);
   const l = t?.layouts.find((x) => x.key === spec.track?.layout) || t?.layouts[0];
@@ -280,12 +279,13 @@ export function buildOrder(spec) {
   return order;
 }
 
-// Laps tab "Start hotlap": a driven combo (names as recorded) in Hotlap mode with the best conditions
+// One-click starts (Home "Beat it", Sessions "Start practice", the planner): a driven combo (names as recorded)
+// as the longest Practice session the game allows, with the best conditions
 export function hotlapSpec(track, layout, carName) {
   const h = trackdata.find(track, layout);
   if (!h) throw new Error(`${track} ${layout || ''} is not in the game's track list`);
   const car = carsDb.match(carName);
-  return { kind: 'solo', mode: 'hotlap', car: car ? { id: car.id } : { display: carName }, track: { id: h.track.id, layout: h.layout.key },
+  return { kind: 'solo', mode: 'practice', practiceMin: MODEL.limits.practiceMin[1], car: car ? { id: car.id } : { display: carName }, track: { id: h.track.id, layout: h.layout.key },
     time: MODEL.defaults.time, timeMult: 1, weather: 'CLEAR', dynamic: false, grip: 'OPTIMUM', noRemember: true };
 }
 

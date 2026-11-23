@@ -21,6 +21,9 @@ try { mapLayer = localStorage.getItem('tele.mapLayer') === 'inputs' ? 'inputs' :
 const MAP_ZOOMS = [1, 1.5, 2, 3, 4, 6, 8];
 let mapZoom = 1;
 try { const z = +localStorage.getItem('tele.mapZoom'); if (MAP_ZOOMS.includes(z)) mapZoom = z; } catch { /* default */ }
+// the game's racing line on the track map: off unless the driver turns it on (remembered)
+let racingLine = false;
+try { racingLine = localStorage.getItem('tele.racingLine') === '1'; } catch { /* default */ }
 // one input state per grid point, the same limits as the technique metrics (src/analysis.js)
 const INPUTS = [
   { k: 'brake', label: 'Braking', v: '--critical', is: (L, i) => L.brk[i] > 0.1 },
@@ -117,6 +120,7 @@ export async function mountTelemetry(root, opts, cleanup) {
               <button class="small${layer === 'inputs' ? ' on' : ''}" data-layer="inputs" title="Where ${lap0 ? 'your lap' : 'the reference'} brakes, coasts and is on the throttle">Inputs</button></span>
             <span class="spacer"></span>
             ${sel ? '<button class="small ghost" data-whole>Whole lap</button>' : ''}
+            ${data.band?.ideal ? `<label class="map-toggle" title="The game's own ideal line (the line the AI follows)"><input type="checkbox" data-racing ${racingLine ? 'checked' : ''}> Ideal line</label>` : ''}
             <span class="seg map-zoom" role="group" aria-label="Map zoom"><button class="small" data-zoom="-1" title="Zoom out">−</button><span class="zlvl"></span><button class="small" data-zoom="1" title="Zoom in: the map follows the car">+</button></span></div>
             <div class="hint map-legend">${layer === 'inputs' ? INPUTS.map((s) => `<i class="sw" style="background:var(${s.v})"></i>${s.label}`).join(' ')
               : lap0 ? '<i class="sw" style="background:var(--slower)"></i>losing <i class="sw" style="background:var(--faster)"></i>gaining' : ''}</div>
@@ -269,6 +273,11 @@ export async function mountTelemetry(root, opts, cleanup) {
       try { localStorage.setItem('tele.mapZoom', String(mapZoom)); } catch { /* not remembered */ }
       zoomShow(); drawBase();
     }));
+    root.querySelector('[data-racing]')?.addEventListener('change', (e) => {
+      racingLine = e.target.checked;
+      try { localStorage.setItem('tele.racingLine', racingLine ? '1' : '0'); } catch { /* not remembered */ }
+      drawBase();
+    });
     zoomShow();
     function drawBase() {
       const dpr = window.devicePixelRatio || 1;
@@ -292,6 +301,9 @@ export async function mountTelemetry(root, opts, cleanup) {
         ctx.closePath();
         for (let i = band.right.x.length - 1; i >= 0; i--) { const [px, py] = P(band.right.x[i], band.right.z[i]); i === band.right.x.length - 1 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
         ctx.closePath(); ctx.fill('evenodd');
+        // the track edges, a little darker so the road stands out
+        ctx.strokeStyle = css('--track-edge'); ctx.lineWidth = 1.6;
+        for (const e of [band.left, band.right]) { ctx.beginPath(); e.x.forEach((bx, i) => { const [px, py] = P(bx, e.z[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }); ctx.closePath(); ctx.stroke(); }
       }
       ctx.strokeStyle = css('--axis'); ctx.lineWidth = 9 * zoomK;
       ctx.beginPath(); for (let i = 0; i < x.length; i++) { const [px, py] = P(x[i], z[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
@@ -339,6 +351,11 @@ export async function mountTelemetry(root, opts, cleanup) {
           const i = idxAt(d, bp); const [px, py] = P(L.trace.x[i], L.trace.z[i]);
           ctx.fillStyle = color(li); ctx.fillRect(px - 4, py - 4, 8, 8);
         });
+      }
+      if (racingLine && band?.ideal) { // the game's racing line, dashed, over the laps
+        ctx.save(); ctx.strokeStyle = css('--racing-line'); ctx.lineWidth = 1.8; ctx.setLineDash([6, 5]);
+        ctx.beginPath(); band.ideal.x.forEach((bx, i) => { const [px, py] = P(bx, band.ideal.z[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }); ctx.closePath(); ctx.stroke();
+        ctx.restore();
       }
       // start/finish and corner labels
       const [sx, sy] = P(x[0], z[0]);

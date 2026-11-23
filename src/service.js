@@ -132,7 +132,7 @@ function trackBand(info, ref) {
   const [track, layout] = info.key.split('|');
   // real track edges from the game's track data replace the used-width band
   const model = trackModel(track, layout);
-  if (model) Object.assign(band, { left: model.left, right: model.right, source: { left: 'track', right: 'track' } });
+  if (model) Object.assign(band, { left: model.left, right: model.right, ideal: model.ideal || null, source: { left: 'track', right: 'track' } });
   info.bands.set(ref.id, band);
   return band;
 }

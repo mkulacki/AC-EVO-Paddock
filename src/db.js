@@ -74,17 +74,33 @@ function normaliseDistance(data, L) {
 {
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('laps').includes('setup_name')) db.exec('ALTER TABLE laps ADD COLUMN setup_name TEXT; ALTER TABLE laps ADD COLUMN setup_info TEXT;');
+  // laps.aids = JSON: TC / ABS / ESC levels, what acted, assist settings and the lap's class (src/aids.js)
+  if (!cols('laps').includes('aids')) db.exec('ALTER TABLE laps ADD COLUMN aids TEXT;');
+  // laps.cond = JSON: the lap's own conditions for the leaderboard {airC, roadC, weather, grip, game, app} (src/leaderboard.js)
+  // laps.board = JSON: its leaderboard upload {at, ok, rank, of, error, retry}
+  if (!cols('laps').includes('cond')) db.exec('ALTER TABLE laps ADD COLUMN cond TEXT; ALTER TABLE laps ADD COLUMN board TEXT;');
   if (!cols('sessions').includes('conditions')) db.exec('ALTER TABLE sessions ADD COLUMN conditions TEXT;');
   db.exec(`CREATE TABLE IF NOT EXISTS setup_snapshots (hash TEXT PRIMARY KEY, data TEXT);
     CREATE TABLE IF NOT EXISTS reports (session_id INTEGER PRIMARY KEY, created_at INTEGER, data TEXT, ai_text TEXT, ai_model TEXT, ai_at INTEGER);`);
 }
 
-const LAP_COLS = 'id, session_id, track, layout, car, lap_number, lap_time_ms, valid, driver, source, recorded_at, track_length, samples, setup_name, setup_info';
+const LAP_COLS = 'id, session_id, track, layout, car, lap_number, lap_time_ms, valid, driver, source, recorded_at, track_length, samples, setup_name, setup_info, aids, cond, board';
 
 /** A consistent copy of the whole database in a new file (backups): safe while Paddock keeps using it. */
 export function vacuumInto(file) {
   fs.rmSync(file, { force: true });
   db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+}
+/** The database handle, for modules that keep their own small tables (carstats.js: lap_stats). */
+export const raw = db;
+/** Bytes per table (indexes counted with their table), or null when SQLite has no dbstat. */
+export function tableSizes() {
+  try {
+    const idx = new Map(db.prepare("SELECT name, tbl_name FROM sqlite_master WHERE type = 'index'").all().map((r) => [r.name, r.tbl_name]));
+    const out = {};
+    for (const r of db.prepare('SELECT name, SUM(pgsize) AS s FROM dbstat GROUP BY name').all()) { const t = idx.get(r.name) || r.name; out[t] = (out[t] || 0) + Number(r.s); }
+    return out;
+  } catch { return null; }
 }
 export const counts = () => ({
   laps: db.prepare('SELECT COUNT(*) AS n FROM laps').get().n,
@@ -169,7 +185,17 @@ export function setBrakeMarks(track, layout, car, marks) {
 // ---------------------------------------------------------------- setups per lap, conditions, reports
 export function saveSnapshot(hash, values) { db.prepare('INSERT OR IGNORE INTO setup_snapshots (hash, data) VALUES (?, ?)').run(hash, JSON.stringify(values)); }
 export const getSnapshot = (hash) => { const r = db.prepare('SELECT data FROM setup_snapshots WHERE hash = ?').get(hash); return r ? JSON.parse(r.data) : null; };
-const setupInfo = (su) => ({ rel: su.rel ?? null, id: su.id ?? null, match: su.match, snap: su.snap ?? null, probe: su.probe ?? null });
+const setupInfo = (su) => ({ rel: su.rel ?? null, id: su.id ?? null, match: su.match, snap: su.snap ?? null, probe: su.probe ?? null, stock: su.stock ?? null });
+export function setLapAids(id, aids) { db.prepare('UPDATE laps SET aids = ? WHERE id = ?').run(aids ? JSON.stringify(aids) : null, id); }
+export function setLapCond(id, c) { db.prepare('UPDATE laps SET cond = ? WHERE id = ?').run(c ? JSON.stringify(c) : null, id); }
+export function setLapBoard(id, b) { db.prepare('UPDATE laps SET board = ? WHERE id = ?').run(b ? JSON.stringify(b) : null, id); }
+/** The fastest valid own lap per track / layout / car / game version, among laps that carry their conditions (leaderboard). */
+export const boardBests = () => db.prepare(`SELECT ${LAP_COLS} FROM laps l WHERE source = 'local' AND valid = 1 AND cond IS NOT NULL
+  AND id = (SELECT id FROM laps m WHERE m.source = 'local' AND m.valid = 1 AND m.cond IS NOT NULL AND m.track = l.track AND m.layout = l.layout
+    AND m.car = l.car AND json_extract(m.cond, '$.game') IS json_extract(l.cond, '$.game') ORDER BY m.lap_time_ms, m.id LIMIT 1)`).all();
+/** A leaderboard lap downloaded before (source 'online', laps.board = {online: its id on the server}). */
+export const findOnlineLap = (remoteId) => db.prepare(`SELECT ${LAP_COLS} FROM laps WHERE source = 'online' AND json_extract(board, '$.online') = ?`).get(remoteId);
+export const getLapAids = (id) => { const r = db.prepare('SELECT aids FROM laps WHERE id = ?').get(id); return r?.aids ? JSON.parse(r.aids) : null; };
 export function setLapSetups(ids, su) {
   const st = db.prepare('UPDATE laps SET setup_name = ?, setup_info = ? WHERE id = ?');
   for (const id of ids) st.run(su.name, JSON.stringify(setupInfo(su)), id);
