@@ -16,10 +16,13 @@ const HUD_GROUPS = [
 ];
 // what the preview is drawn over, to judge the HUD against bright and dark scenes
 const HUD_PREVIEW_BG = [['dark', 'Dark'], ['light', 'Light'], ['track', 'Track']];
+const THEMES = [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']];
 export async function viewSettings(view, cleanup, { restartPaddock, setStatus }) {
   const s = await api('/api/settings');
   view.innerHTML = `<div class="card"><h1>Settings</h1><p class="muted">Stored locally in <code>data/settings.json</code>.</p>
     <div class="form">
+      <label>Theme</label><div class="row"><span class="seg" id="theme">${THEMES.map(([k, label]) => `<button class="small" data-theme="${k}">${label}</button>`).join('')}</span></div>
+      <div class="hint">Saved on this computer straight away. "System" follows the Windows light / dark setting.</div>
       <label>Driver name</label><input id="driverName" value="${esc(s.driverName)}" placeholder="defaults to the name from the game">
       <label>Gemini API key</label><input id="geminiApiKey" value="${esc(s.geminiApiKey)}" placeholder="paste key" autocomplete="off">
       <div class="hint">Free key: <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>. Only a compact per-corner summary is sent, never raw telemetry.</div>
@@ -82,6 +85,18 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
     <div class="card"><div class="row"><h2 style="margin:0">Telemetry debug</h2><span class="spacer"></span><button id="rawGo">Show live raw values</button></div>
       <p class="muted">Use this while driving to check that speed, pedals, lap time, track position (npos) and coordinates look right.</p>
       <pre class="raw" id="raw" hidden></pre></div>`;
+  // theme: per computer (localStorage), applied by the script in index.html
+  const themeShow = () => {
+    let cur = 'system';
+    try { cur = localStorage.getItem('theme') || 'system'; } catch { /* private mode */ }
+    for (const b of $('#theme').querySelectorAll('button')) b.classList.toggle('on', b.dataset.theme === cur);
+  };
+  $('#theme').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    try { if (b.dataset.theme === 'system') localStorage.removeItem('theme'); else localStorage.setItem('theme', b.dataset.theme); } catch { /* private mode */ }
+    window.applyTheme?.(); themeShow();
+  };
+  themeShow();
   $('#restart').onclick = (e) => restartPaddock(e.currentTarget);
   bindSystem(restartPaddock);
   // brake spotter: saved on every change, like the HUD

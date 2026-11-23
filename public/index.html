@@ -9,6 +9,23 @@
   <meta name="theme-color" content="#15181c">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 1h12l-4 14H0z' fill='%23c8ff1e'/><path d='M3.5 11l3-6 2 4 1.5-2L12 11' stroke='%230b0e05' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
   <script>try { if (localStorage.getItem('side.collapsed') === '1') document.documentElement.classList.add('side-collapsed'); } catch { /* private mode */ }</script>
+  <script>
+    // theme: 'system' (default, follows Windows), 'dark' or 'light' (Settings > Theme). Set before first paint, no flash.
+    (() => {
+      const os = matchMedia('(prefers-color-scheme: light)');
+      const apply = () => {
+        let pick = 'system';
+        try { pick = localStorage.getItem('theme') || 'system'; } catch { /* private mode */ }
+        const t = pick === 'system' ? (os.matches ? 'light' : 'dark') : pick;
+        document.documentElement.dataset.theme = t;
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.content = t === 'light' ? '#eef0f2' : '#15181c';
+      };
+      os.addEventListener('change', apply);
+      window.applyTheme = apply;
+      apply();
+    })();
+  </script>
 </head>
 <body>
   <aside class="side" aria-label="Paddock">

@@ -3,7 +3,8 @@
    (purple = overall best, green = personal/session best, yellow = slower), the same language as the Paddock HUD.
    The lime brand colour is kept for one thing per screen: the main action (and the live state).
    Condensed italic capitals are the "livery lettering": page titles, car and track names, big numbers. Everything else
-   is Barlow in sentence case. Dark first; a light theme follows the OS setting. */
+   is Barlow in sentence case. Dark first; light when Settings > Theme says so, or when it's on "System" and Windows is light.
+   index.html resolves the choice and sets data-theme="dark" | "light" on <html>. */
 
 /* bundled typefaces (node_modules/@fontsource, served by the app): the page looks the same offline */
 @font-face { font-family: "Barlow"; font-weight: 400; font-display: swap; src: url(/vendor/fonts/barlow/barlow-latin-400-normal.woff2) format("woff2"); }
@@ -48,26 +49,24 @@
   --font: "Barlow", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-display: "Barlow Condensed", "Barlow", "Segoe UI", sans-serif;
 }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    color-scheme: light;
-    --page: #eef0f2;
-    --surface-1: #ffffff; --surface-2: #f3f4f6; --surface-3: #e4e7ea; --surface-glass: rgba(255, 255, 255, 0.94);
-    --border: rgba(12, 16, 20, 0.1); --border-strong: rgba(12, 16, 20, 0.2);
-    --text-primary: #12161a; --text-secondary: #4a5157; --text-muted: #7b8288;
-    --grid: #e4e7ea; --axis: #cdd2d7;
-    --track-edge: #8b939b; --racing-line: #4e7d00;
-    --sel-bg: #12161a; --sel-fg: #ffffff;
-    --t-best: #7b2fe0; --t-best-soft: rgba(123, 47, 224, 0.1);
-    --t-pb: #11884a; --t-pb-soft: rgba(17, 136, 74, 0.1);
-    --t-slow: #9a7300; --t-slow-soft: rgba(196, 150, 0, 0.12);
-    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
-    --faster: #2a78d6; --slower: #e34948; --neutral: #dfe2e6; --good: #11884a; --warning: #9a7300;
-    --accent: #b4f000; --accent-text: #4e7d00; --accent-soft: rgba(130, 190, 0, 0.14);
-    --focus: #4e7d00;
-    --mod: #0f8f83; --on-mod: #ffffff;
-    --shadow-float: 0 14px 40px rgba(12, 16, 20, 0.14);
-  }
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #eef0f2;
+  --surface-1: #ffffff; --surface-2: #f3f4f6; --surface-3: #e4e7ea; --surface-glass: rgba(255, 255, 255, 0.94);
+  --border: rgba(12, 16, 20, 0.1); --border-strong: rgba(12, 16, 20, 0.2);
+  --text-primary: #12161a; --text-secondary: #4a5157; --text-muted: #7b8288;
+  --grid: #e4e7ea; --axis: #cdd2d7;
+  --track-edge: #8b939b; --racing-line: #4e7d00;
+  --sel-bg: #12161a; --sel-fg: #ffffff;
+  --t-best: #7b2fe0; --t-best-soft: rgba(123, 47, 224, 0.1);
+  --t-pb: #11884a; --t-pb-soft: rgba(17, 136, 74, 0.1);
+  --t-slow: #9a7300; --t-slow-soft: rgba(196, 150, 0, 0.12);
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --faster: #2a78d6; --slower: #e34948; --neutral: #dfe2e6; --good: #11884a; --warning: #9a7300;
+  --accent: #b4f000; --accent-text: #4e7d00; --accent-soft: rgba(130, 190, 0, 0.14);
+  --focus: #4e7d00;
+  --mod: #0f8f83; --on-mod: #ffffff;
+  --shadow-float: 0 14px 40px rgba(12, 16, 20, 0.14);
 }
 
 * { box-sizing: border-box; }
