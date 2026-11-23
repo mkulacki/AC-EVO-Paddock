@@ -805,9 +805,25 @@ async function route(req, res) {
     if (typeof b.share === 'boolean') patch.boardShare = b.share;
     if (typeof b.auto === 'boolean') patch.boardAuto = b.auto;
     if (typeof b.url === 'string') patch.boardUrl = b.url.trim();
+    // a login belongs to one server: a new address needs a new sign-in
+    const oldUrl = board.status().url;
     settings.update(patch);
+    if (board.status().url !== oldUrl) settings.update({ boardToken: '', boardSteam: null });
     if (settings.get().boardShare) board.sync().catch(() => {});
     return send(res, 200, board.status());
+  }
+  if (p === '/api/board/login' && m === 'POST') {
+    try { return send(res, 200, { url: board.loginUrl(`http://127.0.0.1:${port}/api/board/callback`) }); } catch (e) { return send(res, 400, { error: e.message }); }
+  }
+  if (p === '/api/board/logout' && m === 'POST') { await board.logout(); return send(res, 200, board.status()); }
+  if (p === '/api/board/callback') {
+    // the browser comes back here from the Steam sign-in (see src/leaderboard.js)
+    const r = await board.finishLogin({ code: url.searchParams.get('code') || '', state: url.searchParams.get('state') || '' });
+    if (r.ok) broadcast('board', { signedIn: true });
+    const e = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    return send(res, r.ok ? 200 : 400, `<!doctype html><meta charset="utf-8"><title>AC EVO Paddock</title><body style="font:16px system-ui,sans-serif;background:#15181c;color:#e8eaed;display:grid;place-items:center;height:90vh;margin:0"><div style="max-width:440px;padding:16px">${r.ok
+      ? `<h2>Signed in as ${e(r.name)}</h2><p>You can close this tab and go back to Paddock.</p>`
+      : `<h2>Sign-in failed</h2><p>${e(r.error)}</p>`}</div></body>`, 'text/html; charset=utf-8');
   }
   if (p === '/api/board/sync' && m === 'POST') { const r = await board.sync({ force: !!(await readJson(req)).force, manual: true }); return send(res, 200, { ...r, status: board.status() }); }
   if (p === '/api/board/combos') { const r = await board.call('/v1/combos'); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
@@ -818,7 +834,7 @@ async function route(req, res) {
       const body = await readJson(req);
       if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.startsWith('••••')) delete body.geminiApiKey;
       if (body.markButton !== undefined && body.markButton !== null) delete body.markButton; // set only by /api/wheel/capture
-      delete body.channelChecks; delete body.probeConfirmed; delete body.boardPlayerId; // set only by /api/setupcheck/confirm
+      delete body.channelChecks; delete body.probeConfirmed; delete body.boardToken; delete body.boardSteam; // set only by the Steam sign-in // set only by /api/setupcheck/confirm
       const oldPath = settings.get().gamePath, oldKey = settings.get().markKey;
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }

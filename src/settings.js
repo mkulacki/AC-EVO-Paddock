@@ -17,7 +17,8 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   boardShare: false, // send the best lap per track / car to the online leaderboard (src/leaderboard.js)
   boardAuto: true, // with sharing on: send right after each lap (off = only with Send now)
   boardUrl: '', // leaderboard server; empty = the default
-  boardPlayerId: '' }; // random id of this driver on the leaderboard (made when first needed; never shown)
+  boardToken: '', // Steam sign-in on the leaderboard: the login token (secret: never sent to the page)
+  boardSteam: null }; // who that sign-in is: {steamId, name}
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
 export const HUD_PARTS = ['lap', 'ref', 'delta', 'current', 'speed', 'predicted', 'best', 'session', 'last', 'cues', 'ideal', 'corners', 'footer',
@@ -61,4 +62,4 @@ export function update(patch) {
   return current;
 }
 // settings safe to send to the browser
-export const publicView = () => ({ ...current, hud, spotter, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey, boardPlayerId: undefined });
+export const publicView = () => ({ ...current, hud, spotter, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey, boardToken: undefined });

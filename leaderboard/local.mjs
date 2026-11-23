@@ -26,8 +26,8 @@ export function localD1(file) {
 }
 
 /** Serves the Worker on 127.0.0.1:port; resolves to the http server. */
-export function serve({ port = 8787, file = path.join(HERE, '.local', 'board.db') } = {}) {
-  const env = { DB: localD1(file) };
+export function serve({ port = 8787, file = path.join(HERE, '.local', 'board.db'), fetchImpl = null } = {}) {
+  const env = { DB: localD1(file), ...(fetchImpl ? { FETCH: fetchImpl } : {}) };
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);

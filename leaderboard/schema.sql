@@ -19,3 +19,11 @@ CREATE TABLE IF NOT EXISTS laps (
 );
 CREATE INDEX IF NOT EXISTS laps_board ON laps (track, layout, car, lap_ms);
 CREATE INDEX IF NOT EXISTS laps_player ON laps (player_id, received_at);
+
+-- Steam login (v1 auth). A driver is their SteamID64; the name is their Steam name, read at each login.
+CREATE TABLE IF NOT EXISTS players (steam_id TEXT PRIMARY KEY, name TEXT NOT NULL, updated_at INTEGER NOT NULL);
+-- one-time codes that hand a fresh login to the app (2 minutes); only their SHA-256 is kept
+CREATE TABLE IF NOT EXISTS login_codes (code_hash TEXT PRIMARY KEY, steam_id TEXT NOT NULL, expires_at INTEGER NOT NULL);
+-- login tokens the app sends with each lap; only their SHA-256 is kept, so a leaked database logs nobody in
+CREATE TABLE IF NOT EXISTS tokens (token_hash TEXT PRIMARY KEY, steam_id TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS tokens_player ON tokens (steam_id);

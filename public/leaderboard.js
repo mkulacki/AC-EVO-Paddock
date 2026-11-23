@@ -19,9 +19,13 @@ export async function viewLeaderboard(view, cleanup, params) {
   function shareCard() {
     const s = state.status, box = $('#lbShare');
     if (!s || !box) return;
-    const name = s.name ? `<b>${esc(s.name)}</b>` : '<span class="error">no driver name yet</span> (set it in <a href="#/settings">Settings</a>: laps are not sent without one)';
+    const who = s.signedIn
+      ? `<div class="row" style="gap:10px;margin-bottom:12px"><span>Signed in with Steam as <b>${esc(s.steam?.name || '?')}</b></span><button id="lbOut">Sign out</button></div>`
+      : `<div class="row" style="gap:10px;margin-bottom:12px"><button class="primary" id="lbIn" ${s.secure ? '' : 'disabled title="The server address must start with https://"'}>Sign in with Steam</button>
+          <span class="muted" style="font-size:13px" id="lbInMsg">Needed to send laps: your name on the board is your Steam name. Your Steam password goes to Steam only.</span></div>`;
     const mine = s.bests.length ? `<table class="lb-mine"><thead><tr><th>Your best laps</th><th>Time</th><th>Air / track</th><th>Leaderboard</th></tr></thead><tbody>${s.bests.map((b) => {
       const st = !s.share ? '<span class="muted">not shared</span>'
+        : !b.board && !s.signedIn ? '<span class="muted">waiting for Steam sign-in</span>'
         : !b.board && !s.auto ? '<span class="muted">not sent yet (Send now)</span>'
         : b.board?.ok ? `sent · <b>${b.board.rank ?? '?'}</b> of ${b.board.of ?? '?'}`
           : b.board ? `<span class="${b.board.retry ? 'muted' : 'error'}">${esc(b.board.error)}${b.board.retry ? ' (will try again)' : ''}</span>`
@@ -30,14 +34,23 @@ export async function viewLeaderboard(view, cleanup, params) {
         <td class="mono">${fmt(b.lapMs)}</td><td>${temp(b.cond?.airC)} / ${temp(b.cond?.roadC)}</td><td>${st}</td></tr>`;
     }).join('')}</tbody></table>`
       : '<p class="muted">No laps to share yet. Laps driven from this version on carry their track conditions; your fastest valid lap on each track and car is the one that is shared.</p>';
-    box.innerHTML = `
+    box.innerHTML = `${who}
       <div class="row"><label class="row" style="gap:8px"><input type="checkbox" id="lbOn" ${s.share ? 'checked' : ''}> <b>Share my best laps on the leaderboard</b></label>
         <label class="row" style="gap:8px;margin-left:18px"><input type="checkbox" id="lbAuto" ${s.auto ? 'checked' : ''} ${s.share ? '' : 'disabled'}> Send automatically after each lap</label>
-        <span class="spacer"></span><button id="lbSync" ${s.share ? '' : 'disabled'}>${s.syncing ? 'Sending…' : 'Send now'}</button></div>
-      <p class="muted" style="margin:8px 0 12px;font-size:13px">Sent: your name, the track, layout and car, the lap and sector times, air and track temperature, the weather when the session was started from the Race tab, and the game and Paddock versions. Only your fastest valid lap per track, car and game version. Driver: ${name}.</p>
+        <span class="spacer"></span><button id="lbSync" ${s.share && s.signedIn ? '' : 'disabled'}>${s.syncing ? 'Sending…' : 'Send now'}</button></div>
+      <p class="muted" style="margin:8px 0 12px;font-size:13px">Sent: your Steam name, the track, layout and car, the lap and sector times, air and track temperature, the weather when the session was started from the Race tab, and the game and Paddock versions. Only your fastest valid lap per track, car and game version.</p>
       <div class="row" style="gap:8px;font-size:13px"><span class="muted">Server</span><input id="lbUrl" style="width:260px" placeholder="${esc(s.defaultUrl)}" value="${esc(s.url === s.defaultUrl ? '' : s.url)}"><button id="lbUrlSave">Save</button>
         <span class="muted" id="lbSyncInfo">${s.lastError ? `<span class="error">${esc(s.lastError)}</span>` : s.lastSync ? `last sent ${ago(s.lastSync)}` : ''}</span></div>
       ${mine}`;
+    $('#lbOut')?.addEventListener('click', async () => { state.status = await post('/api/board/logout', {}); shareCard(); });
+    $('#lbIn')?.addEventListener('click', async () => {
+      try {
+        const r = await post('/api/board/login', {});
+        window.open(r.url, '_blank'); // the desktop app opens it in the normal browser
+        $('#lbInMsg').textContent = 'Finish the sign-in in your browser…';
+        waitForLogin();
+      } catch (e) { $('#lbInMsg').textContent = e.message; }
+    });
     $('#lbOn').addEventListener('change', async (e) => { state.status = await post('/api/board/settings', { share: e.target.checked }); shareCard(); setTimeout(refreshStatus, 2500); });
     $('#lbAuto').addEventListener('change', async (e) => { state.status = await post('/api/board/settings', { auto: e.target.checked }); shareCard(); });
     $('#lbUrlSave').addEventListener('click', async () => { state.status = await post('/api/board/settings', { url: $('#lbUrl').value }); shareCard(); await loadCombos(); });
@@ -49,6 +62,18 @@ export async function viewLeaderboard(view, cleanup, params) {
   }
 
   async function refreshStatus() { state.status = await api('/api/board/status'); shareCard(); }
+  // after "Sign in with Steam": look every 2 s (for up to 10 minutes) whether the browser finished it
+  let loginT = null;
+  function waitForLogin() {
+    clearInterval(loginT);
+    const until = Date.now() + 10 * 60 * 1000;
+    loginT = setInterval(async () => {
+      if (Date.now() > until) { clearInterval(loginT); return; }
+      const s = await api('/api/board/status').catch(() => null);
+      if (s?.signedIn) { clearInterval(loginT); state.status = s; shareCard(); loadCombos(); }
+    }, 2000);
+  }
+  cleanup.push(() => clearInterval(loginT));
 
   function boardCard() {
     const box = $('#lbBoard');
