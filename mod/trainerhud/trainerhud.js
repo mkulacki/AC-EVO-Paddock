@@ -1065,9 +1065,24 @@ const TrainerHud = (function () {
         if (!isFinite(lap)) {
             return;
         }
+        // Paddock's lap timer (live data): a restart sets it back to 0 without the game's lap count changing
+        const d = state.data;
+        const t = d && d.lap ? Number(d.lap.timeMs) : NaN;
         let a = state.aids;
         if (!a) {
-            a = state.aids = { lap: lap, partial: true, sig: "", at: 0, hi: null, lo: null, mod: null, lim: null, used: {} };
+            // the HUD sees this lap from its start only if the timer has just started
+            a = state.aids = { lap: lap, partial: !(isFinite(t) && t < 2000), sig: "", at: 0, hi: null, lo: null, mod: null, lim: null, used: {}, t: null };
+        }
+        if (lap === a.lap && isFinite(t) && a.t !== null && t < a.t - 1000) {
+            // restarted: what happened before does not belong to the lap that starts now
+            a.partial = false;
+            a.hi = null;
+            a.lo = null;
+            a.used = {};
+            a.sig = "";
+        }
+        if (isFinite(t)) {
+            a.t = t;
         }
         if (lap !== a.lap) {
             // a normal lap end counts up by one; anything else (a restart, a new session) is not a lap
@@ -1076,6 +1091,7 @@ const TrainerHud = (function () {
             }
             a.partial = lap !== a.lap + 1;
             a.lap = lap;
+            a.t = null; // Paddock's timer may still show the old lap for a moment: not a restart
             a.hi = null;
             a.lo = null;
             a.used = {};
