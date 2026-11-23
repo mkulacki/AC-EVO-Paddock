@@ -16,7 +16,7 @@ import * as settings from './settings.js';
 import * as svc from './service.js';
 import { STATUS } from './shm.js';
 
-export const DEFAULT_URL = 'http://127.0.0.1:8787';
+export const DEFAULT_URL = 'https://acevo-paddock-leaderboard.acevo-paddock.workers.dev'; // leaderboard/wrangler.toml (local test server: npm run board, http://127.0.0.1:8787)
 const TIMEOUT_MS = 8000;
 const SYNC_EVERY_MS = 10 * 60 * 1000;
 
@@ -83,8 +83,10 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
 
   const cfg = () => {
     const s = settings.get();
-    return { share: !!s.boardShare, auto: s.boardAuto !== false, url: String(s.boardUrl || DEFAULT_URL).replace(/\/+$/, ''),
-      token: s.boardToken || '', steam: s.boardSteam || null };
+    const url = String(s.boardUrl || DEFAULT_URL).replace(/\/+$/, '');
+    // a login belongs to the server it was made on: with another address it is not used (nor sent there)
+    const mine = !!s.boardToken && s.boardSteam?.url === url;
+    return { share: !!s.boardShare, auto: s.boardAuto !== false, url, token: mine ? s.boardToken : '', steam: mine ? s.boardSteam : null };
   };
   const pending = new Map(); // sign-ins started here: state -> started at (only these may finish)
 
@@ -137,8 +139,8 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     try {
       for (const row of db.boardBests()) {
         const b = row.board ? JSON.parse(row.board) : null;
-        // sent counts per Steam account: a lap sent before signing in, or by another account, goes again
-        const sentByMe = b?.ok && b.steamId === c.steam?.steamId;
+        // sent counts per server and per Steam account: a lap sent elsewhere, before signing in or by another account goes again
+        const sentByMe = b?.ok && b.steamId === c.steam?.steamId && b.url === c.url;
         if (b && (sentByMe || (!b.ok && !b.retry)) && !force) continue;
         const lap = db.getLap(row.id);
         const p = lap && payload(lap);
@@ -151,7 +153,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
           break;
         }
         if (r.body?.ok) {
-          db.setLapBoard(row.id, { at: Date.now(), ok: true, rank: r.body.rank, of: r.body.of, steamId: c.steam?.steamId ?? null });
+          db.setLapBoard(row.id, { at: Date.now(), ok: true, rank: r.body.rank, of: r.body.of, steamId: c.steam?.steamId ?? null, url: c.url });
           console.log(`[board] sent ${row.track}/${row.car} ${(row.lap_time_ms / 1000).toFixed(3)}s: ${r.body.rank ?? '?'} of ${r.body.of ?? '?'}`);
           sent++;
         } else {
@@ -214,7 +216,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
       pending.delete(st);
       const r = await call('/v1/auth/token', { method: 'POST', body: JSON.stringify({ code }) });
       if (!r.body?.ok || !/^[0-9a-f]{64}$/.test(r.body.token || '')) return { ok: false, error: r.body?.error || `HTTP ${r.status}` };
-      settings.update({ boardToken: r.body.token, boardSteam: { steamId: r.body.steamId, name: r.body.name } });
+      settings.update({ boardToken: r.body.token, boardSteam: { steamId: r.body.steamId, name: r.body.name, url: cfg().url } });
       state.lastError = null;
       console.log(`[board] signed in with Steam as ${r.body.name}`);
       // laps that waited for the sign-in go now

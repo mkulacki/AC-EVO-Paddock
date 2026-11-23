@@ -18,7 +18,10 @@
     "overlay": "electron overlay/main.cjs",
     "test": "node --no-warnings --test test/*.test.js",
     "check": "node test/check-syntax.js",
-    "board": "node --no-warnings leaderboard/local.mjs"
+    "board": "node --no-warnings leaderboard/local.mjs",
+    "wrangler": "cd leaderboard && npx --yes wrangler@4.160.1",
+    "board:schema": "cd leaderboard && npx --yes wrangler@4.160.1 d1 execute acevo-paddock-leaderboard --remote --file schema.sql",
+    "board:deploy": "cd leaderboard && npx --yes wrangler@4.160.1 deploy"
   },
   "license": "GPL-3.0-or-later",
   "dependencies": {

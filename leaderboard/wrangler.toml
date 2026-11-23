@@ -1,0 +1,14 @@
+# Cloudflare Worker for the AC EVO Paddock leaderboard (worker.js + a D1 database, schema.sql).
+# Deploy from the repo root:  npm run board:deploy      (see leaderboard/README.md)
+name = "acevo-paddock-leaderboard"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "acevo-paddock-leaderboard"
+database_id = "18dfe234-ddc5-4a0e-a580-9a3fbcd49927"
+
+[observability]
+enabled = true

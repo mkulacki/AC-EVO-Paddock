@@ -26,3 +26,6 @@ desktop.ini
 
 # local leaderboard server database (npm run board)
 leaderboard/.local/
+
+# Cloudflare wrangler local state
+leaderboard/.wrangler/

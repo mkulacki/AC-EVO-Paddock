@@ -194,19 +194,22 @@ test('app: a lap gets its conditions; it waits for the Steam sign-in, then the b
 });
 
 test('app: with the server away the lap waits and is retried; a dead login asks for a new sign-in', async () => {
-  settings.update({ boardUrl: 'http://127.0.0.1:1' });
+  const away = 'http://127.0.0.1:1', login = settings.get().boardSteam;
+  settings.update({ boardUrl: away, boardSteam: { ...login, url: away } }); // signed in there, but it does not answer
   const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.5.2', appVersion: 'test' });
   const id = newLap(101000);
   app.onLap({ id, valid: false });
-  assert.equal((await app.sync()).failed, 1);
-  assert.equal(JSON.parse(db.getLapMeta(id).board).retry, true);
-  settings.update({ boardUrl: URL0 });
+  assert.equal((await app.sync()).failed, 1); // the first lap fails: the rest are not tried
+  const b0 = db.getLapMeta(id).board;
+  assert.ok(b0 == null || JSON.parse(b0).retry);
+  settings.update({ boardUrl: URL0, boardSteam: login });
   const token = settings.get().boardToken;
   await fetch(`${URL0}/v1/logout`, { method: 'POST', headers: { authorization: `Bearer ${token}` } }); // ended elsewhere
   await app.sync();
   assert.equal(app.status().signedIn, false);
   await appSignIn(app, '76561198000000003');
-  assert.equal((await app.sync()).sent, 1); // new game version: its own best
+  assert.ok((await app.sync()).sent >= 1); // new game version: its own best
+  assert.equal(JSON.parse(db.getLapMeta(id).board).ok, true);
 });
 
 test('app: with automatic sending off, laps wait for Send now; signing out stops sending', async () => {
@@ -233,4 +236,21 @@ test('app: a lap sent anonymously (before sign-in existed) is sent again under t
   assert.equal((await app.sync()).sent, 1);
   assert.equal(JSON.parse(db.getLapMeta(id).board).steamId, '76561198000000003');
   assert.equal((await app.sync()).sent, 0);
+});
+
+test('app: a login and a "sent" mark belong to one server', async () => {
+  settings.update({ boardUrl: URL0, boardShare: true, boardAuto: true });
+  const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.5.5', appVersion: 'test' });
+  const id = newLap(104000);
+  app.onLap({ id, valid: false });
+  await appSignIn(app, '76561198000000003');
+  assert.equal((await app.sync()).sent, 1);
+  // another address (the same server under another name here): not signed in there, and the lap is not sent there yet
+  settings.update({ boardUrl: URL0.replace('127.0.0.1', 'localhost') });
+  assert.equal(app.status().signedIn, false);
+  assert.equal((await app.sync()).reason, 'sign in with Steam first');
+  await appSignIn(app, '76561198000000003');
+  assert.ok((await app.sync()).sent >= 1);
+  assert.equal(JSON.parse(db.getLapMeta(id).board).url, URL0.replace('127.0.0.1', 'localhost'));
+  settings.update({ boardUrl: URL0 });
 });

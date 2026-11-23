@@ -79,7 +79,7 @@ export async function viewLeaderboard(view, cleanup, params) {
     const box = $('#lbBoard');
     if (!box) return;
     if (state.error) {
-      box.innerHTML = `<h2>Board</h2><p class="error">${esc(state.error)}</p><p class="muted" style="font-size:13px">For now the leaderboard server runs on this PC only: start it with <code>npm run board</code> in the Paddock source folder.</p><button id="lbRetry">Try again</button>`;
+      box.innerHTML = `<h2>Board</h2><p class="error">${esc(state.error)}</p><p class="muted" style="font-size:13px">Check your internet connection, or the server address above.</p><button id="lbRetry">Try again</button>`;
       $('#lbRetry').addEventListener('click', loadCombos);
       return;
     }
