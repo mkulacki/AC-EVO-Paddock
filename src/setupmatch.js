@@ -30,7 +30,9 @@ function fingerprint(frames) {
   const bias = col((f) => f.probe.brakeBias);
   return {
     pressure: CORNERS.map((_, w) => sane(col((f) => f.probe.pressures[w]), 5, 70)),
-    camber: CORNERS.map((_, w) => sane(col((f) => f.probe.camber[w]), -10, 5)),
+    // shared memory gives the right-hand wheels' camber with the opposite sign (checked in game 2026-11-23,
+    // Huracán ST EVO2 on its game default: FL -3.22 / FR +3.17, the setup says -3.2 on both)
+    camber: CORNERS.map((_, w) => sane(col((f) => (w % 2 ? -f.probe.camber[w] : f.probe.camber[w])), -10, 5)),
     // shared memory may give the bias as 0..1 or in %
     bias: sane(bias <= 1 ? bias * 100 : bias, 20, 90),
     fuel: sane(col((f) => f.fuel), 0, 300),
