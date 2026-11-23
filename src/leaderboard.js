@@ -68,7 +68,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
 
   const cfg = () => {
     const s = settings.get();
-    return { share: !!s.boardShare, url: String(s.boardUrl || DEFAULT_URL).replace(/\/+$/, ''), name: String(s.driverName || '').trim(), playerId: s.boardPlayerId || '' };
+    return { share: !!s.boardShare, auto: s.boardAuto !== false, url: String(s.boardUrl || DEFAULT_URL).replace(/\/+$/, ''), name: String(s.driverName || '').trim(), playerId: s.boardPlayerId || '' };
   };
   const playerId = () => {
     let id = settings.get().boardPlayerId;
@@ -103,13 +103,14 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     };
     reset();
     try { db.setLapCond(l.id, c); } catch (e) { console.log(`[board] conditions not saved: ${e.message}`); return; }
-    if (cfg().share && l.valid) setTimeout(() => sync().catch(() => {}), 1500);
+    if (cfg().share && cfg().auto && l.valid) setTimeout(() => sync().catch(() => {}), 1500);
   }
 
-  /** Sends every best lap not sent yet (or that failed for a reason worth retrying). */
-  async function sync({ force = false } = {}) {
+  /** Sends every best lap not sent yet (or that failed for a reason worth retrying). Without automatic sending,
+   *  only when asked (manual: the Send now button). */
+  async function sync({ force = false, manual = false } = {}) {
     const c = cfg();
-    if (!c.share || state.syncing) return { sent: 0, skipped: true };
+    if (!c.share || (!c.auto && !manual) || state.syncing) return { sent: 0, skipped: true };
     state.syncing = true;
     let sent = 0, failed = 0;
     try {
@@ -156,7 +157,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
       const c = cfg();
       const bests = db.boardBests().map((l) => ({ id: l.id, track: l.track, layout: l.layout, car: l.car, lapMs: l.lap_time_ms,
         cond: l.cond ? JSON.parse(l.cond) : null, board: l.board ? JSON.parse(l.board) : null }));
-      return { share: c.share, url: c.url, name: c.name, defaultUrl: DEFAULT_URL, syncing: state.syncing, lastSync: state.lastSync, lastError: state.lastError, bests };
+      return { share: c.share, auto: c.auto, url: c.url, name: c.name, defaultUrl: DEFAULT_URL, syncing: state.syncing, lastSync: state.lastSync, lastError: state.lastError, bests };
     },
     /** The board for a combo, with the driver's own row marked. */
     async table(q) {

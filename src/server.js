@@ -803,12 +803,13 @@ async function route(req, res) {
   if (p === '/api/board/settings' && m === 'POST') {
     const b = await readJson(req), patch = {};
     if (typeof b.share === 'boolean') patch.boardShare = b.share;
+    if (typeof b.auto === 'boolean') patch.boardAuto = b.auto;
     if (typeof b.url === 'string') patch.boardUrl = b.url.trim();
     settings.update(patch);
     if (settings.get().boardShare) board.sync().catch(() => {});
     return send(res, 200, board.status());
   }
-  if (p === '/api/board/sync' && m === 'POST') { const r = await board.sync({ force: !!(await readJson(req)).force }); return send(res, 200, { ...r, status: board.status() }); }
+  if (p === '/api/board/sync' && m === 'POST') { const r = await board.sync({ force: !!(await readJson(req)).force, manual: true }); return send(res, 200, { ...r, status: board.status() }); }
   if (p === '/api/board/combos') { const r = await board.call('/v1/combos'); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/board/versions') { const r = await board.call(`/v1/versions?${url.searchParams}`); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/board/table') { const r = await board.table(Object.fromEntries(url.searchParams)); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }

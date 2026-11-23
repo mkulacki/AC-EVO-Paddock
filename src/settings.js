@@ -15,6 +15,7 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   updateCheck: true, // once a day, ask GitHub whether a newer Paddock is out (nothing is downloaded; src/updates.js)
   channelChecks: null, // per telemetry group, whether the readings match the game: {group: true|false} (src/channels.js)
   boardShare: false, // send the best lap per track / car to the online leaderboard (src/leaderboard.js)
+  boardAuto: true, // with sharing on: send right after each lap (off = only with Send now)
   boardUrl: '', // leaderboard server; empty = the default
   boardPlayerId: '' }; // random id of this driver on the leaderboard (made when first needed; never shown)
 

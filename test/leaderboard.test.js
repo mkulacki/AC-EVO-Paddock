@@ -102,3 +102,17 @@ test('app: with the server away the lap waits and is retried', async () => {
   settings.update({ boardUrl: URL0 });
   assert.equal((await app.sync()).sent, 1); // new game version: its own best
 });
+
+test('app: with automatic sending off, laps wait for Send now', async () => {
+  settings.update({ boardUrl: URL0, boardAuto: false });
+  const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.5.3', appVersion: 'test' });
+  const sessionId = db.createSession({ track: 'nowhere', layout: '', car: 'kart', sessionType: 1, driver: 'Carol', startedAt: 1 });
+  const id = db.insertLap({ sessionId, track: 'nowhere', layout: '', car: 'kart', lapNumber: 2, lapTimeMs: 102000, valid: true, driver: 'Carol',
+    recordedAt: Date.now(), trackLength: 1000, data: lapData() });
+  app.onLap({ id, valid: false });
+  assert.equal((await app.sync()).skipped, true);
+  assert.equal(db.getLapMeta(id).board, null);
+  assert.equal((await app.sync({ manual: true })).sent, 1);
+  assert.equal(app.status().auto, false);
+  settings.update({ boardAuto: true });
+});

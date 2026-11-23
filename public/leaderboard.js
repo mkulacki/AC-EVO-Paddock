@@ -22,6 +22,7 @@ export async function viewLeaderboard(view, cleanup, params) {
     const name = s.name ? `<b>${esc(s.name)}</b>` : '<span class="error">no driver name yet</span> (set it in <a href="#/settings">Settings</a>: laps are not sent without one)';
     const mine = s.bests.length ? `<table class="lb-mine"><thead><tr><th>Your best laps</th><th>Time</th><th>Air / track</th><th>Leaderboard</th></tr></thead><tbody>${s.bests.map((b) => {
       const st = !s.share ? '<span class="muted">not shared</span>'
+        : !b.board && !s.auto ? '<span class="muted">not sent yet (Send now)</span>'
         : b.board?.ok ? `sent · <b>${b.board.rank ?? '?'}</b> of ${b.board.of ?? '?'}`
           : b.board ? `<span class="${b.board.retry ? 'muted' : 'error'}">${esc(b.board.error)}${b.board.retry ? ' (will try again)' : ''}</span>`
             : '<span class="muted">waiting</span>';
@@ -31,12 +32,14 @@ export async function viewLeaderboard(view, cleanup, params) {
       : '<p class="muted">No laps to share yet. Laps driven from this version on carry their track conditions; your fastest valid lap on each track and car is the one that is shared.</p>';
     box.innerHTML = `
       <div class="row"><label class="row" style="gap:8px"><input type="checkbox" id="lbOn" ${s.share ? 'checked' : ''}> <b>Share my best laps on the leaderboard</b></label>
+        <label class="row" style="gap:8px;margin-left:18px"><input type="checkbox" id="lbAuto" ${s.auto ? 'checked' : ''} ${s.share ? '' : 'disabled'}> Send automatically after each lap</label>
         <span class="spacer"></span><button id="lbSync" ${s.share ? '' : 'disabled'}>${s.syncing ? 'Sending…' : 'Send now'}</button></div>
       <p class="muted" style="margin:8px 0 12px;font-size:13px">Sent: your name, the track, layout and car, the lap and sector times, air and track temperature, the weather when the session was started from the Race tab, and the game and Paddock versions. Only your fastest valid lap per track, car and game version. Driver: ${name}.</p>
       <div class="row" style="gap:8px;font-size:13px"><span class="muted">Server</span><input id="lbUrl" style="width:260px" placeholder="${esc(s.defaultUrl)}" value="${esc(s.url === s.defaultUrl ? '' : s.url)}"><button id="lbUrlSave">Save</button>
         <span class="muted" id="lbSyncInfo">${s.lastError ? `<span class="error">${esc(s.lastError)}</span>` : s.lastSync ? `last sent ${ago(s.lastSync)}` : ''}</span></div>
       ${mine}`;
     $('#lbOn').addEventListener('change', async (e) => { state.status = await post('/api/board/settings', { share: e.target.checked }); shareCard(); setTimeout(refreshStatus, 2500); });
+    $('#lbAuto').addEventListener('change', async (e) => { state.status = await post('/api/board/settings', { auto: e.target.checked }); shareCard(); });
     $('#lbUrlSave').addEventListener('click', async () => { state.status = await post('/api/board/settings', { url: $('#lbUrl').value }); shareCard(); await loadCombos(); });
     $('#lbSync').addEventListener('click', async () => {
       $('#lbSync').disabled = true; $('#lbSync').textContent = 'Sending…';
