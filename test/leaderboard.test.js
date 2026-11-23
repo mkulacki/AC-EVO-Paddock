@@ -222,3 +222,15 @@ test('app: with automatic sending off, laps wait for Send now; signing out stops
   assert.equal(settings.get().boardToken, '');
   settings.update({ boardAuto: true });
 });
+
+test('app: a lap sent anonymously (before sign-in existed) is sent again under the Steam account', async () => {
+  settings.update({ boardUrl: URL0, boardAuto: true });
+  const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.5.4', appVersion: 'test' });
+  const id = newLap(103000);
+  app.onLap({ id, valid: false });
+  db.setLapBoard(id, { at: 1, ok: true, rank: 1, of: 1 }); // the old anonymous send
+  await appSignIn(app, '76561198000000003');
+  assert.equal((await app.sync()).sent, 1);
+  assert.equal(JSON.parse(db.getLapMeta(id).board).steamId, '76561198000000003');
+  assert.equal((await app.sync()).sent, 0);
+});

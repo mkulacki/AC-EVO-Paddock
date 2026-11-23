@@ -137,7 +137,9 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     try {
       for (const row of db.boardBests()) {
         const b = row.board ? JSON.parse(row.board) : null;
-        if (b && (b.ok || !b.retry) && !force) continue;
+        // sent counts per Steam account: a lap sent before signing in, or by another account, goes again
+        const sentByMe = b?.ok && b.steamId === c.steam?.steamId;
+        if (b && (sentByMe || (!b.ok && !b.retry)) && !force) continue;
         const lap = db.getLap(row.id);
         const p = lap && payload(lap);
         if (!p) { db.setLapBoard(row.id, { at: Date.now(), ok: false, error: 'no sector times for this lap', retry: false }); continue; }
@@ -149,7 +151,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
           break;
         }
         if (r.body?.ok) {
-          db.setLapBoard(row.id, { at: Date.now(), ok: true, rank: r.body.rank, of: r.body.of });
+          db.setLapBoard(row.id, { at: Date.now(), ok: true, rank: r.body.rank, of: r.body.of, steamId: c.steam?.steamId ?? null });
           console.log(`[board] sent ${row.track}/${row.car} ${(row.lap_time_ms / 1000).toFixed(3)}s: ${r.body.rank ?? '?'} of ${r.body.of ?? '?'}`);
           sent++;
         } else {
