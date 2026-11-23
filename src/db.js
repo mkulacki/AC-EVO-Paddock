@@ -193,6 +193,8 @@ export function setLapBoard(id, b) { db.prepare('UPDATE laps SET board = ? WHERE
 export const boardBests = () => db.prepare(`SELECT ${LAP_COLS} FROM laps l WHERE source = 'local' AND valid = 1 AND cond IS NOT NULL
   AND id = (SELECT id FROM laps m WHERE m.source = 'local' AND m.valid = 1 AND m.cond IS NOT NULL AND m.track = l.track AND m.layout = l.layout
     AND m.car = l.car AND json_extract(m.cond, '$.game') IS json_extract(l.cond, '$.game') ORDER BY m.lap_time_ms, m.id LIMIT 1)`).all();
+/** A leaderboard lap downloaded before (source 'online', laps.board = {online: its id on the server}). */
+export const findOnlineLap = (remoteId) => db.prepare(`SELECT ${LAP_COLS} FROM laps WHERE source = 'online' AND json_extract(board, '$.online') = ?`).get(remoteId);
 export const getLapAids = (id) => { const r = db.prepare('SELECT aids FROM laps WHERE id = ?').get(id); return r?.aids ? JSON.parse(r.aids) : null; };
 export function setLapSetups(ids, su) {
   const st = db.prepare('UPDATE laps SET setup_name = ?, setup_info = ? WHERE id = ?');

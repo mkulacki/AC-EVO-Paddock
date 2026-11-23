@@ -1,5 +1,5 @@
 {
-  "version": "0.12.1",
+  "version": "0.13.0",
   "title": "Paddock HUD",
   "pages": ["hud.html", "menu.html", "singleplayer.html", "multiplayer.html", "ingame.html"],
   "styles": ["trainerhud.css"],

@@ -62,6 +62,7 @@ if (mockIdx >= 0) {
 const recorder = new Recorder(() => settings.get().driverName, () => setupTracker.current());
 const setupTracker = createSetupTracker({ recorder, launchConditions: game.launchConditions });
 const hud = new LiveHud(recorder);
+// (the leaderboard target is connected below, once the leaderboard exists)
 // TC / ABS / ESC levels and assists per lap, reported by the in-game HUD (src/aids.js)
 const aidsTracker = createAidsTracker({ recorder });
 const hudSnapshot = () => ({ ...hud.snapshot(), cfg: settings.hudConfig() }); // live data + the HUD's look (parts, size, opacity)
@@ -86,7 +87,9 @@ if (mockIdx < 0 || process.env.ACE_BRIDGE) {
 // this Paddock's version, and the daily update check (never in mock runs or tests, unless PADDOCK_UPDATE_CHECK is set)
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 // online leaderboard: each lap's own conditions, and the best laps sent when sharing is on (src/leaderboard.js)
-const board = createLeaderboard({ recorder, launchInfo: () => setupTracker.conditions()?.launch ?? null, gameVersion: () => { try { return game.gameVersion(); } catch { return null; } }, appVersion: VERSION });
+const board = createLeaderboard({ recorder, launchInfo: () => setupTracker.conditions()?.launch ?? null, gameVersion: () => { try { return game.gameVersion(); } catch { return null; } }, appVersion: VERSION,
+  notify: (n) => { broadcast('board', n); globalThis.__paddockNotify?.(n); } });
+hud.targetSource = (s) => board.target(s); // the HUD's leaderboard target (src/leaderboard.js)
 updates.setCurrent(VERSION);
 if (mockIdx < 0 || process.env.PADDOCK_UPDATE_CHECK) updates.schedule(VERSION);
 if (db.restoreResult) console.log(`[backup] restore at start: ${db.restoreResult.ok ? `done (${db.restoreResult.files.join(', ')})` : `FAILED: ${db.restoreResult.error}`}`);
@@ -804,6 +807,8 @@ async function route(req, res) {
     const b = await readJson(req), patch = {};
     if (typeof b.share === 'boolean') patch.boardShare = b.share;
     if (typeof b.auto === 'boolean') patch.boardAuto = b.auto;
+    if (typeof b.tel === 'boolean') patch.boardTel = b.tel;
+    if (['next', 'p1', 'off'].includes(b.target)) patch.boardTarget = b.target;
     if (typeof b.url === 'string') patch.boardUrl = b.url.trim();
     // a login belongs to one server: a new address needs a new sign-in
     const oldUrl = board.status().url;
@@ -825,6 +830,23 @@ async function route(req, res) {
       ? `<h2>Signed in as ${e(r.name)}</h2><p>You can close this tab and go back to Paddock.</p>`
       : `<h2>Sign-in failed</h2><p>${e(r.error)}</p>`}</div></body>`, 'text/html; charset=utf-8');
   }
+  if (p === '/api/board/profile') { const r = await board.checkRanks().catch(() => null); return send(res, 200, { profile: r, status: board.status() }); }
+  if (p === '/api/board/driver') { const r = await board.driver(url.searchParams.get('id') || ''); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
+  if (p === '/api/board/compare' && m === 'POST') {
+    // another driver's lap: downloaded once, then opened next to your own best on that track (same car if you have it)
+    try {
+      const { lapId } = await readJson(req);
+      const id = await board.fetchOnline(Number(lapId));
+      const o = db.getLapMeta(id);
+      const own = db.listLaps().filter((l) => l.source === 'local' && l.valid && l.track === o.track && l.layout === o.layout);
+      const best = (ls) => (ls.length ? ls.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a)) : null);
+      const mine = best(own.filter((l) => l.car === o.car)) || best(own);
+      return send(res, 200, { online: id, mine: mine?.id ?? null });
+    } catch (e) { return send(res, 502, { error: e.message }); }
+  }
+  if (p === '/api/board/report' && m === 'POST') { const b = await readJson(req); const r = await board.report(Number(b.lapId), String(b.reason || '').slice(0, 200)); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
+  if (p === '/api/board/admin/reports') { const r = await board.adminReports(); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
+  if (p === '/api/board/admin/hide' && m === 'POST') { const b = await readJson(req); const r = await board.adminHide(Number(b.lapId), !!b.hidden); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
   if (p === '/api/board/sync' && m === 'POST') { const r = await board.sync({ force: !!(await readJson(req)).force, manual: true }); return send(res, 200, { ...r, status: board.status() }); }
   if (p === '/api/board/combos') { const r = await board.call('/v1/combos'); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/board/versions') { const r = await board.call(`/v1/versions?${url.searchParams}`); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }

@@ -14,5 +14,13 @@ All commands run from the repo root. Wrangler is pinned in `package.json`; the f
 | Live logs | `npm run wrangler -- tail` |
 | Take it offline | `npm run wrangler -- delete` |
 
-No secrets are needed: Steam sign-in uses OpenID and the public profile, so nothing goes in `wrangler secret`.
-A schema change that alters an existing table needs its own `ALTER TABLE` run against the live database.
+Steam sign-in needs no secret (OpenID and the public profile). The one secret is `ADMINS`: the SteamIDs (comma separated) that may see
+reports and hide laps: `npm run wrangler -- secret put ADMINS`. It is not in this repo.
+
+Schema changes: `schema.sql` is the first version; every later change is a file in `migrations/`, run once against the live
+database in order (`npm run wrangler -- d1 execute acevo-paddock-leaderboard --remote --file migrations/<file>.sql`).
+The local runner applies them by itself.
+
+| Migration | What |
+|---|---|
+| 0002_classes_telemetry_reports | car class boards, light telemetry per lap, reports, hidden laps |

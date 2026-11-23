@@ -606,6 +606,26 @@ body.hide-hud .ace-trainerhud {
     color: #ffb020;
 }
 
+/* ---- leaderboard target ------------------------------------------------------------------------ */
+
+.ace-trainerhud .th-tgt-l {
+    font-family: rajdhani-numerals-mono, var(--font-family-main);
+}
+
+.ace-trainerhud .th-tgt-x {
+    margin-left: 0.5em;
+    color: rgba(255, 255, 255, 0.6);
+    font-family: rajdhani-numerals-mono, var(--font-family-main);
+}
+
+.ace-trainerhud .th-target.th-faster .th-tgt-x {
+    color: #3ddc84;
+}
+
+.ace-trainerhud .th-target.th-slower .th-tgt-x {
+    color: #ff5a5a;
+}
+
 /* ---- parts switched off in Paddock (Settings > Paddock HUD) ---------------------------------- */
 
 .ace-trainerhud.th-hide-shift .th-leds,
@@ -613,6 +633,7 @@ body.hide-hud .ace-trainerhud {
 .ace-trainerhud.th-hide-sectors .th-sectors,
 .ace-trainerhud.th-nosectors .th-sectors,
 .ace-trainerhud.th-hide-fuel .th-fuel,
+.ace-trainerhud.th-hide-target .th-target,
 .ace-trainerhud.th-hide-lap .th-lapbox,
 .ace-trainerhud.th-hide-lap .th-tag,
 .ace-trainerhud.th-hide-ref .th-ref,

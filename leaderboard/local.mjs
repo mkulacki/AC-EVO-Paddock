@@ -1,7 +1,7 @@
 // Runs the leaderboard Worker (worker.js) locally under Node, with a D1-shaped wrapper around node:sqlite,
 // so Paddock can be tested against it before anything goes online.
 //   npm run board              -> http://127.0.0.1:8787, database in leaderboard/.local/board.db
-//   BOARD_PORT, BOARD_DB       change the port / database file
+//   BOARD_PORT, BOARD_DB       change the port / database file;  BOARD_ADMINS  SteamIDs of the admins (live: wrangler secret ADMINS)
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,6 +16,14 @@ export function localD1(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec(fs.readFileSync(path.join(HERE, 'schema.sql'), 'utf8'));
+  // the migrations, statement by statement (a column added before is skipped), as they ran on the live database
+  const dir = path.join(HERE, 'migrations');
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.sql')).sort()) {
+    const sql = fs.readFileSync(path.join(dir, f), 'utf8').replace(/--[^\n]*/g, '');
+    for (const st of sql.split(';').map((x) => x.trim()).filter(Boolean)) {
+      try { db.exec(st); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+    }
+  }
   const stmt = (sql, args) => ({
     bind: (...a) => stmt(sql, a),
     async first(col) { const r = db.prepare(sql).get(...args); return r == null ? null : col ? r[col] : { ...r }; },
@@ -26,8 +34,8 @@ export function localD1(file) {
 }
 
 /** Serves the Worker on 127.0.0.1:port; resolves to the http server. */
-export function serve({ port = 8787, file = path.join(HERE, '.local', 'board.db'), fetchImpl = null } = {}) {
-  const env = { DB: localD1(file), ...(fetchImpl ? { FETCH: fetchImpl } : {}) };
+export function serve({ port = 8787, file = path.join(HERE, '.local', 'board.db'), fetchImpl = null, admins = process.env.BOARD_ADMINS || '' } = {}) {
+  const env = { DB: localD1(file), ADMINS: admins, ...(fetchImpl ? { FETCH: fetchImpl } : {}) };
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);

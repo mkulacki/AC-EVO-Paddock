@@ -338,6 +338,7 @@ const TrainerHud = (function () {
             ahead: { step: 5, speedMs: 0, thr: [braking ? 0 : 1], brk: [braking ? 0.85 : 0] },
             sectors: { n: 3, k: lapMs > 68502 ? 2 : 1, cur: lapMs > 68502 ? [31112, 37390] : [31112], prev: [31250, 37480, 33600], best: [31112, 37200, 33410], sess: [31180, 37390, 33500] },
             fuel: { l: 23.4, perLap: 2.31, lapsLeft: 10.1 },
+            target: { rank: 3, of: 12, name: "Driver", lapMs: 101800, gapMs: 234 - Math.round(210 * wave), splitMs: lapMs > 68502 ? -120 : null, splitK: 2 },
             saved: null
         };
     };
@@ -446,6 +447,7 @@ const TrainerHud = (function () {
         + "<div class=\"th-chip th-bg th-pot th-empty\"><div class=\"th-ideal\"></div><div class=\"th-gap\"></div></div>"
         + "<div class=\"th-chip th-bg th-spd th-empty\"><div class=\"th-gear\"></div><div class=\"th-speed\"></div><div class=\"th-unit\">KM/H</div></div>"
         + "<div class=\"th-chip th-bg th-fuel th-empty\"><div class=\"th-fuel-l\"></div><div class=\"th-fuel-x\"></div></div>"
+        + "<div class=\"th-chip th-bg th-target th-empty\"><div class=\"th-tgt-l\"></div><div class=\"th-tgt-x\"></div></div>"
         + "<div class=\"th-chip th-bg th-nextc th-empty\"></div>"
         + "<div class=\"th-chip th-bg th-lastc th-empty\"></div>"
         + "<div class=\"th-chip th-bg th-cue th-off\"><div class=\"th-cue-fill\"></div><div class=\"th-cue-a\"></div><div class=\"th-cue-b\"></div></div>"
@@ -478,6 +480,7 @@ const TrainerHud = (function () {
             },
             chips: {
                 fuel: q(root, ".th-fuel"),
+                target: q(root, ".th-target"),
                 tag: q(root, ".th-tag"),
                 lastc: q(root, ".th-lastc"),
                 nextc: q(root, ".th-nextc"),
@@ -511,7 +514,9 @@ const TrainerHud = (function () {
                 link: q(root, ".th-link"),
                 saved: q(root, ".th-saved"),
                 fuelL: q(root, ".th-fuel-l"),
-                fuelX: q(root, ".th-fuel-x")
+                fuelX: q(root, ".th-fuel-x"),
+                tgtL: q(root, ".th-tgt-l"),
+                tgtX: q(root, ".th-tgt-x")
             },
             host: opt("host"),
             liveBase: me && me.base ? me.base : "ACEUIAppLoader/trainerhud/",
@@ -640,7 +645,7 @@ const TrainerHud = (function () {
     // ---- look: parts on/off, size, background (from Paddock's settings; kept while offline) ----------
 
     const PARTS = ["lap", "ref", "delta", "current", "speed", "predicted", "best", "session", "last", "cues", "ideal", "corners", "footer",
-        "shift", "inputs", "sectors", "fuel"];
+        "shift", "inputs", "sectors", "fuel", "target"];
     const ROWS = { strip: ["lap", "current", "predicted", "delta", "best", "session", "last", "inputs"] };
 
     const applyCfg = function (state, cfg) {
@@ -781,6 +786,26 @@ const TrainerHud = (function () {
         }
         setClass(state, state.chips.fuel, "fuelLow", "th-low", !!(litres !== null && perLap && litres / perLap < 2));
         setClass(state, state.chips.fuel, "chipFuel", "th-empty", litres === null);
+
+        // leaderboard target: the driver to beat (Paddock's Leaderboards), the predicted gap and the last sector split
+        const tg = d && d.target;
+        if (!tg) {
+            setTextEl(state, "tgtL", state.el.tgtL, "");
+            setTextEl(state, "tgtX", state.el.tgtX, "");
+        } else {
+            setTextEl(state, "tgtL", state.el.tgtL, "P" + tg.rank + " " + String(tg.name || "").slice(0, 14).toUpperCase() + " " + fmtLap(tg.lapMs));
+            const parts = [];
+            if (tg.gapMs !== null && tg.gapMs !== undefined) {
+                parts.push("PRED " + fmtDelta(tg.gapMs));
+            }
+            if (tg.splitMs !== null && tg.splitMs !== undefined) {
+                parts.push("S" + tg.splitK + " " + fmtDelta(tg.splitMs));
+            }
+            setTextEl(state, "tgtX", state.el.tgtX, parts.join(" · "));
+        }
+        setClass(state, state.chips.target, "tgtAhead", "th-faster", !!(tg && tg.gapMs !== null && tg.gapMs !== undefined && tg.gapMs < 0));
+        setClass(state, state.chips.target, "tgtBehind", "th-slower", !!(tg && tg.gapMs !== null && tg.gapMs !== undefined && tg.gapMs >= 0));
+        setClass(state, state.chips.target, "chipTarget", "th-empty", !tg);
     };
 
     const fmtSec = function (ms) {
@@ -2209,6 +2234,7 @@ const TrainerHud = (function () {
             show("ideal", "Ideal lap"),
             show("speed", "Speed and gear", false),
             show("fuel", "Fuel"),
+            show("target", "Leaderboard target"),
             show("footer", "Status"),
             { key: "secLook", type: "section", label: "Look" },
             { key: "hudScale", type: "range", label: "Size %", value: 100, min: 60, max: 160, step: 10 },

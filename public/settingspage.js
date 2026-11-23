@@ -11,7 +11,7 @@ const HUD_GROUPS = [
   ['Delta', [['delta', 'Live delta and bar'], ['ref', 'Reference name above it (click to switch)']]],
   ['Above and below the strip', [['shift', 'Shift lights'], ['sectors', 'Sector times (purple / green / yellow)']]],
   ['Chips under the strip', [['cues', 'Brake / throttle cues'], ['corners', 'Corner gain/loss and next corner'], ['ideal', 'Ideal lap and potential'], ['speed', 'Speed and gear'],
-    ['fuel', 'Fuel: litres, use per lap, laps left'], ['footer', 'Status (saved laps, connection)']]],
+    ['fuel', 'Fuel: litres, use per lap, laps left'], ['target', 'Leaderboard target: the driver to beat, predicted gap, sector split'], ['footer', 'Status (saved laps, connection)']]],
 ];
 // what the preview is drawn over, to judge the HUD against bright and dark scenes
 const HUD_PREVIEW_BG = [['dark', 'Dark'], ['light', 'Light'], ['track', 'Track']];

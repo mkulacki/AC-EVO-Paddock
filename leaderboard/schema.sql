@@ -1,9 +1,9 @@
--- AC EVO Paddock online leaderboard (Cloudflare D1 / SQLite).
+-- AC EVO Paddock online leaderboard (Cloudflare D1 / SQLite). Later changes are in migrations/.
 -- Every lap a driver submits is kept, so a board filtered by conditions can still find each driver's best
 -- lap within the filter. The app only submits personal bests, so this stays small.
 CREATE TABLE IF NOT EXISTS laps (
   id INTEGER PRIMARY KEY,
-  player_id TEXT NOT NULL,      -- random id made by the app (Steam id later)
+  player_id TEXT NOT NULL,      -- SteamID64 (laps sent before Steam sign-in: a random id)
   player_name TEXT NOT NULL,
   ref TEXT NOT NULL,            -- the app's own lap id: the same lap sent twice is stored once
   track TEXT NOT NULL, layout TEXT NOT NULL, car TEXT NOT NULL,

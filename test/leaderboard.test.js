@@ -29,7 +29,7 @@ async function fakeSteam(url, opts = {}) {
   throw new Error(`unexpected fetch ${url}`);
 }
 
-const server = await serve({ port: 0, file: ':memory:', fetchImpl: fakeSteam });
+const server = await serve({ port: 0, file: ':memory:', fetchImpl: fakeSteam, admins: '76561198000000001' }); // Alice is an admin
 const URL0 = `http://127.0.0.1:${server.address().port}`;
 after(() => server.close());
 
@@ -143,10 +143,11 @@ test('server: bad input is refused', async () => {
 
 // ---------------------------------------------------------------- app side
 // a straight lap of 1000 m at a constant speed, 100 s long
-const lapData = () => { const t = [], d = []; for (let i = 0; i <= 1000; i++) { t.push(i * 100); d.push(i); } return { t, d }; };
+const lapData = (ms = 100000) => { const t = [], d = [], spd = []; for (let i = 0; i <= 1000; i++) { t.push((i * ms) / 1000); d.push(i); spd.push(36); } return { t, d, spd }; };
 const newLap = (lapTimeMs) => {
   const sessionId = db.createSession({ track: 'nowhere', layout: '', car: 'kart', sessionType: 1, driver: 'Me', startedAt: 1 });
-  return db.insertLap({ sessionId, track: 'nowhere', layout: '', car: 'kart', lapNumber: 2, lapTimeMs, valid: true, driver: 'Me', recordedAt: Date.now(), trackLength: 1000, data: lapData() });
+  const data = lapData(lapTimeMs);
+  return db.insertLap({ sessionId, track: 'nowhere', layout: '', car: 'kart', lapNumber: 2, lapTimeMs, valid: true, driver: 'Me', recordedAt: Date.now(), trackLength: 1000, data });
 };
 
 /** Signs the app in the way the browser would: start address -> Steam -> the app's callback. */
@@ -253,4 +254,139 @@ test('app: a login and a "sent" mark belong to one server', async () => {
   assert.ok((await app.sync()).sent >= 1);
   assert.equal(JSON.parse(db.getLapMeta(id).board).url, URL0.replace('127.0.0.1', 'localhost'));
   settings.update({ boardUrl: URL0 });
+});
+
+// ---------------------------------------------------------------- classes, telemetry, profiles, targets, reports
+const telc = await import('../src/telcodec.js');
+const zlib = (await import('node:zlib')).default;
+
+test('telemetry: encodes and decodes a lap within its resolution', () => {
+  const n = 501, R = { n, step: 2, t: [], spd: [], thr: [], brk: [], str: [], gear: [], rpm: [], x: [], z: [] };
+  for (let i = 0; i < n; i++) {
+    R.t.push(i * 20.37); R.spd.push(120 + Math.sin(i / 9) * 40); R.thr.push((i % 50) / 50); R.brk.push(i % 70 < 8 ? 0.9 : 0);
+    R.str.push(Math.sin(i / 30) * 0.2); R.gear.push(3 + (i % 3)); R.rpm.push(6000 + i); R.x.push(Math.cos(i / 80) * 400); R.z.push(Math.sin(i / 80) * 300 - 12.34);
+  }
+  const bytes = telc.encodeTel(R, 10185);
+  assert.equal(bytes.length, telc.telBytes(n));
+  const d = telc.decodeTel(telc.fromBase64(telc.toBase64(bytes)));
+  assert.equal(d.n, n); assert.equal(d.lapMs, 10185); assert.equal(d.d[n - 1], 1000);
+  for (const [c, tol] of [['t', 0.6], ['spd', 0.06], ['thr', 0.001], ['str', 0.0001], ['x', 0.006], ['z', 0.006]]) {
+    for (let i = 0; i < n; i += 37) assert.ok(Math.abs(d[c][i] - R[c][i]) <= tol, `${c}[${i}] ${d[c][i]} vs ${R[c][i]}`);
+  }
+  assert.deepEqual([...telc.fromBase64(telc.toBase64(new Uint8Array([1, 2])))], [1, 2]);
+  assert.equal(telc.decodeTel(new Uint8Array(10)), null);
+});
+
+test('classes: GT3 / GT4 / GT2 race cars; cups and road cars have none', () => {
+  // without the game's car list the name decides
+  assert.equal(lb.carClass('Ford Mustang GT3'), 'GT3');
+  assert.equal(lb.carClass('Audi R8 LMS GT4 Evo'), 'GT4');
+  assert.equal(lb.carClass('Maserati MC20 GT2'), 'GT2');
+  assert.equal(lb.carClass('Porsche 992 GT3 Cup'), null);
+  assert.equal(lb.carClass('Mazda MX5 ND Cup'), null);
+});
+
+const tokenOf = async (who) => `Bearer ${await tokenFor(who)}`;
+const postAs = async (who, l) => (await fetch(`${URL0}/v1/laps`, { method: 'POST', headers: { authorization: await tokenOf(who) }, body: JSON.stringify(l) })).json();
+const spaLap = (o) => ({ ref: o.ref, track: 'spa', layout: '', car: o.car, carClass: o.carClass ?? null, valid: true, lapMs: o.ms, sectors: [o.ms - 80000, 40000, 40000],
+  airC: 20, roadC: 28, game: '0.9', drivenAt: NOW, tel: o.tel ?? null });
+
+test('class boards: each driver once, with the car; a car keeps its first class', async () => {
+  await postAs(ALICE, spaLap({ ref: 's1', car: 'Ford Mustang GT3', carClass: 'GT3', ms: 138500 }));
+  await postAs(BOB, spaLap({ ref: 's1', car: 'BMW M4 GT3', carClass: 'GT3', ms: 138200 }));
+  await postAs(BOB, spaLap({ ref: 's2', car: 'Ford Mustang GT3', carClass: 'GT4', ms: 139000 })); // a wrong class is not taken
+  const b = await (await fetch(`${URL0}/v1/board?track=spa&layout=&class=GT3`)).json();
+  assert.deepEqual(b.rows.map((r) => [r.name, r.car, r.lapMs]), [['Bob <b>', 'BMW M4 GT3', 138200], ['Alice', 'Ford Mustang GT3', 138500]]);
+  const c = await (await fetch(`${URL0}/v1/combos`)).json();
+  assert.deepEqual(c.classes.filter((x) => x.track === 'spa').map((x) => [x.car_class, x.drivers, x.cars]), [['GT3', 2, 2]]);
+  assert.equal((await (await fetch(`${URL0}/v1/board?track=spa&layout=&class=GT9`)).json()).ok, false);
+});
+
+test('telemetry: stored with the lap, served to anyone; a broken one is left out but the lap counts', async () => {
+  const R = { n: 401, step: 2, t: Array.from({ length: 401 }, (_, i) => i * 100), spd: Array(401).fill(72) };
+  const good = telc.toBase64(zlib.gzipSync(telc.encodeTel(R, 40000)));
+  let r = await postAs(ALICE, { ...spaLap({ ref: 'tel1', car: 'kart', ms: 40000 }), sectors: [10000, 15000, 15000], tel: good });
+  assert.equal(r.telError, null);
+  const t = await (await fetch(`${URL0}/v1/telemetry?lap=${r.lapId}`)).json();
+  assert.equal(t.tel, good);
+  assert.equal(t.name, 'Alice');
+  const other = telc.toBase64(zlib.gzipSync(telc.encodeTel(R, 41000))); // says another lap time
+  r = await postAs(ALICE, { ...spaLap({ ref: 'tel2', car: 'kart', ms: 40500 }), sectors: [10500, 15000, 15000], tel: other });
+  assert.equal(r.ok, true);
+  assert.match(r.telError, /another lap/);
+  assert.equal((await fetch(`${URL0}/v1/telemetry?lap=${r.lapId}`)).status, 404);
+});
+
+test('driver profile: places, the driver ahead and the leader', async () => {
+  const bob = await (await fetch(`${URL0}/v1/driver?id=${BOB}`)).json();
+  const spa = bob.boards.find((x) => x.track === 'spa' && x.car === 'Ford Mustang GT3'); // Bob was slower in the Mustang
+  assert.deepEqual([spa.rank, spa.of, spa.ahead.name, spa.leader.name, spa.carClass], [2, 2, 'Alice', 'Alice', 'GT3']);
+  const p = await (await fetch(`${URL0}/v1/driver?id=${ALICE}`)).json();
+  assert.deepEqual(p.boards.find((x) => x.track === 'spa' && x.car === 'Ford Mustang GT3').rank, 1);
+  const monza = p.boards.find((x) => x.track === 'monza');
+  assert.deepEqual([monza.rank, monza.ahead], [1, null]);
+  assert.equal((await fetch(`${URL0}/v1/driver?id=76561198999999999`)).status, 404);
+});
+
+test('reports: signed in, not your own lap; admins see them and can hide the lap', async () => {
+  const board0 = await (await fetch(`${URL0}/v1/board?track=spa&layout=&class=GT3`)).json();
+  const bobLap = board0.rows[0].lapId;
+  const rep = async (who, body) => fetch(`${URL0}/v1/report`, { method: 'POST', headers: { authorization: await tokenOf(who) }, body: JSON.stringify(body) });
+  assert.equal((await rep(BOB, { lapId: bobLap, reason: 'mine' })).status, 400);
+  assert.equal((await rep(ALICE, { lapId: bobLap, reason: '2 s faster than anyone' })).status, 200);
+  assert.equal((await fetch(`${URL0}/v1/admin/reports`, { headers: { authorization: await tokenOf(BOB) } })).status, 403);
+  const list = await (await fetch(`${URL0}/v1/admin/reports`, { headers: { authorization: await tokenOf(ALICE) } })).json();
+  assert.deepEqual([list.laps[0].lapId, list.laps[0].reports, list.laps[0].reasons], [bobLap, 1, '2 s faster than anyone']);
+  const hideAs = async (auth, h) => fetch(`${URL0}/v1/admin/hide`, { method: 'POST', headers: { authorization: auth }, body: JSON.stringify({ lapId: bobLap, hidden: h }) });
+  assert.equal((await hideAs('X', true)).status, 403);
+  await hideAs(await tokenOf(ALICE), true);
+  let b = await (await fetch(`${URL0}/v1/board?track=spa&layout=&class=GT3`)).json();
+  assert.deepEqual(b.rows.map((r) => [r.name, r.car]), [['Alice', 'Ford Mustang GT3'], ['Bob <b>', 'Ford Mustang GT3']]); // his other GT3 lap counts now
+  await hideAs(await tokenOf(ALICE), false);
+  b = await (await fetch(`${URL0}/v1/board?track=spa&layout=&class=GT3`)).json();
+  assert.equal(b.rows.length, 2);
+  const me = await (await fetch(`${URL0}/v1/me`, { headers: { authorization: await tokenOf(ALICE) } })).json();
+  assert.equal(me.admin, true);
+});
+
+test('app: beaten notices, the HUD target, and downloading another driver lap', async () => {
+  settings.update({ boardUrl: URL0, boardShare: true, boardAuto: true, boardTel: true, boardTarget: 'next' });
+  const seen = [];
+  const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.9', appVersion: 'test', notify: (n) => seen.push(n) });
+  await appSignIn(app, '76561198000000003'); // Carol
+  const sessionId = db.createSession({ track: 'imola', layout: '', car: 'kart', sessionType: 1, driver: 'Me', startedAt: 1 });
+  const id = db.insertLap({ sessionId, track: 'imola', layout: '', car: 'kart', lapNumber: 2, lapTimeMs: 100000, valid: true, driver: 'Me', recordedAt: Date.now(), trackLength: 1000,
+    data: { ...lapData(100000), thr: Array(1001).fill(1) } });
+  db.setLapCond(id, { airC: 20, roadC: 30, game: '0.9', app: 'test' });
+  await app.sync();
+  assert.equal(JSON.parse(db.getLapMeta(id).board).tel, true);
+  await app.checkRanks(); // P1 of 1: remembered, nothing to say
+  assert.equal(seen.length, 0);
+  // Alice goes 0.5 s faster, Bob is slower
+  await postAs(ALICE, { ref: 'im1', track: 'imola', layout: '', car: 'kart', valid: true, lapMs: 99500, sectors: [33000, 33000, 33500], drivenAt: NOW });
+  await postAs(BOB, { ref: 'im1', track: 'imola', layout: '', car: 'kart', valid: true, lapMs: 101000, sectors: [33000, 34000, 34000], drivenAt: NOW });
+  await app.checkRanks();
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].title, 'Leaderboard: P1 → P2');
+  assert.match(seen[0].body, /Alice is 0\.500 s faster/);
+  assert.equal(app.status().notices[0].to, 2);
+
+  // the HUD target: the driver just ahead (Alice), or P1; off = none
+  const s = { track: 'imola', layout: '', car: 'kart' };
+  await app.loadTarget(s);
+  assert.deepEqual(app.target(s), { rank: 1, of: 3, name: 'Alice', lapMs: 99500, sectors: [33000, 33000, 33500] });
+  settings.update({ boardTarget: 'off' });
+  assert.equal(app.target(s), null);
+  settings.update({ boardTarget: 'next' });
+
+  // Carol's own lap went up with telemetry: download it as an online lap (once)
+  const remote = JSON.parse(db.getLapMeta(id).board).remoteId;
+  const local = await app.fetchOnline(remote);
+  const got = db.getLap(local);
+  assert.deepEqual([got.source, got.driver, got.lap_time_ms, got.track], ['online', 'Carol', 100000, 'imola']);
+  assert.ok(Math.abs(got.data.t[got.data.t.length - 1] - 100000) < 1);
+  assert.equal(got.data.thr[100], 1);
+  assert.equal(await app.fetchOnline(remote), local);
+  // an online lap is never sent back as your own
+  assert.ok(!db.boardBests().some((l) => l.id === local));
 });

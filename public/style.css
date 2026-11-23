@@ -894,3 +894,8 @@ table.lb td.mono, table.lb-mine td.mono { font-variant-numeric: tabular-nums; wh
 table.lb tr.lb-me td { background: var(--surface-2, rgba(127,127,127,.12)); }
 table.lb td.lb-best { color: var(--accent-text); font-weight: 600; }
 table.lb-mine { margin-top: 14px; font-size: 13px; }
+table.lb td.lb-act { white-space: nowrap; text-align: right; }
+table.lb td .lb-lose, .lb-analysis .lb-lose { color: var(--slower); }
+table.lb td .lb-gain, .lb-analysis .lb-gain { color: var(--good); }
+.lb-analysis { margin-top: 12px; font-size: 13px; display: grid; gap: 4px; }
+ul.lb-notes { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
