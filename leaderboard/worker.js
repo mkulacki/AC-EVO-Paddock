@@ -119,7 +119,9 @@ async function submit(req, env, now) {
   const r = await db.prepare(`INSERT INTO laps (player_id, player_name, ref, track, layout, car, car_class, lap_ms, sectors, air_c, road_c, weather, grip, game, app, driven_at, received_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (player_id, ref) DO NOTHING`)
     .bind(l.playerId, l.playerName, l.ref, l.track, l.layout, l.car, l.carClass, l.lapMs, l.sectors, l.airC, l.roadC, l.weather, l.grip, l.game, l.app, l.drivenAt, now).run();
-  const row = await db.prepare('SELECT id, has_tel FROM laps WHERE player_id = ? AND ref = ?').bind(l.playerId, l.ref).first();
+  const row = await db.prepare('SELECT id, has_tel, car_class FROM laps WHERE player_id = ? AND ref = ?').bind(l.playerId, l.ref).first();
+  // a lap sent before classes existed gets its class when it is sent again
+  if (row && l.carClass && !row.car_class) await db.prepare('UPDATE laps SET car_class = ? WHERE id = ?').bind(l.carClass, row.id).run();
   if (c.tel && !telError && row && !row.has_tel) {
     await db.prepare('INSERT OR REPLACE INTO telemetry (lap_id, data) VALUES (?, ?)').bind(row.id, c.tel).run();
     await db.prepare('UPDATE laps SET has_tel = 1 WHERE id = ?').bind(row.id).run();

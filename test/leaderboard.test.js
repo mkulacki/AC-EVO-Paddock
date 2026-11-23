@@ -295,10 +295,13 @@ test('class boards: each driver once, with the car; a car keeps its first class'
   await postAs(ALICE, spaLap({ ref: 's1', car: 'Ford Mustang GT3', carClass: 'GT3', ms: 138500 }));
   await postAs(BOB, spaLap({ ref: 's1', car: 'BMW M4 GT3', carClass: 'GT3', ms: 138200 }));
   await postAs(BOB, spaLap({ ref: 's2', car: 'Ford Mustang GT3', carClass: 'GT4', ms: 139000 })); // a wrong class is not taken
+  await postAs(ALICE, spaLap({ ref: 's3', car: 'Audi R8 LMS GT4 Evo', ms: 150000 })); // sent before classes existed
+  await postAs(ALICE, spaLap({ ref: 's3', car: 'Audi R8 LMS GT4 Evo', carClass: 'GT4', ms: 150000 })); // the same lap again, now with its class
+  assert.equal((await (await fetch(`${URL0}/v1/board?track=spa&layout=&class=GT4`)).json()).rows.length, 1);
   const b = await (await fetch(`${URL0}/v1/board?track=spa&layout=&class=GT3`)).json();
   assert.deepEqual(b.rows.map((r) => [r.name, r.car, r.lapMs]), [['Bob <b>', 'BMW M4 GT3', 138200], ['Alice', 'Ford Mustang GT3', 138500]]);
   const c = await (await fetch(`${URL0}/v1/combos`)).json();
-  assert.deepEqual(c.classes.filter((x) => x.track === 'spa').map((x) => [x.car_class, x.drivers, x.cars]), [['GT3', 2, 2]]);
+  assert.deepEqual(c.classes.filter((x) => x.track === 'spa').map((x) => [x.car_class, x.drivers, x.cars]), [['GT3', 2, 2], ['GT4', 1, 1]]);
   assert.equal((await (await fetch(`${URL0}/v1/board?track=spa&layout=&class=GT9`)).json()).ok, false);
 });
 
