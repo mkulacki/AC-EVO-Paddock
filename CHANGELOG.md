@@ -4,10 +4,41 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
-### New: leaderboard window in game, leaderboard changes on Home
+Nothing yet.
 
-- Paddock HUD 0.14.0: a separate, small **leaderboard window** next to the timing strip, on track only. It shows P1–P3, then the two drivers above you, you and the two below, for this car on this track. Next to you it shows the gap to your time (red = faster than you, green = slower); a lap you drove but did not send yet already counts for your place. Drag it on its own; switch it off under Settings > Paddock HUD (*Separate window*) or in its right-click settings.
-- Home: **Leaderboard changes** under Recent sessions: places lost (who went past), places gained with your own laps, and new boards you are on.
+## 0.7.0-beta.1
+
+### New: online leaderboards
+
+- **Leaderboards** page (sidebar): lap times of every Paddock driver, per track, layout and car, with sector times, air and track temperature and the game version. Filter by game version and temperature.
+- **Class boards** for GT3, GT4 and GT2: every car of the class on one board.
+- **Sign in with Steam** to send laps (your name on the board is your Steam name; your password goes to Steam only). Sending is **off until you switch it on**, and then only your best valid lap per track, layout and car goes up, automatically after each lap or with *Send now*.
+- **Compare with another driver:** laps carry light telemetry (speed, pedals, steering, gear, line), so any lap on the board opens in Compare next to yours.
+- **Driver profiles:** every board a driver is on, with their place, wins and podiums.
+- **Leaderboard target in the HUD:** a chip with the driver just ahead of you (or P1), the predicted gap to their time and your split after each sector.
+- **Leaderboard window in game** (Paddock HUD 0.14.0): a separate small window next to the strip with P1–P3, the two drivers above you, you and the two below. Next to you it shows the gap to your time; a lap you drove but did not send yet already counts. Drag it on its own; switch it off under Settings > Paddock HUD.
+- **Place changes:** a notice when someone goes past you, and a *Leaderboard changes* card on Home with places lost, places gained and new boards.
+- Report a lap that looks wrong; moderators can hide it.
+
+### New: Cars page
+
+- Every car you drove: distance, time, laps, your record on each track, top speed, driving style, milestones and a few fun facts. *Drive it* opens the Race tab with that car.
+
+### Improvements
+
+- **Theme:** System, Dark or Light, under Settings (System follows Windows).
+- **Setups:** each car's stock setups from the game are listed as *Game default*, and you can open, change and save them as your own.
+- **Home:** a *Beat it* button on each record starts a practice session on that car and track straight away.
+- **Telemetry:** an *Ideal line* toggle on the track map shows the game's own line (remembered); darker track edges.
+- **Race:** a *Random conditions* checkbox next to Random (unticked keeps your conditions). One-click starts are a 90-minute Practice, because the game menu has no Hotlap.
+- **Car & setup:** *Ask the AI engineer* opens the session's setup (or the car's game default) straight in the engineer.
+- **Backups:** choose what a backup holds, with the size of each part; a restore brings back only what the backup holds.
+- A Ko-fi link in the sidebar, for anyone who wants to support Paddock.
+
+### Fixes
+
+- Setup recognition: the right-hand wheels' camber is read with the correct sign.
+- Paddock HUD: a restart in the game starts a fresh lap for the driving aids.
 
 ## 0.6.0-beta.1
 

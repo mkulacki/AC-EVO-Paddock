@@ -2,8 +2,8 @@
 
 [![Support AC EVO Paddock on Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/kulyk)
 
-Local telemetry recorder, lap analysis, AI driving coach and setup engineer, setup editor, session launcher and mod manager for **Assetto Corsa EVO**.
-Everything runs on your PC. The app is served at http://localhost:8080, or runs in its own window as a desktop app.
+Local telemetry recorder, lap analysis, AI driving coach and setup engineer, setup editor, session launcher, mod manager and online leaderboards for **Assetto Corsa EVO**.
+Everything runs on your PC; only the leaderboards (when you switch sending on) and the AI features go online. The app is served at http://localhost:8080, or runs in its own window as a desktop app.
 
 > **Beta.** This is an early public version. Expect rough edges, and please report bugs in [Issues](../../issues).
 > It is an unofficial fan project and is not affiliated with or endorsed by Kunos Simulazioni or 505 Games.
@@ -49,7 +49,7 @@ Paddock also runs as a standalone Windows app (Electron) with its own window and
 ## Finding your way
 
 - **Home** (where Paddock opens): what needs attention, your totals, recent sessions, next practice targets, your best lap per day for the cars and tracks you drive most, and your records. Everything on it comes from your own laps.
-- **Sidebar:** Home, Race, Sessions, Tracks and Setups, then Game, Mods and Settings. The live status (recording, game state) is at the bottom. Collapse it to icons with the arrow at the bottom or **Ctrl+B**; narrow windows get the icons automatically.
+- **Sidebar:** Home, Race, Sessions, Development, Leaderboards, Tracks, Cars and Setups, then Game, Mods and Settings. The live status (recording, game state) is at the bottom. Collapse it to icons with the arrow at the bottom or **Ctrl+B**; narrow windows get the icons automatically.
 - **Search (Ctrl+K):** type to jump to a page, a Settings section, a track and layout, a recent session, a car's setups, or the progress, consistency or best-against-ideal view of a car and track you have driven. Start with a kind to narrow it down, for example `track brands` or `session monza`. It never starts the game.
 - **Shortcuts:** press **?** for the list. **Alt+1…9** open the pages in sidebar order.
 
@@ -214,6 +214,8 @@ A panel inside AC EVO, fed by this app. It shows:
 - **Brake / throttle cues:** a countdown to where the reference lap braked or lifted. After the corner it shows how many metres earlier or later you braked and got back on the throttle.
 - **Track limits:** VALID, INVALID, OUTLAP, PIT, or how many tyres are out.
 - **Lap saved notice,** with "NEW BEST" when you set a new all-time best.
+- **Leaderboard target:** the driver just ahead of you on the online board (or P1), the predicted gap to their time and your split after each sector.
+- **Leaderboard window:** a separate small window, dragged on its own, with P1–P3, the two drivers above you, you and the two below. Switch it off under *Settings → Paddock HUD → Separate window*.
 
 In the loader's settings you can change the reference key, the delta bar range (0.5/1/2 s), the next-corner line, the cues and where the brake countdown starts (100/200/300 m).
 The same app also runs on the game's menu, Solo and multiplayer screens, where it carries out the Race tab's starts.
@@ -233,6 +235,16 @@ In the other direction, the HUD writes tagged lines to the game log (`Saved Game
 **Important:** if the game ever fails to open one of those files (for example while Paddock is writing it), AC EVO crashes. So reading and writing are time-slotted: there are 8 files, `live0.json` … `live7.json`, and time is cut into 50 ms windows. In window *w* the HUD reads only file *w mod 8*, and only in the first 20 ms. In the same window Paddock writes only file *(w+4) mod 8*. The constants must match in `src/gamebridge.js` and `mod/trainerhud/trainerhud.js`. Never delete those files, or reinstall the HUD, while the game is running.
 
 If the panel says **"Paddock offline"**, start Paddock; meanwhile the panel shows the game's own delta. As an alternative to the in-game panel, use the **desktop overlay**: it's built into the desktop app (tray menu), or run `npm run overlay` next to `npm start`. It is a transparent, always-on-top window, and it only works when the game runs in borderless or windowed mode. Ctrl+Shift+H hides and shows it. You can also open `http://localhost:8080/hud.html` on a second screen.
+
+## Leaderboards (online)
+
+Compare your laps with every other Paddock driver, per track, layout and car, or per class (GT3, GT4, GT2).
+
+- **Sending is off until you switch it on** on the Leaderboards page, and needs a **Steam sign-in** (your name on the board is your Steam name; your password goes to Steam only). Then only your best valid lap per track, layout and car is sent, after each lap or with *Send now*.
+- Each entry has the lap and sector times, air and track temperature, weather and grip (when started from the Race tab), the game and Paddock versions, and light telemetry (speed, pedals, steering, gear, line every 2 m) unless you switch that off.
+- Open any lap on the board in **Compare** next to yours, look at a **driver's profile**, and **report** a lap that looks wrong.
+- Paddock checks your places when it starts, after each lap it sends and every 2 hours. Home shows the **Leaderboard changes**, and you get a notice when someone goes past you.
+- The server is a Cloudflare Worker with a D1 database (`leaderboard/`); it checks every lap it is sent.
 
 ## Brake spotter (audio)
 
@@ -320,9 +332,10 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 
 ## Privacy
 
-Everything stays on your PC. Paddock contacts two services:
+Everything stays on your PC. Paddock contacts these services:
 
 - **GitHub**, once a day, to see whether a newer Paddock is out: one request for the project's list of releases, with nothing about you in it. Switch it off in *Settings → Updates*.
+- **The leaderboard server** (Cloudflare), to show the boards. Only when you sign in with Steam and switch sending on does it get your Steam ID and name, your best laps with their conditions and, unless switched off, their light telemetry. The login token is kept in `data\settings.json` and only sent over https.
 - **Google Gemini**, only when you ask the AI coach or the AI setup engineer and have added your own API key: the compact per-corner summary of a lap, a summary of your history on one track and car (Coach page), or a setup's values with your description of the car and a summary of your laps on that track. Your key is stored in `data\settings.json`, which is never part of the repository or the release.
 
 ## Contributing
