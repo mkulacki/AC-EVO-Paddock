@@ -23,3 +23,6 @@ npm-debug.log*
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# local leaderboard server database (npm run board)
+leaderboard/.local/

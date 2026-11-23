@@ -888,3 +888,9 @@ table.wk-table { margin-top: 6px; }
 .milestones .ms { font-size: var(--fs-xs); padding: 2px 9px; border: 1px solid var(--border-strong); color: var(--text-muted); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
 .milestones .ms.done { background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 700; }
 .ms-next { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+
+/* Leaderboards tab */
+table.lb td.mono, table.lb-mine td.mono { font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.lb tr.lb-me td { background: var(--surface-2, rgba(127,127,127,.12)); }
+table.lb td.lb-best { color: var(--accent-text); font-weight: 600; }
+table.lb-mine { margin-top: 14px; font-size: 13px; }

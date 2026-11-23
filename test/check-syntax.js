@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ROOT } from './helpers.js';
 
-const DIRS = ['desktop', 'overlay', 'src', 'src/tools', 'public', 'mod/trainerhud', 'test'];
+const DIRS = ['desktop', 'overlay', 'src', 'src/tools', 'public', 'mod/trainerhud', 'test', 'leaderboard'];
 const files = DIRS.flatMap((d) => fs.readdirSync(path.join(ROOT, d)).filter((f) => /\.(c|m)?js$/.test(f)).map((f) => path.join(d, f)));
 let failed = 0;
 for (const f of files) {

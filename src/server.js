@@ -28,6 +28,7 @@ import * as carsetup from './carsetup.js';
 import { createSetupTracker } from './setupmatch.js';
 import * as setupmatch from './setupmatch.js';
 import { createAidsTracker } from './aids.js';
+import { createLeaderboard } from './leaderboard.js';
 import * as report from './report.js';
 import * as carreport from './carreport.js';
 import * as setuphistory from './setuphistory.js';
@@ -84,6 +85,8 @@ if (mockIdx < 0 || process.env.ACE_BRIDGE) {
 }
 // this Paddock's version, and the daily update check (never in mock runs or tests, unless PADDOCK_UPDATE_CHECK is set)
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+// online leaderboard: each lap's own conditions, and the best laps sent when sharing is on (src/leaderboard.js)
+const board = createLeaderboard({ recorder, launchInfo: () => setupTracker.conditions()?.launch ?? null, gameVersion: () => { try { return game.gameVersion(); } catch { return null; } }, appVersion: VERSION });
 updates.setCurrent(VERSION);
 if (mockIdx < 0 || process.env.PADDOCK_UPDATE_CHECK) updates.schedule(VERSION);
 if (db.restoreResult) console.log(`[backup] restore at start: ${db.restoreResult.ok ? `done (${db.restoreResult.files.join(', ')})` : `FAILED: ${db.restoreResult.error}`}`);
@@ -268,6 +271,7 @@ setInterval(() => {
     }
     recorder.onFrame(f);
     setupTracker.onFrame(f);
+    board.onFrame(f);
     hud.onFrame(f);
     marker.onFrame(f);
     spotter.tick(hud.nextBrake());
@@ -794,12 +798,26 @@ async function route(req, res) {
     if (b) settings.update({ markButton: b });
     return send(res, 200, { binding: b, devices: wheel.devices().map((d) => d.name) });
   }
+  // ---- online leaderboard (src/leaderboard.js; the server is leaderboard/worker.js)
+  if (p === '/api/board/status') return send(res, 200, board.status());
+  if (p === '/api/board/settings' && m === 'POST') {
+    const b = await readJson(req), patch = {};
+    if (typeof b.share === 'boolean') patch.boardShare = b.share;
+    if (typeof b.url === 'string') patch.boardUrl = b.url.trim();
+    settings.update(patch);
+    if (settings.get().boardShare) board.sync().catch(() => {});
+    return send(res, 200, board.status());
+  }
+  if (p === '/api/board/sync' && m === 'POST') { const r = await board.sync({ force: !!(await readJson(req)).force }); return send(res, 200, { ...r, status: board.status() }); }
+  if (p === '/api/board/combos') { const r = await board.call('/v1/combos'); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
+  if (p === '/api/board/versions') { const r = await board.call(`/v1/versions?${url.searchParams}`); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
+  if (p === '/api/board/table') { const r = await board.table(Object.fromEntries(url.searchParams)); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/settings') {
     if (m === 'POST') {
       const body = await readJson(req);
       if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.startsWith('••••')) delete body.geminiApiKey;
       if (body.markButton !== undefined && body.markButton !== null) delete body.markButton; // set only by /api/wheel/capture
-      delete body.channelChecks; delete body.probeConfirmed; // set only by /api/setupcheck/confirm
+      delete body.channelChecks; delete body.probeConfirmed; delete body.boardPlayerId; // set only by /api/setupcheck/confirm
       const oldPath = settings.get().gamePath, oldKey = settings.get().markKey;
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }

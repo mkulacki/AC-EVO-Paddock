@@ -17,7 +17,8 @@
     "install-mod": "node --no-warnings src/tools/install-mod.js",
     "overlay": "electron overlay/main.cjs",
     "test": "node --no-warnings --test test/*.test.js",
-    "check": "node test/check-syntax.js"
+    "check": "node test/check-syntax.js",
+    "board": "node --no-warnings leaderboard/local.mjs"
   },
   "license": "GPL-3.0-or-later",
   "dependencies": {

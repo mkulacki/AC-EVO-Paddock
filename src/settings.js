@@ -13,7 +13,10 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   probeConfirmed: false, // the driver checked in game that the setup fingerprint / temperatures read right (Setups tab; before 0.6)
   openLastSession: true, // desktop app: when AC EVO closes, bring Paddock to the front on the session just driven (src/server.js)
   updateCheck: true, // once a day, ask GitHub whether a newer Paddock is out (nothing is downloaded; src/updates.js)
-  channelChecks: null }; // per telemetry group, whether the readings match the game: {group: true|false} (src/channels.js)
+  channelChecks: null, // per telemetry group, whether the readings match the game: {group: true|false} (src/channels.js)
+  boardShare: false, // send the best lap per track / car to the online leaderboard (src/leaderboard.js)
+  boardUrl: '', // leaderboard server; empty = the default
+  boardPlayerId: '' }; // random id of this driver on the leaderboard (made when first needed; never shown)
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
 export const HUD_PARTS = ['lap', 'ref', 'delta', 'current', 'speed', 'predicted', 'best', 'session', 'last', 'cues', 'ideal', 'corners', 'footer',
@@ -57,4 +60,4 @@ export function update(patch) {
   return current;
 }
 // settings safe to send to the browser
-export const publicView = () => ({ ...current, hud, spotter, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey });
+export const publicView = () => ({ ...current, hud, spotter, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey, boardPlayerId: undefined });
