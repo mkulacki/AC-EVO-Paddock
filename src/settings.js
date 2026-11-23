@@ -24,7 +24,7 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
 export const HUD_PARTS = ['lap', 'ref', 'delta', 'current', 'speed', 'predicted', 'best', 'session', 'last', 'cues', 'ideal', 'corners', 'footer',
-  'shift', 'inputs', 'sectors', 'fuel', 'target'];
+  'shift', 'inputs', 'sectors', 'fuel', 'target', 'board'];
 const HUD_OFF = new Set(['speed']);
 export const HUD_DEFAULTS = { parts: Object.fromEntries(HUD_PARTS.map((k) => [k, !HUD_OFF.has(k)])), scale: 100, opacity: 85 };
 const clampNum = (v, lo, hi, d) => (v !== null && v !== '' && Number.isFinite(+v) ? Math.max(lo, Math.min(hi, Math.round(+v))) : d);

@@ -666,3 +666,98 @@ body.hide-hud .ace-trainerhud {
 .ace-trainerhud.th-offline .th-foot.th-empty {
     display: flex;
 }
+
+/* ---- the leaderboard window (in game): its own panel, beside the strip ------------------------
+   Size (font-size) and background come from the same settings as the strip (applyCfg). */
+
+.ace-trainerhud-board {
+    position: absolute;
+    right: 2%;
+    top: 30%;
+    display: flex;
+    flex-direction: column;
+    min-width: 17em;
+    padding: 0.35em 0;
+    background-color: rgba(10, 11, 14, 0.85);
+    box-shadow: 0 0.2em 0.8em rgba(0, 0, 0, 0.35);
+    color: #fff;
+    font-family: var(--font-family-main);
+    font-size: 1rem;
+    font-weight: 700;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    cursor: pointer;
+}
+
+.ace-trainerhud-board.tb-off,
+body.hide-hud .ace-trainerhud-board {
+    display: none;
+}
+
+.ace-trainerhud-board .tb-head {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 0 0.8em 0.25em 0.8em;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.6em;
+    letter-spacing: 0.16em;
+}
+
+.ace-trainerhud-board .tb-of {
+    margin-left: 1.5em;
+}
+
+.ace-trainerhud-board .tb-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 1.55em;
+    padding: 0 0.8em;
+    border-left: 0.2em solid transparent;
+}
+
+.ace-trainerhud-board .tb-row.tb-none {
+    display: none;
+}
+
+.ace-trainerhud-board .tb-row.tb-jump {
+    border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.ace-trainerhud-board .tb-pos {
+    width: 2.6em;
+    color: rgba(255, 255, 255, 0.55);
+    font-family: rajdhani-numerals-mono, var(--font-family-main);
+}
+
+.ace-trainerhud-board .tb-name {
+    flex: 1 1 auto;
+    padding-right: 1em;
+}
+
+.ace-trainerhud-board .tb-time {
+    font-family: rajdhani-numerals-mono, var(--font-family-main);
+    text-align: right;
+}
+
+/* you: lime, like Paddock */
+.ace-trainerhud-board .tb-row.tb-me {
+    background-color: rgba(200, 255, 30, 0.14);
+    border-left-color: #c8ff1e;
+}
+
+.ace-trainerhud-board .tb-row.tb-me .tb-pos,
+.ace-trainerhud-board .tb-row.tb-me .tb-name {
+    color: #d4ff4a;
+}
+
+/* the drivers next to you: faster (red, still to beat) and slower (green, beaten) */
+.ace-trainerhud-board .tb-row.tb-ahead .tb-time {
+    color: #ff5a5a;
+}
+
+.ace-trainerhud-board .tb-row.tb-behind .tb-time {
+    color: #3ddc84;
+}

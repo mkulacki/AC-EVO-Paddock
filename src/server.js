@@ -90,6 +90,8 @@ const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf
 const board = createLeaderboard({ recorder, launchInfo: () => setupTracker.conditions()?.launch ?? null, gameVersion: () => { try { return game.gameVersion(); } catch { return null; } }, appVersion: VERSION,
   notify: (n) => { broadcast('board', n); globalThis.__paddockNotify?.(n); } });
 hud.targetSource = (s) => board.target(s); // the HUD's leaderboard target (src/leaderboard.js)
+// the in-game board window (P1-P3, you and the drivers around you); nothing when that part is switched off
+hud.boardSource = (s) => (settings.hudConfig().parts.board === false ? null : board.boardWindow(s));
 updates.setCurrent(VERSION);
 if (mockIdx < 0 || process.env.PADDOCK_UPDATE_CHECK) updates.schedule(VERSION);
 if (db.restoreResult) console.log(`[backup] restore at start: ${db.restoreResult.ok ? `done (${db.restoreResult.files.join(', ')})` : `FAILED: ${db.restoreResult.error}`}`);

@@ -27,6 +27,7 @@ export class LiveHud {
     this.mode = 'best';
     this.refs = null;        // loaded references for the current combo
     this.targetSource = null; // (session) -> the leaderboard driver to beat {rank, of, name, lapMs, sectors} (src/leaderboard.js)
+    this.boardSource = null;  // (session) -> the board window {of, rows: [{rank, name, lapMs, me, local, gapMs}]} (src/leaderboard.js)
     this.refsKey = null;
     this.cur = null;         // per-lap tracking (corner crossings)
     this.ring = [];          // [{at, delta}] for the trend
@@ -379,6 +380,9 @@ export class LiveHud {
       }
       out.target = t;
     }
+    // the board window: only on track (s), from the board the target uses
+    const bw = s && this.boardSource ? this.boardSource(s) : null;
+    if (bw) out.board = bw;
     return out;
   }
 }

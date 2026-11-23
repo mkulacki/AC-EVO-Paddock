@@ -4,7 +4,10 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
-Nothing yet.
+### New: leaderboard window in game, leaderboard changes on Home
+
+- Paddock HUD 0.14.0: a separate, small **leaderboard window** next to the timing strip, on track only. It shows P1–P3, then the two drivers above you, you and the two below, for this car on this track. Next to you it shows the gap to your time (red = faster than you, green = slower); a lap you drove but did not send yet already counts for your place. Drag it on its own; switch it off under Settings > Paddock HUD (*Separate window*) or in its right-click settings.
+- Home: **Leaderboard changes** under Recent sessions: places lost (who went past), places gained with your own laps, and new boards you are on.
 
 ## 0.6.0-beta.1
 

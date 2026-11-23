@@ -12,6 +12,7 @@ const HUD_GROUPS = [
   ['Above and below the strip', [['shift', 'Shift lights'], ['sectors', 'Sector times (purple / green / yellow)']]],
   ['Chips under the strip', [['cues', 'Brake / throttle cues'], ['corners', 'Corner gain/loss and next corner'], ['ideal', 'Ideal lap and potential'], ['speed', 'Speed and gear'],
     ['fuel', 'Fuel: litres, use per lap, laps left'], ['target', 'Leaderboard target: the driver to beat, predicted gap, sector split'], ['footer', 'Status (saved laps, connection)']]],
+  ['Separate window (in game only)', [['board', 'Leaderboard: P1–P3, you and the two drivers either side. Drag it on its own; right-click it for the HUD settings']]],
 ];
 // what the preview is drawn over, to judge the HUD against bright and dark scenes
 const HUD_PREVIEW_BG = [['dark', 'Dark'], ['light', 'Light'], ['track', 'Track']];
