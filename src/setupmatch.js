@@ -37,18 +37,75 @@ function fingerprint(frames) {
   };
 }
 
-// a setup file's values as {name: shown value}, cached by file + change time
+// a setup's values as {name: shown value}; null when the limits for it are not known
+function valuesOf(buf, carId) {
+  const r = cs.read(buf, carId);
+  if (!r.values) return null;
+  const out = {};
+  for (const v of r.values) if (!v.list) out[v.name] = Math.round(v.value * v.scale * 1e4) / 1e4;
+  return out;
+}
+// a setup file's values, cached by file + change time
 const valueCache = new Map();
 function fileValues(f) {
   const key = `${f.file}|${f.mtime}`;
   if (valueCache.has(key)) return valueCache.get(key);
   let out = null;
-  try {
-    const r = cs.read(fs.readFileSync(f.file), f.carId);
-    if (r.values) { out = {}; for (const v of r.values) if (!v.list) out[v.name] = Math.round(v.value * v.scale * 1e4) / 1e4; }
-  } catch { /* unreadable file: not a candidate */ }
+  try { out = valuesOf(fs.readFileSync(f.file), f.carId); } catch { /* unreadable file: not a candidate */ }
   valueCache.set(key, out);
   return out;
+}
+
+// ---------------------------------------------------------------- stock setup check
+// Online lap times say whether the setup was the game's own (stock). Fuel and the driving aids are left out of the
+// comparison: the tank is strategy, and the aids are logged per lap on their own (src/aids.js).
+const NOT_SETUP = new Set(['fuel', 'tc1', 'tc2', 'abs', 'esc', 'engine_map', 'telemetry_laps_to_record']);
+const stockCache = new Map();
+/** The game's stock setups of a car with their values: [{name, values}] (cached; the car files do not change while running). */
+export function stockSetups(carId) {
+  if (!carId) return [];
+  if (stockCache.has(carId)) return stockCache.get(carId);
+  let out = [];
+  try {
+    out = setups.gameSetups(carId).map((g) => {
+      try { const values = valuesOf(g.pack.read(g.file), carId); return values ? { name: g.name, values } : null; } catch { return null; }
+    }).filter(Boolean);
+  } catch { /* no car files */ }
+  stockCache.set(carId, out);
+  return out;
+}
+/** Two setups' values are the same setup (fuel and aids aside). */
+export function sameSetup(a, b) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)].filter((k) => !NOT_SETUP.has(k.replace(/_(FL|FR|RL|RR|F|R)$/, ''))));
+  for (const k of keys) {
+    const x = a[k], y = b[k];
+    if (x == null || y == null) return false;
+    if (Math.abs(x - y) > 1e-3 * Math.max(1, Math.abs(x))) return false;
+  }
+  return true;
+}
+/**
+ * Is a recognised setup the game's stock one? -> {state, name, how}
+ *   state 'stock'   the recognised saved setup's values equal a stock setup (every value known)
+ *         'likely'  no saved setup matched, and the pit-box readings (pressures, camber, bias) match a stock setup;
+ *                   what the readings cannot see (springs, dampers, wings...) is not checked
+ *         'changed' the values or the readings differ from every stock setup
+ *         'unknown' no stock setup known for the car, or no usable readings
+ *   how 'file' | 'readings'
+ */
+export function stockOf(m, carId, stocks = stockSetups(carId)) {
+  if (!stocks.length || !m) return { state: 'unknown', name: null, how: null };
+  const vals = m.snap && (m.match === 'matched' || m.match === 'manual') ? db.getSnapshot(m.snap)?.values : null;
+  if (vals) {
+    const s = stocks.find((x) => sameSetup(vals, x.values));
+    return { state: s ? 'stock' : 'changed', name: s?.name ?? null, how: 'file' };
+  }
+  const fp = m.probe;
+  const usable = m.match !== 'guess' && fp && (fp.pressure.some((v) => v != null) || fp.camber.some((v) => v != null));
+  if (!usable || m.match === 'manual') return { state: 'unknown', name: null, how: null };
+  const useBias = fp.bias != null && stocks.some((c) => c.values.brakesfront_bias != null && Math.abs(c.values.brakesfront_bias - fp.bias) <= 5 * TOL.bias);
+  const best = stocks.map((s) => ({ s, ...distance(fp, s.values, useBias, false) })).sort((a, b) => a.d - b.d)[0];
+  return best && best.d <= 1 ? { state: 'likely', name: best.s.name, how: 'readings' } : { state: 'changed', name: null, how: 'readings' };
 }
 
 /** The current values of a saved setup file by its rel path ({name: shown value}), or null (gone or unreadable). */
@@ -113,7 +170,9 @@ export function manual(rel) {
   const f = setups.scan().find((x) => x.rel === rel);
   if (!f) throw new Error('Setup not found');
   const values = fileValues(f);
-  return values ? { ...pick({ file: f, values }, 'manual', null, []), probe: null, scores: undefined } : { name: f.name, rel: f.rel, id: f.id, match: 'manual', snap: null };
+  if (!values) return { name: f.name, rel: f.rel, id: f.id, match: 'manual', snap: null };
+  const m = { ...pick({ file: f, values }, 'manual', null, []), probe: null, scores: undefined };
+  return { ...m, stock: stockOf(m, f.carId) };
 }
 
 // ---------------------------------------------------------------- live tracking (one per app)
@@ -136,6 +195,7 @@ export function createSetupTracker({ recorder, launchConditions = () => null }) 
     const s = recorder.session;
     const cands = candidates(s.car, s.track, s.layout);
     const m = match(fp, cands, { useFuel: !firstDone });
+    m.stock = stockOf(m, carsDb.match(s.car)?.id);
     live = { at: Date.now(), car: s.car, track: s.track, layout: s.layout, fingerprint: fp, result: m, candidates: cands.length };
     lastCheck = Date.now();
     if (!current) { current = m; firstDone = true; lastFp = fp; log(m); return; }

@@ -27,6 +27,7 @@ import * as carstats from './carstats.js';
 import * as carsetup from './carsetup.js';
 import { createSetupTracker } from './setupmatch.js';
 import * as setupmatch from './setupmatch.js';
+import { createAidsTracker } from './aids.js';
 import * as report from './report.js';
 import * as carreport from './carreport.js';
 import * as setuphistory from './setuphistory.js';
@@ -60,11 +61,14 @@ if (mockIdx >= 0) {
 const recorder = new Recorder(() => settings.get().driverName, () => setupTracker.current());
 const setupTracker = createSetupTracker({ recorder, launchConditions: game.launchConditions });
 const hud = new LiveHud(recorder);
+// TC / ABS / ESC levels and assists per lap, reported by the in-game HUD (src/aids.js)
+const aidsTracker = createAidsTracker({ recorder });
 const hudSnapshot = () => ({ ...hud.snapshot(), cfg: settings.hudConfig() }); // live data + the HUD's look (parts, size, opacity)
 // in-game HUD: data via the live slot files, commands via the game log (the game's UI cannot do HTTP)
 const runCommand = (c) => {
   try {
     if (c.cmd === 'ref') hud.setMode(c.arg || 'cycle');
+    if (c.cmd === 'aids') aidsTracker.onCommand(c.arg); // a few per lap at most
     // a part / size / opacity changed in the in-game settings window: Paddock keeps the one copy
     if (c.cmd === 'hud' && c.arg && typeof c.arg === 'object') {
       const cur = settings.hudConfig();
@@ -572,7 +576,7 @@ async function route(req, res) {
   // ---- setup fingerprint check (Setups tab): what Paddock reads in the pits against the saved setups
   if (p === '/api/setupcheck' && m === 'GET') {
     return send(res, 200, { live: setupTracker.live(), current: setupTracker.current(), conditions: setupTracker.conditions(),
-      probe: source.lastRaw?.frame?.probe ?? null, carData: source.lastRaw?.frame?.carData ?? null, inSession: inSession(), confirmed: channels.trusted('setupProbe'), channels: channels.list() });
+      probe: source.lastRaw?.frame?.probe ?? null, carData: source.lastRaw?.frame?.carData ?? null, inSession: inSession(), confirmed: channels.trusted('setupProbe'), channels: channels.list(), aids: aidsTracker.live() });
   }
   // car & setup report of a session (tyres, brakes, suspension, balance): Car & setup tab
   if (p === '/api/carreport' && m === 'GET') {

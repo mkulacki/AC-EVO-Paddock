@@ -1022,9 +1022,121 @@ const TrainerHud = (function () {
         setClass(state, root, "root", "th-nodelta", deltaMs === null);
     };
 
+    // ---- driving aids -> Paddock (src/aids.js) -----------------------------------------------
+    //
+    // The game's own car model has the TC / TC cut / ABS / ESC levels, which of them this car can switch off
+    // (electronics_is_modifiable; 0 = fixed) and when they act (tc_active...). Paddock gets the levels when they
+    // change, the first time an aid acts in a lap, and a summary when the lap ends: a few log lines per lap.
+    // The first lap the HUD sees is "partial" (it did not see all of it), and so is a lap cut short by a restart.
+
+    const AID_LEVELS = { tc: "tc_level", tcc: "tc_cut_level", abs: "abs_level", esc: "esc_level" };
+    const AID_ACTIVE = { tc: "tc_active", abs: "abs_active", esc: "esc_active" };
+    const ASSIST_KEYS = ["type", "automatic_gearbox", "automatic_clutch", "stability_control", "ideal_line"];
+    const ASSISTS_RESEND_MS = 60000;
+
+    const aidLevels = function (o) {
+        const out = {};
+        Object.keys(AID_LEVELS).forEach(function (k) {
+            const v = o ? Number(o[AID_LEVELS[k]]) : NaN;
+            out[k] = isFinite(v) ? v : null;
+        });
+        return out;
+    };
+
+    const mergeLevels = function (into, lv, pick) {
+        if (!into) {
+            return JSON.parse(JSON.stringify(lv));
+        }
+        Object.keys(lv).forEach(function (k) {
+            if (lv[k] !== null) {
+                into[k] = into[k] === null ? lv[k] : pick(into[k], lv[k]);
+            }
+        });
+        return into;
+    };
+
+    const watchAids = function (state, now) {
+        const m = LOADER ? window.ModelCurrentCar : null;
+        const lf = m ? m.low_frequency : null;
+        if (!lf || !lf.electronics) {
+            return;
+        }
+        const lap = Number(lf.total_lap_count);
+        if (!isFinite(lap)) {
+            return;
+        }
+        let a = state.aids;
+        if (!a) {
+            a = state.aids = { lap: lap, partial: true, sig: "", at: 0, hi: null, lo: null, mod: null, lim: null, used: {} };
+        }
+        if (lap !== a.lap) {
+            // a normal lap end counts up by one; anything else (a restart, a new session) is not a lap
+            if (lap === a.lap + 1 && a.hi) {
+                sendCommand(state, "aids", { t: "lap", lap: a.lap, lv: a.hi, min: a.lo, mod: a.mod, max: a.lim, used: a.used, partial: a.partial }, true);
+            }
+            a.partial = lap !== a.lap + 1;
+            a.lap = lap;
+            a.hi = null;
+            a.lo = null;
+            a.used = {};
+            a.sig = ""; // tell Paddock the levels the new lap starts with
+        }
+        Object.keys(AID_ACTIVE).forEach(function (k) {
+            if (m[AID_ACTIVE[k]] && !a.used[k]) {
+                a.used[k] = true;
+                sendCommand(state, "aids", { t: "use", lap: lap, aid: k }, true);
+            }
+        });
+        if (now - a.at < 200 && a.sig) {
+            return; // the levels: 5 times a second is plenty
+        }
+        a.at = now;
+        const lv = aidLevels(lf.electronics);
+        a.hi = mergeLevels(a.hi, lv, Math.max);
+        a.lo = mergeLevels(a.lo, lv, Math.min);
+        a.mod = aidLevels(lf.electronics_is_modifiable);
+        a.lim = aidLevels(lf.electronics_max_limit);
+        const sig = JSON.stringify([lv, a.mod, a.lim]);
+        if (sig !== a.sig) {
+            a.sig = sig;
+            sendCommand(state, "aids", { t: "lv", lap: lap, lv: lv, mod: a.mod, max: a.lim }, true);
+        }
+    };
+
+    /** The game's assist settings (automatic gearbox, stability control...), where the page has them: menu screens. */
+    const watchAssists = function (state, now) {
+        const p = window.CurrentAssistPreset;
+        if (!p || typeof p !== "object") {
+            return;
+        }
+        const a = {};
+        ASSIST_KEYS.forEach(function (k) {
+            if (p[k] !== undefined) {
+                a[k] = p[k];
+            }
+        });
+        const sig = JSON.stringify(a);
+        if (sig !== state.assistSig || now - (state.assistAt || 0) > ASSISTS_RESEND_MS) {
+            state.assistSig = sig;
+            state.assistAt = now;
+            sendCommand(state, "aids", { t: "assists", a: a }, true);
+        }
+    };
+
     const tick = function (state, now) {
         if (state.panel && LOADER) {
             LOADER.panel.update(state.panel, now);
+        }
+        if (LOADER) {
+            try {
+                watchAids(state, now);
+                watchAssists(state, now);
+            } catch (e) {
+                if (!state.aidsFailed) {
+                    state.aidsFailed = true;
+                    log("driving aids: " + e.message);
+                }
+            }
         }
         poll(state, now);
         if (LOADER && LOADER.hudHidden && LOADER.hudHidden()) {
@@ -2017,9 +2129,14 @@ const TrainerHud = (function () {
 
     const launcherAttach = function (root) {
         root.style.display = "none";
-        const state = { launcher: true, timer: null };
+        const state = { launcher: true, timer: null, cmdSeq: 0 };
         // keep looking (1 read per second): an order may come while the player is already on this screen
         const check = function () {
+            try {
+                watchAssists(state, Date.now());
+            } catch (e) {
+                log("assists: " + e.message);
+            }
             readOrder(function (order) {
                 handleOrder(root, order);
             });

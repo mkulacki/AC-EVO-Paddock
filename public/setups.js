@@ -378,6 +378,41 @@ function carCheck(cd, open) {
     </tbody></table><p class="muted" style="font-size:12px;margin:4px 0 0">Compare with the game's tyre page (temperatures and pressures) while standing still.</p></details>`;
 }
 
+// Is the recognised setup the game's own? (src/setupmatch.js stockOf) Online lap times show it.
+function stockText(st) {
+  if (!st) return '';
+  const t = { stock: `<b class="neg">Stock setup</b>${st.name ? ` <span class="muted">(${esc(st.name)})</span>` : ''}`,
+    likely: `<b>Probably stock</b> <span class="muted">(pit-box readings match ${esc(st.name || 'a stock setup')}; springs, dampers and wings cannot be seen)</span>`,
+    changed: '<b>Changed from stock</b>', unknown: '<span class="muted">Stock or not: not known</span>' }[st.state];
+  return t ? `<p style="margin:0 0 6px">${t}</p>` : '';
+}
+
+// The driving aids the in-game HUD reports (src/aids.js): levels, what can be switched off, what acted, assists,
+// and the class of the last lap. Checked once against the game, like the readings below.
+const AID_NAMES = { tc: 'Traction control (TC)', tcc: 'TC cut', abs: 'ABS', esc: 'Stability control (ESC)' };
+const CLASS_TEXT = { pro: '<b class="neg">PRO</b>', 'pro-fixed': '<b class="neg">PRO</b> <span class="muted">(with aids this car cannot switch off)</span>',
+  assisted: '<b>Assisted</b>', unknown: '<span class="muted">Not known</span>' };
+function aidsCheck(a) {
+  if (!a) return '';
+  const L = a.levels, n = (v) => (v == null ? '–' : esc(String(v)));
+  const level = (k) => (L?.lv?.[k] == null ? '–' : `${n(L.lv[k])}${L.max?.[k] > 0 ? ` <span class="muted">/ ${n(L.max[k])}</span>` : ''}`);
+  const sw = (k) => (L?.mod?.[k] == null ? '–' : L.mod[k] > 0 ? 'yes' : L.lv?.[k] > 0 ? '<b>no, always on</b>' : 'no');
+  const acted = (k) => (k === 'tcc' ? '' : a.usedThisLap?.[k] ? '<b class="pos">yes</b>' : 'no');
+  const onOff = (v) => (v == null ? '–' : v ? 'on' : 'off');
+  const s = a.assists, last = a.lastLap;
+  const lastAids = last ? ['tc', 'abs', 'esc'].filter((k) => last.lv?.[k] != null).map((k) => `${k.toUpperCase()} ${last.lv[k]}${last.used?.[k] ? ' (acted)' : ''}`).join(' · ') : '';
+  return `<div class="aids-chk" style="margin-top:10px">
+    <h4 style="margin:0 0 4px">Driving aids</h4>
+    ${!L ? '<p class="muted" style="margin:0;font-size:12px">Nothing from the Paddock HUD yet. Drive with the HUD on (it reads the game\'s own car display).</p>' : `
+    <table style="font-size:12px"><thead><tr><th></th><th>Level</th><th>Can be switched off</th><th>Acted this lap</th></tr></thead><tbody>
+      ${Object.keys(AID_NAMES).map((k) => `<tr><td>${AID_NAMES[k]}</td><td>${level(k)}</td><td>${sw(k)}</td><td>${acted(k)}</td></tr>`).join('')}
+    </tbody></table>`}
+    <p style="margin:6px 0 0;font-size:12px">Assists: ${s ? `automatic gearbox ${onOff(s.gearbox)} · auto-clutch ${onOff(s.clutch)} · stability control ${s.stability == null ? '–' : `${n(s.stability)} %`} · ideal line ${onOff(s.idealLine)}`
+      : '<span class="muted">not seen yet. Open the game\'s main menu or Assists screen once while Paddock runs.</span>'}</p>
+    ${last ? `<p style="margin:4px 0 0;font-size:12px">Last lap: ${CLASS_TEXT[last.cls] || ''}${last.partial ? ' <span class="muted">(the HUD did not see the whole lap)</span>' : ''}${lastAids ? ` <span class="muted">· ${esc(lastAids)}</span>` : ''}</p>` : ''}
+  </div>`;
+}
+
 // Which telemetry readings were checked against the game (src/channels.js). Unchecked ones are shown as unconfirmed
 // everywhere, and conclusions based on them are kept apart from the confirmed ones.
 function channelChecks(list, open) {
@@ -414,11 +449,13 @@ function mountSetupCheck(el, cleanup) {
         ${c.confirmed ? '<b class="neg">Confirmed in game.</b>' : 'To check it once: load a saved setup in the game, stay in the pit box and compare below.'}</p>
       ${!c.live ? `<p style="margin:0">${c.inSession ? 'Stand still in the pit box…' : 'Waiting for a session in AC EVO.'}</p>` : `
         <p style="margin:0 0 6px">Recognised: <b>${esc(res.name)}</b> <span class="muted">(${esc(res.match)}${res.alsoMatches?.length ? `, same as ${esc(res.alsoMatches.join(', '))}` : ''}; ${c.live.candidates} saved setup${c.live.candidates === 1 ? '' : 's'} for this car and track)</span></p>
+        ${stockText(res.stock)}
         ${top ? `<table><thead><tr><th></th><th>Car</th><th>${esc(top.name)}</th></tr></thead><tbody>${top.parts.map((p) => `<tr><td>${esc(PART_LABEL(p.k))}</td>
           <td>${+p.you.toFixed(2)}</td><td class="${Math.abs(p.you - p.file) <= p.tol ? 'neg' : 'pos'}">${+p.file.toFixed(2)}</td></tr>`).join('')}</tbody></table>`
           : '<p class="muted" style="margin:0">No saved setup for this car and track to compare with.</p>'}
         <p class="muted" style="font-size:12px;margin:6px 0">Air ${t(c.conditions?.airC)} · Track ${t(c.conditions?.roadC)}</p>
         ${carCheck(c.carData, wasOpen)}`}
+      ${aidsCheck(c.aids)}
       ${channelChecks(c.channels || [], chOpen)}
     </div>`;
     el.querySelectorAll('[data-ok]').forEach((b) => {
