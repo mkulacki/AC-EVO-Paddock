@@ -34,7 +34,8 @@ export function normaliseAssists(a) {
 /**
  * The class of a lap from its aids:
  *   'pro'       every aid off and never acting, no automatic gearbox, no stability control
- *   'pro-fixed' as 'pro', except aids this car cannot switch off (a road car's fixed ABS, say)
+ *   'pro-fixed' as 'pro', except aids this car cannot switch off (a road car's fixed ABS, say). Its own board:
+ *               these laps never count as PRO (user decision 2026-11-23)
  *   'assisted'  any aid or assist on
  *   'unknown'   not enough data: no HUD report for the whole lap, or the assist settings were never seen
  * Auto-clutch and the ideal line do not count: they do not make a lap faster.
