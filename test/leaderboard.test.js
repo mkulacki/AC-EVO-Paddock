@@ -392,4 +392,23 @@ test('app: beaten notices, the HUD target, and downloading another driver lap', 
   assert.equal(await app.fetchOnline(remote), local);
   // an online lap is never sent back as your own
   assert.ok(!db.boardBests().some((l) => l.id === local));
+
+  // the in-game board window: your row and the gaps to your time
+  await app.loadTarget(s);
+  assert.deepEqual(app.boardWindow(s), { of: 3, rows: [
+    { rank: 1, name: 'Alice', lapMs: 99500, me: false, local: false, gapMs: -500 },
+    { rank: 2, name: 'Carol', lapMs: 100000, me: true, local: false, gapMs: null },
+    { rank: 3, name: 'Bob <b>', lapMs: 101000, me: false, local: false, gapMs: 1000 }] });
+  // a faster lap driven but not sent yet: your place moves straight away, marked local
+  const faster = db.insertLap({ sessionId, track: 'imola', layout: '', car: 'kart', lapNumber: 3, lapTimeMs: 99000, valid: true, driver: 'Me', recordedAt: Date.now(), trackLength: 1000,
+    data: { ...lapData(99000), thr: Array(1001).fill(1) } });
+  await app.loadTarget(s);
+  assert.deepEqual(app.boardWindow(s).rows.map((r) => [r.rank, r.name, r.local, r.gapMs]), [[1, 'Carol', true, null], [2, 'Alice', false, 500], [3, 'Bob <b>', false, 2000]]);
+  // sent: a place gained is kept as a notice (no desktop notice: you drove it)
+  db.setLapCond(faster, { airC: 20, roadC: 30, game: '0.9', app: 'test' });
+  await app.sync();
+  await app.checkRanks();
+  assert.equal(seen.length, 1);
+  assert.deepEqual([app.status().notices[0].kind, app.status().notices[0].from, app.status().notices[0].to], ['gained', 2, 1]);
+  assert.match(app.status().notices[0].text, /your 1:39\.000/);
 });

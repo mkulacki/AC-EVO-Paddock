@@ -16,8 +16,27 @@ const combo = (x) => `${esc(prettyName(x.track))} <span class="muted">${esc(pret
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const ICON = { warning: '⚠', info: 'ℹ' };
 
+// leaderboard changes (src/leaderboard.js checkRanks notices): places lost to others, gained with your own laps, new boards
+const boardAgo = (t) => { const s = (Date.now() - t) / 1000; return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129600 ? `${Math.round(s / 3600)} h ago` : ago(t); };
+function boardCard(b) {
+  const head = `<div class="row"><h2 style="margin:0">Leaderboard changes</h2><span class="spacer"></span><a href="#/leaderboard">Leaderboards ›</a></div>`;
+  if (!b) return '';
+  if (!b.signedIn) return `<div class="card">${head}<p class="muted" style="margin:8px 0 0">Sign in with Steam on the <a href="#/leaderboard">Leaderboards</a> page and your places on each board show here: who went past you, and where your new laps put you.</p></div>`;
+  const n = (b.notices || []).slice(0, 6);
+  if (!n.length) return `<div class="card">${head}<p class="muted" style="margin:8px 0 0">No changes yet. Paddock checks your places when it starts, after each lap it sends and every 2 hours.</p></div>`;
+  return `<div class="card">${head}<ul class="home-list">${n.map((x) => {
+    const kind = x.kind || 'lost'; // notices from before gains were kept are all places lost
+    const move = kind === 'new' ? `<span class="badge best">New · P${x.to}</span>` : `<b class="${kind === 'gained' ? 'neg' : 'pos'}">P${x.from} → P${x.to}</b>`;
+    const why = kind === 'lost' ? (x.by ? `${esc(x.by)} went past` : 'someone went past') : kind === 'gained' ? 'your new lap' : `first time on this board${x.of ? `, ${x.of} drivers` : ''}`;
+    const gap = String(x.text || '').split(':').slice(1).join(':').trim();
+    return `<li><a href="#/leaderboard?combo=${encodeURIComponent(`${x.track}|${x.layout ?? ''}|${x.car}`)}">
+      <span class="hl-main">${combo(x)}<span class="muted"> · ${esc(prettyName(x.car))}</span><span class="hl-sub muted">${esc(gap || why)}</span></span>
+      <span class="hl-num">${move}<span class="hl-sub muted">${esc(why)} · ${esc(boardAgo(x.at))}</span></span></a></li>`;
+  }).join('')}</ul></div>`;
+}
+
 export async function viewHome(view, cleanup) {
-  const d = await api('/api/dashboard');
+  const [d, board] = await Promise.all([api('/api/dashboard'), api('/api/board/status').catch(() => null)]);
   const T = d.totals;
   const warnings = d.warnings.length ? `<div class="card home-warn" role="region" aria-label="Needs attention"><h2>Needs attention</h2><ul>${d.warnings.map((w) => `<li class="w-${w.level}">
       <span class="w-ic" aria-hidden="true">${ICON[w.level] || ''}</span><span class="w-lvl">${w.level === 'warning' ? 'Warning' : 'Note'}</span>
@@ -81,7 +100,7 @@ export async function viewHome(view, cleanup) {
         <a href="#/progress?combo=${encodeURIComponent(c.key)}">Progress</a>${c.bestLapId && c.idealMs ? ` · <a href="#/compare?laps=${c.bestLapId}&ref=ideal">Best against ideal</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
 
   view.innerHTML = `<div class="race-head"><div><h1>Home</h1><div class="sub">Your driving at a glance, from your own laps.</div></div><span class="spacer"></span><a href="#/race"><button class="primary">Set up a session</button></a></div>
-    ${warnings}${tiles}<div class="grid-2">${sessions}<div>${targets}${goals}</div></div>${trends}${records}`;
+    ${warnings}${tiles}<div class="grid-2"><div>${sessions}${boardCard(board)}</div><div>${targets}${goals}</div></div>${trends}${records}`;
   bindSparks(view, d.trends, cleanup);
   // "Beat it": this car and track as a practice session in the game, right now; progress shows on the Race tab
   view.querySelectorAll('[data-beat]').forEach((b) => {

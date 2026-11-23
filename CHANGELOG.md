@@ -4,7 +4,6 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
-Nothing yet.
 
 ## 0.6.0-beta.1
 

@@ -34,6 +34,8 @@ const RANKS_FILE = () => path.join(db.DATA_DIR, 'board-ranks.json');
 const round1 = (v) => Math.round(v * 10) / 10;
 const comboKey = (x) => `${x.track}|${x.layout ?? ''}|${x.car}`;
 const pretty = (s) => String(s ?? '').replace(/_/g, ' ');
+const fmtMs = (ms) => `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, '0')}`;
+const BOARD_ROWS = 8; // the in-game board window: P1-P3, then two above you, you, two below
 
 /** Login tokens only travel encrypted: https, or plain http to a server on this PC (local testing). */
 export function safeUrl(u) {
@@ -226,16 +228,24 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     for (const b of r.body.boards) {
       const k = comboKey(b), o = old?.[k];
       ranks[k] = { rank: b.rank, lapMs: b.lapMs };
-      // a worse place with the same (or a better) own time: someone went past
+      const where = `${pretty(b.car)} · ${pretty(b.track)}${b.layout ? ` ${pretty(b.layout)}` : ''}`;
+      const base = { at: Date.now(), track: b.track, layout: b.layout, car: b.car, to: b.rank, of: b.of ?? null };
+      // kind: 'lost' = someone went past (a worse place with the same or a better own time), 'gained' = your own
+      // faster lap moved you up, 'new' = your first time on this board (only after the first check, so not all at once)
       if (o && b.rank > o.rank && b.lapMs <= o.lapMs) {
         const gap = b.ahead ? ` ${b.ahead.name} is ${((b.lapMs - b.ahead.lapMs) / 1000).toFixed(3)} s faster.` : '';
-        fresh.push({ at: Date.now(), track: b.track, layout: b.layout, car: b.car, from: o.rank, to: b.rank, by: b.ahead?.name ?? null,
-          title: `Leaderboard: P${o.rank} → P${b.rank}`, text: `${pretty(b.car)} · ${pretty(b.track)}${b.layout ? ` ${pretty(b.layout)}` : ''}:${gap}` });
+        fresh.push({ ...base, kind: 'lost', from: o.rank, by: b.ahead?.name ?? null, title: `Leaderboard: P${o.rank} → P${b.rank}`, text: `${where}:${gap}` });
+      } else if (o && b.rank < o.rank) {
+        fresh.push({ ...base, kind: 'gained', from: o.rank, lapMs: b.lapMs, title: `Leaderboard: P${o.rank} → P${b.rank}`,
+          text: `${where}:${b.lapMs < o.lapMs ? ` your ${fmtMs(b.lapMs)}.` : ''}` });
+      } else if (!o && old) {
+        fresh.push({ ...base, kind: 'new', from: null, lapMs: b.lapMs, title: `Leaderboard: new, P${b.rank}${b.of ? ` of ${b.of}` : ''}`, text: `${where}: your ${fmtMs(b.lapMs)}.` });
       }
     }
     notices = [...fresh.reverse(), ...notices].slice(0, 20);
     try { fs.writeFileSync(RANKS_FILE(), JSON.stringify({ url: c.url, steamId: c.steam.steamId, ranks, notices })); } catch { /* read-only data dir */ }
-    for (const n of fresh) {
+    // a desktop notice only when someone went past: your own gains you saw happen
+    for (const n of fresh.filter((x) => x.kind === 'lost')) {
       console.log(`[board] ${n.title} ${n.text}`);
       notify({ title: n.title, body: n.text, hash: `#/leaderboard?combo=${encodeURIComponent(comboKey(n))}` });
     }
@@ -255,14 +265,18 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
       tgt = { key, at: Date.now(), rows: r.body?.ok ? r.body.rows : null, loading: false, myBest: own.length ? Math.min(...own) : null };
     } finally { tgt.loading = false; }
   }
+  /** This combo's board as last read (read again in the background when it is another combo or older than the TTL). */
+  function boardRows(s) {
+    const key = comboKey(s);
+    if (tgt.key !== key || Date.now() - tgt.at > TARGET_TTL_MS) { if (!tgt.loading) loadTarget(s).catch(() => {}); if (tgt.key !== key) return null; }
+    return tgt.rows?.length ? tgt.rows : null;
+  }
   /** The driver to beat on this combo: the one just ahead of your best (or P1), from the board read at the start. */
   function target(s) {
     const mode = cfg().target;
     if (mode === 'off' || !s) return null;
-    const key = comboKey(s);
-    if (tgt.key !== key || Date.now() - tgt.at > TARGET_TTL_MS) { if (!tgt.loading) loadTarget(s).catch(() => {}); if (tgt.key !== key) return null; }
-    const rows = tgt.rows;
-    if (!rows?.length) return null;
+    const rows = boardRows(s);
+    if (!rows) return null;
     let i;
     if (mode === 'p1') i = rows[0].me ? -1 : 0;
     else {
@@ -274,6 +288,48 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     if (i < 0) return null;
     const r = rows[i];
     return { rank: i + 1, of: rows.length, name: r.name, lapMs: r.lapMs, sectors: r.sectors };
+  }
+
+  // ------------------------------------------------------------ the in-game board window
+  let bw = { rowsAt: -1, key: null, myBest: undefined, out: null };
+  /** P1-P3 and the two drivers either side of you (8 rows; fewer drivers, fewer rows). Your place counts your best
+   *  lap here even before it is sent (local: true), so it moves the moment you drive it. Without a time of yours:
+   *  the first 8. Gaps are to your time. Rebuilt only when the board or your best changes (the HUD asks every frame). */
+  function boardWindow(s) {
+    if (!s) return null;
+    const rows = boardRows(s);
+    if (!rows) return null;
+    if (bw.rowsAt === tgt.at && bw.key === tgt.key && bw.myBest === tgt.myBest) return bw.out;
+    const online = rows.find((r) => r.me);
+    const list = rows.filter((r) => !r.me).map((r) => ({ name: r.name, lapMs: r.lapMs }));
+    const times = [online?.lapMs, tgt.myBest].filter((v) => Number.isFinite(v));
+    let me = -1, myMs = null;
+    if (times.length) {
+      myMs = Math.min(...times);
+      me = list.findIndex((r) => r.lapMs > myMs);
+      if (me < 0) me = list.length;
+      list.splice(me, 0, { name: online?.name || cfg().steam?.name || 'You', lapMs: myMs, me: true, local: !(online && online.lapMs <= myMs) });
+    }
+    const n = list.length, cap = Math.min(BOARD_ROWS, n);
+    const pick = new Set();
+    for (let i = 0; i < Math.min(3, n); i++) pick.add(i);
+    let lo = me < 0 ? 0 : Math.max(0, me - 2), hi = me < 0 ? -1 : Math.min(n - 1, me + 2);
+    for (let i = lo; i <= hi; i++) pick.add(i);
+    // near the top or the bottom (or no time of yours): fill up to 8 with the next drivers, below first
+    while (pick.size < cap) {
+      if (hi + 1 < n) pick.add(++hi);
+      else if (lo > 0) pick.add(--lo);
+      else break;
+    }
+    const out = {
+      of: n,
+      rows: [...pick].sort((a, b) => a - b).map((i) => {
+        const r = list[i];
+        return { rank: i + 1, name: r.name, lapMs: r.lapMs, me: !!r.me, local: !!r.local, gapMs: myMs != null && !r.me ? r.lapMs - myMs : null };
+      }),
+    };
+    bw = { rowsAt: tgt.at, key: tgt.key, myBest: tgt.myBest, out };
+    return out;
   }
 
   // ------------------------------------------------------------ another driver's lap, to compare with
@@ -316,7 +372,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
   first.unref?.();
 
   return {
-    onFrame, onLap, sync, call, checkRanks, target, loadTarget, fetchOnline,
+    onFrame, onLap, sync, call, checkRanks, target, boardWindow, loadTarget, fetchOnline,
     /** For the Leaderboards tab. */
     status() {
       const c = cfg();

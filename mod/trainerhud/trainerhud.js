@@ -645,7 +645,7 @@ const TrainerHud = (function () {
     // ---- look: parts on/off, size, background (from Paddock's settings; kept while offline) ----------
 
     const PARTS = ["lap", "ref", "delta", "current", "speed", "predicted", "best", "session", "last", "cues", "ideal", "corners", "footer",
-        "shift", "inputs", "sectors", "fuel", "target"];
+        "shift", "inputs", "sectors", "fuel", "target", "board"];
     const ROWS = { strip: ["lap", "current", "predicted", "delta", "best", "session", "last", "inputs"] };
 
     const applyCfg = function (state, cfg) {
@@ -676,6 +676,91 @@ const TrainerHud = (function () {
         state.bgColor = bg;
         for (i = 0; i < state.secEls.length; i += 1) {
             state.secEls[i].box.style.backgroundColor = bg;
+        }
+        if (state.board) {
+            state.board.root.style.fontSize = state.root.style.fontSize;
+            state.board.root.style.backgroundColor = bg;
+        }
+    };
+
+    // ---- the leaderboard window (in game): P1-P3, two above you, you, two below -----------------
+    //
+    // A second panel of this app, beside the strip in the HUD's container, dragged and stored on its own
+    // (its own hudId / storageKey). Rows come from Paddock (d.board, src/leaderboard.js boardWindow); it
+    // shows only on track, with the "board" part on, and when the board has drivers.
+
+    const BOARD_ROWS = 8;
+
+    const boardCreate = function (state) {
+        const parent = state.root.parentNode;
+        if (!LOADER || !parent) {
+            return null;
+        }
+        let el = document.getElementById(NAME + "-board");
+        if (!el) {
+            el = document.createElement("div");
+            el.id = NAME + "-board";
+            parent.appendChild(el);
+        }
+        el.className = "ace-trainerhud-board tb-off";
+        let rows = "";
+        let i = 0;
+        for (i = 0; i < BOARD_ROWS; i += 1) {
+            rows += "<div class=\"tb-row tb-none\"><div class=\"tb-pos\"></div><div class=\"tb-name\"></div><div class=\"tb-time\"></div></div>";
+        }
+        el.innerHTML = "<div class=\"tb-head\"><div class=\"tb-title\">LEADERBOARD</div><div class=\"tb-of\"></div></div>" + rows;
+        const b = { root: el, of: q(el, ".tb-of"), rows: [] };
+        const els = el.querySelectorAll(".tb-row");
+        for (i = 0; i < els.length; i += 1) {
+            b.rows.push({ el: els[i], pos: q(els[i], ".tb-pos"), name: q(els[i], ".tb-name"), time: q(els[i], ".tb-time") });
+        }
+        b.panel = LOADER.panel.attach(el, {
+            hudId: me.hudId + "_board",
+            storageKey: me.storageKey + ".board",
+            log: me.log,
+            onRightClick: function () {
+                return Boolean(LOADER.settings && LOADER.settings.rightClick) && LOADER.settings.rightClick(NAME, el);
+            }
+        });
+        return b;
+    };
+
+    const renderBoard = function (state, d) {
+        const b = state.board;
+        if (!b) {
+            return;
+        }
+        const bd = d && d.board;
+        const on = !!(bd && bd.rows && bd.rows.length) && !(state.parts && state.parts.board === false);
+        setClass(state, b.root, "board", "tb-off", !on);
+        if (!on) {
+            return;
+        }
+        let mine = null;
+        let i = 0;
+        for (i = 0; i < bd.rows.length; i += 1) {
+            if (bd.rows[i].me) {
+                mine = bd.rows[i];
+            }
+        }
+        setTextEl(state, "tbOf", b.of, (mine ? "P" + mine.rank + " / " : "") + bd.of + (mine && mine.local ? "  · NOT SENT" : ""));
+        for (i = 0; i < BOARD_ROWS; i += 1) {
+            const r = bd.rows[i];
+            const row = b.rows[i];
+            setClass(state, row.el, "tbRow" + i, "tb-none", !r);
+            if (!r) {
+                continue;
+            }
+            // next to you: the gap to your time; further away (the top three): their lap time
+            const near = mine && !r.me && Math.abs(r.rank - mine.rank) <= 2;
+            setTextEl(state, "tbPos" + i, row.pos, "P" + r.rank);
+            setTextEl(state, "tbName" + i, row.name, String(r.name || "").slice(0, 16).toUpperCase());
+            setTextEl(state, "tbTime" + i, row.time, near ? fmtDelta(r.gapMs, 3) : fmtLap(r.lapMs));
+            setClass(state, row.el, "tbMe" + i, "tb-me", !!r.me);
+            setClass(state, row.el, "tbAhead" + i, "tb-ahead", !!near && r.gapMs < 0);
+            setClass(state, row.el, "tbBehind" + i, "tb-behind", !!near && r.gapMs >= 0);
+            // a jump in places (P3, then P10): a line between them
+            setClass(state, row.el, "tbJump" + i, "tb-jump", i > 0 && !!bd.rows[i - 1] && r.rank - bd.rows[i - 1].rank > 1);
         }
     };
 
@@ -903,6 +988,7 @@ const TrainerHud = (function () {
         } else if (d) {
             applyCfg(state, d.cfg); // outside the game: Paddock's copy, as it comes
         }
+        renderBoard(state, d);
 
         if (d) {
             // lap number, running lap clock (brought up to the present), speed and gear
@@ -1167,6 +1253,9 @@ const TrainerHud = (function () {
     const tick = function (state, now) {
         if (state.panel && LOADER) {
             LOADER.panel.update(state.panel, now);
+        }
+        if (state.board && state.board.panel && LOADER) {
+            LOADER.panel.update(state.board.panel, now);
         }
         if (LOADER) {
             try {
@@ -2236,6 +2325,8 @@ const TrainerHud = (function () {
             show("fuel", "Fuel"),
             show("target", "Leaderboard target"),
             show("footer", "Status"),
+            { key: "secWin", type: "section", label: "Separate window", flow: "chips" },
+            show("board", "Leaderboard window"),
             { key: "secLook", type: "section", label: "Look" },
             { key: "hudScale", type: "range", label: "Size %", value: 100, min: 60, max: 160, step: 10 },
             { key: "hudOpacity", type: "range", label: "Background %", value: 85, min: 0, max: 100, step: 5 },
@@ -2269,6 +2360,13 @@ const TrainerHud = (function () {
                     return Boolean(LOADER.settings && LOADER.settings.rightClick) && LOADER.settings.rightClick(NAME, root);
                 }
             });
+            // the leaderboard window: its own panel (a failure there never stops the strip)
+            try {
+                state.board = boardCreate(state);
+            } catch (e) {
+                state.board = null;
+                log("leaderboard window: " + e.message);
+            }
             state.loop = LOADER.loop.start(function (now) {
                 tick(state, Date.now());
             });
@@ -2296,6 +2394,14 @@ const TrainerHud = (function () {
         if (LOADER) {
             LOADER.loop.stop(state.loop);
             LOADER.panel.detach(state.panel);
+            if (state.board) {
+                // the loader hides only the app's root: the window is ours to take away
+                LOADER.panel.detach(state.board.panel);
+                if (state.board.root.parentNode) {
+                    state.board.root.parentNode.removeChild(state.board.root);
+                }
+                state.board = null;
+            }
             if (sync.state === state) {
                 sync.state = null;
             }
