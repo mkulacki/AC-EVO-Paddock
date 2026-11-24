@@ -38,7 +38,7 @@ None in progress. PL1 is committed on `platform/pl1-data-safety`: report `docs/p
 ## Test results
 
 - PL0 baseline (2026-11-24, `be3b5ef`): `npm run check` 104/104; `npm test` 175/175.
-- PL1 (2026-11-24, `platform/pl1-data-safety`): `npm run check` 111/111; `npm test` 205/205 (21 files).
+- PL1 with review fixes (2026-11-24, `platform/pl1-data-safety`): `npm run check` 112/112; `npm test` 213/213 (22 files).
 
 ## Pending user decisions
 

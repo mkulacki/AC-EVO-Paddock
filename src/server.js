@@ -934,7 +934,7 @@ async function route(req, res) {
       if (!q.preset || q.preset === 'hotlap' || q.preset === 'quick') spec = base; // 'hotlap': planners saved before 2026-11-19
       else if (q.preset === 'practice') spec = { ...base, mode: 'practice', practiceMin: 30 };
       else {
-        const pr = race.lists().presets.find((x) => x.id === q.preset);
+        const pr = race.presetById(q.preset);
         if (!pr) return send(res, 400, { error: 'Preset not found' });
         if (pr.spec?.kind === 'mp') return send(res, 400, { error: 'Online presets join a server: start them from the Race tab' });
         spec = { ...pr.spec, kind: 'solo', car: base.car, track: base.track, noRemember: true };

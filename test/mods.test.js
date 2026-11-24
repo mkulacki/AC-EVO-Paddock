@@ -15,7 +15,7 @@ const skip = game.isRunningNow() ? 'AC EVO is running' : false;
 
 const MODS = path.join(ACE_DIR, 'mods');
 const read = (f) => fs.readFileSync(path.join(MODS, f), 'utf8');
-const leftovers = () => fs.readdirSync(MODS).filter((n) => /\.(part|paddock-old)$/.test(n));
+const leftovers = () => fs.readdirSync(MODS).filter((n) => /\.(part|paddock-old(-[0-9]+)?)$/.test(n));
 async function pack(name, files) {
   const z = path.join(dir, name);
   await zip.writeZip(z, Object.entries(files).map(([n, data]) => ({ name: n, data })));
@@ -53,6 +53,11 @@ test('zip paths with Windows device names or trailing dots/spaces are refused', 
   const z = await pack('fine.zip', { 'mods/console/condition.txt': 'x', 'mods/auxiliary.kspkg': 'y' });
   const r = await mods.install(z, 'fine.zip');
   assert.equal(r.installed, 2, 'names that only start like a device name are fine');
+  // review fix: an odd name in an entry that is skipped anyway does not stop the install
+  const z2 = await pack('skipped.zip', { 'mods/fine2.kspkg': 'z', 'docs/CON.txt': 'readme', 'extras/notes./a.txt': 'x' });
+  const r2 = await mods.install(z2, 'skipped.zip');
+  assert.equal(r2.installed, 1);
+  assert.ok(r2.skipped.includes('docs/CON.txt'));
 });
 
 test('setups: oversized files are refused before parsing; device names in setup names get an underscore', async () => {
@@ -64,4 +69,18 @@ test('setups: oversized files are refused before parsing; device names in setup 
   assert.equal(setups.safeName('lpt1'), 'lpt1_');
   assert.equal(setups.safeName('Console race'), 'Console race');
   assert.equal(setups.safeName('a/b:c.'), 'a b c');
+});
+
+test('review fixes: a .paddock-old left by a crashed install is kept; failing to clean up never fails the install', { skip }, async () => {
+  fs.writeFileSync(path.join(MODS, 'd.kspkg'), 'current-d');
+  fs.writeFileSync(path.join(MODS, 'd.kspkg.paddock-old'), 'original-from-crash');
+  const z = await pack('d.zip', { 'mods/d.kspkg': 'new-d' });
+  const realRm = fs.rmSync;
+  fs.rmSync = (f, ...a) => { if (String(f).includes('.paddock-old')) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); return realRm(f, ...a); };
+  let r;
+  try { r = await mods.install(z, 'd.zip', { overwrite: true }); } finally { fs.rmSync = realRm; }
+  assert.equal(read('d.kspkg'), 'new-d');
+  assert.equal(read('d.kspkg.paddock-old'), 'original-from-crash', 'never deleted to make room');
+  assert.ok(mods.list().some((m) => m.id === r.id), 'the manifest has the new mod although the cleanup failed');
+  assert.equal(read('d.kspkg.paddock-old-2'), 'current-d', 'cleanup failed: the replaced file is still on disk');
 });

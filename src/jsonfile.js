@@ -26,23 +26,55 @@ export function writeFileAtomic(file, text) {
 
 export const writeJsonAtomic = (file, obj, space = 2) => writeFileAtomic(file, JSON.stringify(obj, null, space));
 
+const TRANSIENT = ['EBUSY', 'EPERM', 'EACCES', 'EAGAIN']; // antivirus, OneDrive, another program briefly holding the file
+const sleepSync = (ms) => { const until = Date.now() + ms; while (Date.now() < until) { /* sync by design: runs at start */ } };
+
+/** Temp files of writes that never finished (a crash): they can hold a secret, so they go when the file is loaded. */
+function removeStaleTemps(file) {
+  const dir = path.dirname(file), base = path.basename(file);
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const n of names) {
+    const m = n.startsWith(`${base}.`) && /^(\d+)\.\d+\.tmp$/.exec(n.slice(base.length + 1));
+    if (m && Number(m[1]) !== process.pid) fs.rmSync(path.join(dir, n), { force: true });
+  }
+}
+
 /**
- * Reads a JSON file. Missing → dflt. Unreadable (damaged JSON, not the expected kind of value) → the file is renamed
- * to <name>.unreadable-<time> so the next save cannot overwrite what was in it, a line is logged, and dflt is returned.
+ * Loads a JSON file. -> {value, state, canSave}
+ *   missing  → dflt, canSave
+ *   ok       → the value, canSave
+ *   aside    → damaged (bad JSON, or not the expected kind of value): renamed to <name>.unreadable-<time> so a save
+ *              cannot overwrite what was in it; dflt, canSave
+ *   failed   → could not be read even after retries (locked, no permission), or damaged and could not be moved aside:
+ *              dflt, and canSave = false: the caller must not write the file (it would replace the driver's data)
  * accept(value) says whether the parsed value is the expected kind (default: a plain object).
  */
-export function readJsonSafe(file, dflt, { accept = (v) => !!v && typeof v === 'object' && !Array.isArray(v), log = console.error } = {}) {
+export function loadJson(file, dflt, { accept = (v) => !!v && typeof v === 'object' && !Array.isArray(v), log = console.error, retries = 5 } = {}) {
+  removeStaleTemps(file);
   let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
-    if (e.code === 'ENOENT') return dflt;
-    log(`[data] ${path.basename(file)} cannot be read (${e.code || e.message}): using defaults for now`);
-    return dflt; // locked or no permission: left where it is
+  for (let k = 0; ; k++) {
+    try { text = fs.readFileSync(file, 'utf8'); break; } catch (e) {
+      if (e.code === 'ENOENT') return { value: dflt, state: 'missing', canSave: true };
+      if (k < retries && TRANSIENT.includes(e.code)) { sleepSync(50 * (k + 1)); continue; }
+      log(`[data] ${path.basename(file)} cannot be read (${e.code || e.message}): using defaults, and it will not be saved over until it can be read`);
+      return { value: dflt, state: 'failed', canSave: false };
+    }
   }
   let v, why = null;
-  try { v = JSON.parse(text.replace(/^﻿/, '')); if (!accept(v)) why = 'unexpected content'; } catch (e) { why = e.message; }
-  if (!why) return v;
+  try { v = JSON.parse((text.charCodeAt(0) === 0xfeff ? text.slice(1) : text)); if (!accept(v)) why = 'unexpected content'; } catch (e) { why = e.message; }
+  if (!why) return { value: v, state: 'ok', canSave: true };
   const aside = `${file}.unreadable-${Date.now()}`;
-  try { fs.renameSync(file, aside); } catch { /* could not move: a later save still replaces it atomically */ }
+  try { fs.renameSync(file, aside); } catch (e) {
+    log(`[data] ${path.basename(file)} is damaged (${why}) and could not be kept aside (${e.code || e.message}): using defaults, not saving over it`);
+    return { value: dflt, state: 'failed', canSave: false };
+  }
   log(`[data] ${path.basename(file)} is damaged (${why}): kept as ${path.basename(aside)}, using defaults`);
-  return dflt;
+  return { value: dflt, state: 'aside', canSave: true };
 }
+
+/** loadJson's value only (for files whose loss costs nothing). */
+export const readJsonSafe = (file, dflt, opts) => loadJson(file, dflt, opts).value;
+
+/** The error a module throws instead of saving over a file it could not read. */
+export const notSaved = (file) => Object.assign(new Error(`${path.basename(file)} could not be read when Paddock started, so it is not saved over (your data in it is kept). Close programs that may hold it (antivirus, OneDrive) and restart Paddock.`), { code: 503 });

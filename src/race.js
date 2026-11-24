@@ -20,7 +20,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './db.js';
-import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
+import { loadJson, writeJsonAtomic, notSaved } from './jsonfile.js';
+import { stripRace } from './sensitive.js';
 import * as trackdata from './trackdata.js';
 import * as svc from './service.js';
 import * as carsDb from './cars.js';
@@ -31,11 +32,13 @@ const APPLIED_FILE = path.join(DATA_DIR, 'game-applied.json');
 const MAX_ORDER_BYTES = 11000; // the order rides inside a 16 KB live slot next to the HUD data
 
 const readJson = (f, dflt) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return dflt; } };
-let store = { presets: [], servers: [], last: null, ...readJsonSafe(FILE, {}) }; // a damaged file is kept aside, not overwritten
+// a damaged file is kept aside; one that could not be read at all (locked) is never saved over (saved servers, passwords)
+const loaded = loadJson(FILE, {});
+let store = { presets: [], servers: [], last: null, ...loaded.value };
 let scan = readJson(SCAN_FILE, null); // { at, parts: { name: value } }
 if (scan && !scan.parts) scan = null;
 let derived = null;
-const saveStore = () => writeJsonAtomic(FILE, store);
+const saveStore = () => { if (!loaded.canSave) throw notSaved(FILE); writeJsonAtomic(FILE, store); };
 let scanSaveT = null;
 const saveScan = () => { clearTimeout(scanSaveT); scanSaveT = setTimeout(() => fs.writeFileSync(SCAN_FILE, JSON.stringify(scan)), 500); };
 
@@ -276,7 +279,10 @@ export function buildOrder(spec) {
       : clamp(spec.practiceMin, ...L.practiceMin, D.practiceMin) + clamp(spec.qualifyingMin, ...L.qualifyingMin, D.qualifyingMin) + clamp(spec.warmupMin, ...L.warmupMin, D.warmupMin) + raceMin;
   order.meta = { mode: mode.id, trackId: t.id, layoutKey: l.key, car: order.car.id || order.car.display, plannedMin, goalId: Number.isInteger(spec.goalId) ? spec.goalId : null };
   if (Buffer.byteLength(JSON.stringify(order)) > MAX_ORDER_BYTES) throw new Error('This setup is too large to send to the game (fewer grid cars?)');
-  if (!spec.noRemember) { store.last = spec; saveStore(); } // one-click starts keep the Race tab's own setup
+  if (!spec.noRemember) { // one-click starts keep the Race tab's own setup; not being able to remember it never stops a start
+    store.last = spec;
+    try { saveStore(); } catch (e) { console.error(`[race] last setup not saved: ${e.message}`); }
+  }
   return order;
 }
 
@@ -299,7 +305,11 @@ export function scanOrder() {
 }
 
 // ---------------------------------------------------------------- presets and servers
-export const lists = () => ({ presets: store.presets, servers: store.servers.map(({ password, ...s }) => ({ ...s, hasPassword: !!password })), last: store.last });
+// for the page: no saved password anywhere (src/sensitive.js). Online starts send the saved server's id and the
+// server fills in its password (src/server.js /api/race/launch), so the page never needs one.
+export const lists = () => ({ presets: stripRace(store.presets), servers: store.servers.map(({ password, ...s }) => ({ ...s, hasPassword: !!password })), last: store.last ? stripRace(store.last) : null });
+/** A preset as saved (with any password), for starts made here on the server. */
+export const presetById = (id) => store.presets.find((x) => x.id === id) || null;
 export function savePreset(name, spec) {
   if (!String(name || '').trim()) throw new Error('Name the preset');
   const ex = store.presets.find((p) => p.name === name.trim());

@@ -11,7 +11,10 @@ const { dir, ACEVO_DATA } = isolate('jsonfile');
 const DAMAGED = '{"geminiApiKey": "test-only-key-0123456789", "driverName": "Jan';
 fs.writeFileSync(path.join(ACEVO_DATA, 'settings.json'), DAMAGED);
 fs.writeFileSync(path.join(ACEVO_DATA, 'race.json'), '[1,2');
-const { writeFileAtomic, readJsonSafe } = await import('../src/jsonfile.js');
+// temp files of a write that crashed (another process id) hold the key: removed when the file loads
+const STALE = 'settings.json.999999.1.tmp';
+fs.writeFileSync(path.join(ACEVO_DATA, STALE), '{"geminiApiKey":"test-only-key-0123456789"}');
+const { writeFileAtomic, readJsonSafe, loadJson } = await import('../src/jsonfile.js');
 const settings = await import('../src/settings.js');
 const race = await import('../src/race.js');
 
@@ -78,4 +81,61 @@ test('settings from disk or a restore are typed: wrong kinds get the default, un
   assert.deepEqual(n.future, { a: 1 });
   assert.equal(n.gamePath, '');
   assert.equal(settings.normalize({ port: 'abc' }).port, 8080);
+});
+
+// ---------------------------------------------------------------- review fixes
+test('stale temp files of a crashed write are removed when the file loads; files of this process are kept', () => {
+  assert.ok(!fs.existsSync(path.join(ACEVO_DATA, STALE)));
+  const x = path.join(dir, 'x.json');
+  fs.writeFileSync(path.join(dir, `x.json.${process.pid}.5.tmp`), '{}');
+  fs.writeFileSync(path.join(dir, 'x.json.1.5.tmp'), '{}');
+  fs.writeFileSync(path.join(dir, 'x.json.bak.tmp'), '{}'); // not one of ours
+  loadJson(x, {});
+  assert.ok(fs.existsSync(path.join(dir, `x.json.${process.pid}.5.tmp`)), 'a write of this process may be in progress');
+  assert.ok(!fs.existsSync(path.join(dir, 'x.json.1.5.tmp')));
+  assert.ok(fs.existsSync(path.join(dir, 'x.json.bak.tmp')));
+  for (const n of [`x.json.${process.pid}.5.tmp`, 'x.json.bak.tmp']) fs.rmSync(path.join(dir, n));
+});
+
+test('a failed settings write changes nothing in memory', () => {
+  settings.update({ driverName: 'Before' });
+  const real = fs.renameSync;
+  fs.renameSync = () => { throw Object.assign(new Error('ENOSPC: no space'), { code: 'ENOSPC' }); };
+  try { assert.throws(() => settings.update({ driverName: 'After', hud: { scale: 120 } }), /ENOSPC/); } finally { fs.renameSync = real; }
+  assert.equal(settings.get().driverName, 'Before');
+  assert.notEqual(settings.hudConfig().scale, 120);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(ACEVO_DATA, 'settings.json'), 'utf8')).driverName, 'Before');
+});
+
+test('loadJson: a briefly locked file (EBUSY) is read after a retry', () => {
+  const f = path.join(dir, 'busy.json'); fs.writeFileSync(f, '{"a":1}');
+  const real = fs.readFileSync; let n = 0;
+  fs.readFileSync = (file, ...a) => { if (file === f && n++ < 2) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); return real(file, ...a); };
+  let r; try { r = loadJson(f, {}, { log: () => {} }); } finally { fs.readFileSync = real; }
+  assert.deepEqual(r, { value: { a: 1 }, state: 'ok', canSave: true });
+});
+
+test('loadJson: still unreadable, or damaged but cannot be moved aside → not saveable, file untouched', () => {
+  const locked = path.join(dir, 'locked.json'); fs.writeFileSync(locked, '{"key":"x"}');
+  const real = fs.readFileSync;
+  fs.readFileSync = (file, ...a) => { if (file === locked) throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); return real(file, ...a); };
+  let r; try { r = loadJson(locked, { d: 1 }, { log: () => {}, retries: 1 }); } finally { fs.readFileSync = real; }
+  assert.deepEqual(r, { value: { d: 1 }, state: 'failed', canSave: false });
+  const bad = path.join(dir, 'stuck.json'); fs.writeFileSync(bad, '{oops');
+  const realRen = fs.renameSync;
+  fs.renameSync = () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); };
+  try { r = loadJson(bad, {}, { log: () => {} }); } finally { fs.renameSync = realRen; }
+  assert.equal(r.canSave, false);
+  assert.equal(fs.readFileSync(bad, 'utf8'), '{oops');
+});
+
+test('race: presets and the last setup reach the page without passwords; the server keeps them', () => {
+  race.savePreset('Online', { kind: 'mp', car: null, serverId: 'x', server: { ip: '1.2.3.4', port: 1, password: 'secret-pw' } });
+  const l = race.lists();
+  assert.ok(!JSON.stringify(l).includes('secret-pw'));
+  const p = l.presets.find((x) => x.name === 'Online');
+  assert.equal(p.spec.server.password, '');
+  assert.equal(p.spec.serverId, 'x', 'an online start still names its saved server');
+  assert.equal(race.presetById(p.id).spec.server.password, 'secret-pw');
+  assert.equal(l.last, null);
 });

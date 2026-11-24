@@ -267,9 +267,11 @@ export function merge(id, into) {
 const DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
 const cleanSegs = (p) => {
   const segs = p.split('/').filter(Boolean);
-  if (segs.some((s) => s === '.' || s === '..' || s.includes(':') || DEVICE.test(s) || /[. ]$/.test(s))) return null;
+  if (segs.some((s) => s === '.' || s === '..' || s.includes(':'))) return null;
   return segs;
 };
+// checked only on the files that will be written (an odd name in a skipped folder does not stop the install)
+const oddName = (rel) => rel.split('/').some((s) => DEVICE.test(s) || /[. ]$/.test(s));
 const lower = (a) => a.map((s) => s.toLowerCase());
 
 // where each zip entry goes: [{ entry, rel }], plus skipped names
@@ -349,6 +351,8 @@ export async function install(tmpFile, origName, { overwrite = false } = {}) {
     const rel = `Video/ACEUIAppLoader-${a}.settingspreset`;
     if (!relsLower.has(rel.toLowerCase()) && !fs.existsSync(abs(rel))) plan.push({ entry: null, empty: true, rel });
   }
+  const odd = plan.find((p) => oddName(p.rel));
+  if (odd) throw new ModError(`Unsafe path in the zip: ${odd.entry?.name || odd.rel}`);
   // duplicates inside the zip (e.g. a .kspkg twice in different folders)
   const seen = new Set();
   plan = plan.filter((p) => { const k = p.rel.toLowerCase(); if (seen.has(k)) { skipped.push(p.entry?.name || p.rel); return false; } seen.add(k); return true; });
@@ -376,8 +380,9 @@ export async function install(tmpFile, origName, { overwrite = false } = {}) {
     for (const p of plan) {
       const dst = abs(p.rel);
       if (fs.existsSync(dst)) {
-        const aside = `${dst}.paddock-old`;
-        fs.rmSync(aside, { recursive: true, force: true });
+        // a free name: an existing .paddock-old may be the only copy left by an install that crashed
+        let aside = `${dst}.paddock-old`;
+        for (let k = 2; fs.existsSync(aside); k++) aside = `${dst}.paddock-old-${k}`;
         io.rename(dst, aside);
         moved.push([dst, aside]);
       }
@@ -393,7 +398,6 @@ export async function install(tmpFile, origName, { overwrite = false } = {}) {
     prune(plan.map((p) => p.rel));
     throw e instanceof ModError ? e : new ModError(`Install failed: ${e.message}${lost.length ? ` (replaced files kept as .paddock-old: ${lost.length})` : ' (nothing was changed)'}`, 500);
   }
-  for (const [, aside] of moved) fs.rmSync(aside, { recursive: true, force: true });
 
   // the new mod owns its files now; drop them from the mods that had them, and drop mods left empty
   const store = load();
@@ -404,5 +408,7 @@ export async function install(tmpFile, origName, { overwrite = false } = {}) {
   const id = newId();
   store.mods.push({ id, name, files: plan.map((p) => p.rel), keys, enabled: true, source: 'upload', file: base, installedAt: Date.now() });
   save(store);
+  // the replaced files are no longer needed; best effort (the install itself is done)
+  for (const [, aside] of moved) { try { fs.rmSync(aside, { recursive: true, force: true }); } catch (e) { console.error(`[mods] could not remove ${aside}: ${e.message}`); } }
   return { id, installed: plan.length, skipped, replaced: conflicts.length, mods: list() };
 }

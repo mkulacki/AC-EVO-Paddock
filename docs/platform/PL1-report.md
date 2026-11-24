@@ -1,7 +1,7 @@
 # PL1 report: security and data safety
 
 - **Date:** 2026-11-24 · **Branch:** `platform/pl1-data-safety` (from `platform/integration` = `0365ce6`, PL0 merged there; `main` is still `be3b5ef`)
-- **Scope:** PL1.1 credential-safe backups, PL1.2 lap import hardening, PL1.3 adjacent boundaries (`docs/platform/BACKLOG.md`, PL1). Line numbers below are from this branch's last code commit (`8039ebf`) unless marked "PL0".
+- **Scope:** PL1.1 credential-safe backups, PL1.2 lap import hardening, PL1.3 adjacent boundaries (`docs/platform/BACKLOG.md`, PL1). Line numbers below are from `8039ebf` (before the review fixes) unless marked "PL0".
 - **Open decisions applied:** the conservative defaults of OD-PL-1 … OD-PL-4 (`docs/DECISIONS.md`); they stay `OPEN (operator)` for confirmation.
 
 ## What changed
@@ -15,9 +15,10 @@
 | `4eb5cd8` | `src/mods.js` install: replaced files are moved aside (`<file>.paddock-old`) and put back on any failure (`:364-396`); test seam `io.rename` (`:32`). Zip paths with Windows device names or a trailing dot/space are refused (`:267`). `src/setups.js`: device names get an underscore (`:33`); size check before parsing (`:222`). |
 | `5b3dc56` | `src/server.js:323-336`: GETs of private data (`/api/backup/file`, `/api/laps/<id>/export`, `/api/export/*`, `/api/diagnostics`, `/api/setups/export`) refuse `Sec-Fetch-Site: cross-site`/`same-site` and foreign `Origin`s. `/api/setups/import` reads at most 64 kB (`:496`). |
 | `8039ebf` | `src/backup.js:205-207`: a restored database holding a trigger, view or virtual table is refused (Paddock never creates any). |
-| docs commit | This report, `CHANGELOG.md` (Unreleased), `docs/DECISIONS.md` (OD-PL-5 … 7), `docs/PHASE_LOG.md`, `docs/DEVELOPMENT_STATE.md`. |
+| review fixes | After the independent review: `src/jsonfile.js` `loadJson` retries briefly held files (EBUSY/EPERM/EACCES), returns `canSave: false` when a file still cannot be read or a damaged one cannot be moved aside, and removes temp files of crashed writes. `settings.update` refuses to save over an unread `settings.json` (503, reloads it first when it has become readable) and changes memory only after a successful write; `race.json` and `setup-meta.json` saves refuse the same way (a start never fails on it). `GET /api/race` masks passwords in `presets` and `last` too (online starts use the server id; the planner reads presets through `race.presetById`). Mod install: an existing `.paddock-old` is never deleted (a free name is used), the cleanup is best effort after the manifest is written, and the device-name/trailing-dot check applies only to files that will be written. |
+| `3600bb7` | This report, `CHANGELOG.md` (Unreleased), `docs/DECISIONS.md` (OD-PL-5 … 7), `docs/PHASE_LOG.md`, `docs/DEVELOPMENT_STATE.md`. |
 
-New tests: `test/secrets.test.js` (9), `test/jsonfile.test.js` (5), `test/lapfile.test.js` (9), `test/mods.test.js` (3); additions to `test/appmgmt.test.js` (+2 tests, more assertions), `test/smoke.test.js` (+1 test, more assertions), `test/leaderboard.test.js` (+1).
+New tests: `test/settings-locked.test.js` (2, review fix), `test/secrets.test.js` (9), `test/jsonfile.test.js` (10), `test/lapfile.test.js` (9), `test/mods.test.js` (4); additions to `test/appmgmt.test.js` (+2 tests, more assertions), `test/smoke.test.js` (+1 test, more assertions), `test/leaderboard.test.js` (+1).
 
 ## Verified findings / rejected assumptions / unresolved
 
@@ -48,7 +49,8 @@ Each PL0 finding (static only in PL0) now has a runtime regression test on Node 
 | 1.3-i setup import parsed before size check | **Fixed** | size first; route reads ≤ 64 kB | "setups: …"; smoke 200 kB → 413/closed |
 | 1.3-k restored JSON trusted | **Fixed** (types) | `settings.normalize`; unknown keys kept | `jsonfile.test.js` "settings from disk …" |
 | 1.3-l restored DB triggers/views | **Resolved → fixed**: Paddock creates none (`grep` of `src/`), so any is refused | `src/backup.js:205` | `appmgmt.test.js` "restore: staged …" (trigger, view) |
-| 1.3-n non-atomic JSON, silent reset | **Fixed** | `src/jsonfile.js` | `jsonfile.test.js` (damaged settings and race kept aside, failed write leaves old file, no temp files) |
+| 1.3-n non-atomic JSON, silent reset | **Fixed** (review: also a locked file at start, stale temp files, memory changed only after a write) | `src/jsonfile.js`, `src/settings.js` | `jsonfile.test.js` (damaged files kept aside, failed write leaves file and memory unchanged, EBUSY retry, unreadable/unmovable → not saveable, stale temps removed), `settings-locked.test.js` |
+| review: race passwords in `GET /api/race` | **Fixed** | `race.lists` masks `presets`/`last` with `stripRace` | `jsonfile.test.js` "race: presets and the last setup …" |
 | 1.3-o Steam names in diagnostics | **Fixed** | sign-in name added to the redaction names; downloaded drivers' names were already covered (laps' `driver`) | "diagnostics: …" |
 
 Not verified at runtime: Windows behaviour of an actual `CON` file (the names are refused before any write, so no write test was needed); the packaged Electron/Node 24 runtime.
@@ -57,8 +59,8 @@ Not verified at runtime: Windows behaviour of an actual `CON` file (the names ar
 
 | Check | Before (`0365ce6`) | After (`8039ebf` + docs) |
 | --- | --- | --- |
-| `npm run check` | 104/104 | 111/111 |
-| `npm test` | 175/175 (17 files) | 205/205 (21 files) |
+| `npm run check` | 104/104 | 112/112 |
+| `npm test` | 175/175 (17 files) | 213/213 (22 files; 205 before the review fixes) |
 
 Node 22.23.4. No failures, no skips (the mod tests skip themselves only while AC EVO is running).
 
@@ -99,7 +101,7 @@ Node 22.23.4. No failures, no skips (the mod tests skip themselves only while AC
 
 - Import limits (16 MB file, 64 MB unpacked, 250 000 samples, 4 h lap, 100 km track, 1 s clock tolerance, value ranges) are based on the recorder's code, not on real laps of every car/track; a real lap outside a range would be refused with a message naming the channel. The steering (`str`) and rpm ranges are wide because their units are not verified in game.
 - Mod uploads are still unbounded on disk (OD-PL-6); extraction is bounded.
-- `writeFileAtomic` falls back to throwing after 5 refused renames; the caller's error handling is unchanged (settings saves still throw to the route).
+- `writeFileAtomic` throws after 5 refused renames, and a settings file that is unreadable at start blocks saves (503 from the route; the page shows the message) until it can be read again or Paddock restarts.
 - `docs/ARCHITECTURE.md`'s integration table still cites PL0 line numbers; refresh it in PL2 with the doc corrections.
 
 ## Recommended next phase

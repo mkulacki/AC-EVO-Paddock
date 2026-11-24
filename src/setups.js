@@ -12,17 +12,19 @@ import * as cs from './carsetup.js';
 import * as carsDb from './cars.js';
 import * as trackdata from './trackdata.js';
 import { ACE } from './gamebridge.js';
-import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
+import { loadJson, writeJsonAtomic, notSaved } from './jsonfile.js';
 
 export const ROOT = path.join(ACE, 'Car Setups');
 const EXT = '.carsetup';
 const META_FILE = path.join(db.DATA_DIR, 'setup-meta.json');
 
 // ---------------------------------------------------------------- Paddock's notes per file (data/setup-meta.json)
-let meta = readJsonSafe(META_FILE, { files: {} }); // a damaged file is kept aside, not overwritten
+// a damaged file is kept aside; one that could not be read at all (locked) is never saved over
+const metaLoad = loadJson(META_FILE, { files: {} });
+let meta = metaLoad.value;
 if (!meta.files || typeof meta.files !== 'object') meta = { files: {} };
 let metaT = null;
-const saveMeta = () => { clearTimeout(metaT); metaT = setTimeout(() => { try { writeJsonAtomic(META_FILE, meta, 1); } catch (e) { console.log(`[setup] notes not saved: ${e.message}`); } }, 300); };
+const saveMeta = () => { clearTimeout(metaT); metaT = setTimeout(() => { try { if (!metaLoad.canSave) throw notSaved(META_FILE); writeJsonAtomic(META_FILE, meta, 1); } catch (e) { console.log(`[setup] notes not saved: ${e.message}`); } }, 300); };
 const metaFor = (rel) => (meta.files[rel] ||= {});
 
 // ---------------------------------------------------------------- the files
