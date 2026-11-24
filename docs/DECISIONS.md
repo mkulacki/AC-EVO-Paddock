@@ -129,3 +129,14 @@ Raised in PL0 (`docs/platform/PL0-report.md`). Each has a conservative default t
   - **Conservative default:** refuse with a message naming the existing lap (match on track, layout, car, lap time, recorded time and sample count).
 - **OD-PL-4, secrets in before-restore safety backups. OPEN (operator).** They always include secrets (1.1-e) so that undoing a restore gives back the key and passwords.
   - **Conservative default:** keep them with secrets (minus the token, OD-PL-1), and keep the existing "with key" badge (`public/system.js:80`) ("Contains your Gemini key and server passwords", which stays accurate once the token is out). Not uploaded anywhere.
+
+## 2026-11-24: Platform plan PL1, defaults applied and new open decisions
+
+PL1 implemented the conservative defaults of OD-PL-1 … OD-PL-4 (`docs/platform/PL1-report.md`). They stay **OPEN (operator)** until the user confirms them; each can be changed in one place (`src/sensitive.js` for OD-PL-1/4, `src/lapfile.js` for OD-PL-2/3).
+
+- **OD-PL-5, telling the driver about a damaged settings file. OPEN (operator).** When `settings.json`, `race.json` or `setup-meta.json` cannot be read, PL1 keeps it aside as `<name>.unreadable-<time>` and logs a `[data]` line; the page shows nothing. Options: (a) log only; (b) a notice in Settings with the file name and how to recover it.
+  - **Conservative default:** (a). (b) is a UI addition beyond the plan; candidate for PL4.3 (health panel) or PL5 (error recovery).
+- **OD-PL-6, size cap for mod uploads. OPEN (operator).** Backup uploads are capped at the largest backup Paddock can make (PL1). Mod uploads (`/api/mods/upload`) stay uncapped: a `.kspkg` pack can be several GB and there is no natural ceiling; extraction itself is now bounded by the sizes the zip states. Options: (a) no cap; (b) a fixed cap (e.g. 8 GB); (c) a cap from free disk space.
+  - **Conservative default:** (a), local origin only (writes already refuse other sites).
+- **OD-PL-7, channels a newer Paddock might add to lap files. OPEN (operator).** A version-1 lap file with an unknown array is imported if it has one finite number per sample (kept as is); anything else that is not a channel is dropped. Options: (a) keep such channels (forward compatible); (b) drop every unknown key.
+  - **Conservative default:** (a), with the 64-channel cap. Nothing reads an unknown channel.
