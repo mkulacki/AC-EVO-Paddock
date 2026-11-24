@@ -6,7 +6,7 @@ Audited 2026-11-17 at `main` = `de836d2` (v0.5.0-beta.1); refreshed 2026-11-17 a
 
 | Layer | Technology | Notes |
 | --- | --- | --- |
-| Runtime | Node.js ≥ 22.5, ES modules | `node:sqlite` (built in) for storage, no ORM |
+| Runtime | Node.js ≥ 22.13, ES modules | `node:sqlite` (built in) for storage, no ORM |
 | Desktop shell | Electron 44.11.1 (`desktop/main.cjs`) | imports `src/server.js` **in-process**; tray, notifications, log file, overlay window. Electron 44 bundles **Node 24.22.2** (Chromium 152), `npm test` runs on the developer's Node (22.x); since PL2 `npm run test:electron` runs the same suite on the shipped Node 24 (214/214 at PL2) |
 | HTTP/API | hand-written router in `src/server.js` (`node:http`) | `127.0.0.1:8080`, JSON API + static files + SSE (`/api/events`) |
 | Frontend | vanilla ES modules in `public/`, no build step, no framework | hash router in `public/app.js`; charts with uPlot; fonts from `@fontsource` |

@@ -454,3 +454,38 @@ test('background work (PL2): a valid lap schedules a sync; stop() cancels everyt
     settings.update({ boardUrl: before.boardUrl, boardShare: before.boardShare, boardAuto: before.boardAuto, boardToken: before.boardToken, boardSteam: before.boardSteam });
   }
 });
+
+test('background work (PL2 review): after stop() nothing new is scheduled, not by a sync in flight, a lap or a sign-in', async () => {
+  const before = settings.get();
+  const url = 'http://127.0.0.1:3';
+  settings.update({ boardUrl: url, boardShare: true, boardAuto: true, boardToken: 'f'.repeat(64), boardSteam: { steamId: '76561198000000009', name: 'T', url } });
+  const calls = [];
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const fetchImpl = async (u) => {
+    calls.push(String(u));
+    if (String(u).endsWith('/v1/laps')) await gate; // the send is still on its way when stop() comes
+    return new Response(JSON.stringify({ ok: true, rank: 1, of: 1 }), { status: 200 });
+  };
+  const flush = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const app = lb.createLeaderboard({ recorder: null, appVersion: 'test', gameVersion: () => '0.9.9', fetchImpl }); // its own best: a new game version
+    const id = newLap(107000);
+    app.onLap({ id, valid: false }); // conditions only
+    const running = app.sync();
+    await flush();
+    assert.ok(calls.some((u) => u.endsWith('/v1/laps')), 'the send started');
+    app.stop();
+    release();
+    assert.equal((await running).sent, 1); // the send in flight finishes...
+    app.onLap({ id: newLap(108000), valid: true }); // ...but neither it nor a new lap schedules anything
+    calls.length = 0;
+    mock.timers.tick(60 * 60 * 1000);
+    await flush();
+    assert.deepEqual(calls, []);
+  } finally {
+    mock.timers.reset();
+    settings.update({ boardUrl: before.boardUrl, boardShare: before.boardShare, boardAuto: before.boardAuto, boardToken: before.boardToken, boardSteam: before.boardSteam });
+  }
+});

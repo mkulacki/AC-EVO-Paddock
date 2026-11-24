@@ -118,9 +118,11 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
   // Background work (the periodic sync, the check at start, the sync after a lap or a sign-in, the places after a
   // send) runs on timers kept here, so stop() ends all of it. background: false = none at all: tests call sync() and
   // checkRanks() themselves (a timer left over from one instance would otherwise race the next one on the shared DB).
+  // after stop() nothing new is scheduled either (a sync still in flight, a lap, a sign-in)
   const timers = new Set();
+  let stopped = false;
   const later = (fn, ms) => {
-    if (!background) return;
+    if (!background || stopped) return;
     const t = setTimeout(() => { timers.delete(t); fn(); }, ms);
     t.unref?.();
     timers.add(t);
@@ -446,6 +448,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     profile: () => profile,
     /** Ends the background work: the periodic sync and every deferred sync or check still pending. */
     stop() {
+      stopped = true;
       if (timer) clearInterval(timer);
       for (const t of timers) clearTimeout(t);
       timers.clear();
