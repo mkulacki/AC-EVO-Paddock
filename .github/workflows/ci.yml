@@ -1,0 +1,63 @@
+# Checks every push and pull request: the syntax of every shipped script and the test suite.
+# Tests need no credentials, no network service, no AI key and no running game: every test uses scratch data dirs
+# (test/helpers.js). The packaged-app smoke test (npm run smoke:packaged) is not run here: it needs a build and
+# port 8080, and is part of the release checklist instead.
+name: CI
+
+on:
+  push:
+    branches: [main, 'platform/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    # the app ships for Windows only: the whole suite, on Node 22 and on Electron's own Node (the packaged runtime)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - name: Tests on Electron's Node
+        run: npm run test:electron
+
+  ubuntu:
+    # Only the platform-neutral test files. Excluded, because they depend on Windows:
+    #   smoke.test.js     starts src/server.js (game process checks with tasklist, Windows shared memory)
+    #   mods.test.js      src/game.js runs tasklist; Windows file-locking behaviour
+    #   appmgmt.test.js   diagnostics redact Windows home-folder paths (backslash forms)
+    #   secrets.test.js   the same diagnostics redaction
+    #   feedback.test.js  setups in the game's Windows folder layout
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Platform-neutral tests
+        run: >-
+          node --no-warnings --test
+          test/aids.test.js test/analysis.test.js test/coach.test.js test/dashboard.test.js
+          test/db-migration.test.js test/development.test.js test/formats.test.js test/jsonfile.test.js
+          test/lapfile.test.js test/leaderboard.test.js test/provenance.test.js test/service.test.js
+          test/settings-locked.test.js test/setuphistory.test.js test/setupmatch.test.js test/shell.test.js
+          test/technique.test.js
