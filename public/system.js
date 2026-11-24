@@ -46,7 +46,9 @@ async function updatesCard() {
     $('#updOn').onchange = async (e) => { await post('/api/settings', { updateCheck: e.target.checked }); };
     $('#updNow').onclick = async () => { draw(u, true); try { const n = await post('/api/updates/check', {}); draw(n); window.dispatchEvent(new Event('paddock:updates')); } catch (e) { draw({ ...u, error: e.message }); } };
   };
-  try { draw(await api('/api/updates')); } catch (e) { box.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+  // the answer can come after the driver left Settings: the card is gone then, and nothing is drawn
+  let u; try { u = await api('/api/updates'); } catch (e) { if (box.isConnected) box.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  if (box.isConnected) draw(u);
 }
 
 const LS_PARTS = 'backup.parts';
@@ -58,7 +60,8 @@ async function backupCard(onRestart) {
   let chosen = new Set(['laps', 'settings', 'race', 'setupNotes']);
   try { const s = JSON.parse(localStorage.getItem(LS_PARTS) || 'null'); if (Array.isArray(s)) chosen = new Set(s); } catch { /* default */ }
   const draw = async () => {
-    let b; try { b = await api('/api/backup'); } catch (e) { box.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+    let b; try { b = await api('/api/backup'); } catch (e) { if (box.isConnected) box.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+    if (!box.isConnected) return; // the driver left Settings meanwhile (the page looks its parts up by id)
     const r = b.restored;
     box.innerHTML = `
       <p class="muted">A backup is one zip in <code>${esc(b.folder)}</code>, holding the parts you tick below. Restoring it brings back only those parts.

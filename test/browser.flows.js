@@ -278,6 +278,18 @@ test('settings notice API: only kept copies in data\\, only from Paddock itself;
   assert.ok(!fs.existsSync(path.join(env.ACEVO_DATA, OLD_COPY)));
 });
 
+test('settings: leaving the page before its cards load is not an error (root cause of the flaky keyboard test)', { skip }, async () => {
+  // the backup and update cards draw after their answers arrive; slow those down and leave at once, as Alt+0 then Alt+1 does
+  await js(`window.__realFetch = window.__realFetch || window.fetch;
+    window.fetch = async (u, o) => { if (/\\/api\\/(backup|updates)$/.test(String(u))) await new Promise((r) => setTimeout(r, 400)); return window.__realFetch(u, o); }; 1`);
+  try {
+    await go('#/settings', "document.querySelector('#sysBackup')");
+    await go('#/home');
+    await sleep(800);
+  } finally { await js('window.fetch = window.__realFetch; 1'); }
+  assert.deepEqual(errors, []);
+});
+
 test('settings: when settings.json cannot be saved, Save is disabled with the reason (review nit)', { skip }, async () => {
   // the server's answer is changed in the page only: making settings.json unreadable would need another server
   await js(`window.__realFetch = window.__realFetch || window.fetch;
