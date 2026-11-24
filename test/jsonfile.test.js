@@ -14,7 +14,7 @@ fs.writeFileSync(path.join(ACEVO_DATA, 'race.json'), '[1,2');
 // temp files of a write that crashed (another process id) hold the key: removed when the file loads
 const STALE = 'settings.json.999999.1.tmp';
 fs.writeFileSync(path.join(ACEVO_DATA, STALE), '{"geminiApiKey":"test-only-key-0123456789"}');
-const { writeFileAtomic, readJsonSafe, loadJson } = await import('../src/jsonfile.js');
+const { writeFileAtomic, readJsonSafe, loadJson, fileIssues } = await import('../src/jsonfile.js');
 const settings = await import('../src/settings.js');
 const race = await import('../src/race.js');
 
@@ -138,4 +138,81 @@ test('race: presets and the last setup reach the page without passwords; the ser
   assert.equal(p.spec.serverId, 'x', 'an online start still names its saved server');
   assert.equal(race.presetById(p.id).spec.server.password, 'secret-pw');
   assert.equal(l.last, null);
+});
+
+// ---------------------------------------------------------------- PL1D: the Settings page names damaged files (OD-PL-5)
+test('fileNotices: damaged settings.json and race.json are named with the copy kept, nothing else of them', () => {
+  const n = settings.fileNotices();
+  const s = n.find((x) => x.file === 'settings.json'), r = n.find((x) => x.file === 'race.json');
+  assert.deepEqual({ ...s, at: 0 }, { file: 'settings.json', state: 'aside', damaged: true, keptAs: asideOf('settings.json')[0], at: 0, savesRefused: false });
+  assert.equal(r.state, 'aside');
+  assert.equal(r.keptAs, asideOf('race.json')[0]);
+  assert.equal(n.filter((x) => x.file === 'settings.json').length, 1, 'the copy of this run is not listed again as an earlier one');
+  const text = JSON.stringify(n);
+  assert.ok(!text.includes(ACEVO_DATA) && !text.includes(dir) && !text.includes(path.sep + path.sep), 'no folder, only names');
+  assert.ok(!text.includes('test-only-key') && !text.includes('Jan'), 'nothing from inside the file');
+  // other folders (the loadJson tests above use scratch files) are not this install's data
+  assert.ok(!n.some((x) => /^(arr|stuck|locked)\.json$/.test(x.file)));
+  assert.ok(fileIssues().some((x) => x.file === 'stuck.json' && x.state === 'failed' && x.damaged), 'jsonfile itself records every file');
+});
+
+test('fileNotices: a damaged copy from an earlier run is listed until it is deleted; other files are not', () => {
+  const old = 'setup-meta.json.unreadable-1700000000000';
+  fs.writeFileSync(path.join(ACEVO_DATA, old), '{');
+  fs.writeFileSync(path.join(ACEVO_DATA, 'telemetry.db.unreadable-1700000000000'), 'x');
+  fs.writeFileSync(path.join(ACEVO_DATA, 'settings.json.unreadable-abc'), 'x');
+  const e = settings.fileNotices().filter((x) => x.state === 'earlier');
+  assert.deepEqual(e, [{ file: 'setup-meta.json', state: 'earlier', damaged: true, keptAs: old, at: 1700000000000, savesRefused: false }]);
+  fs.rmSync(path.join(ACEVO_DATA, old));
+  assert.ok(!settings.fileNotices().some((x) => x.state === 'earlier'));
+  for (const f of ['telemetry.db.unreadable-1700000000000', 'settings.json.unreadable-abc']) fs.rmSync(path.join(ACEVO_DATA, f));
+});
+
+// ---------------------------------------------------------------- PL1D: Dismiss and Delete copy (user decision B)
+test('dismiss: hidden for that copy only, kept across a reload of the list; a new copy is shown again', () => {
+  const a = 'race.json.unreadable-1700000000001', b = 'race.json.unreadable-1700000000002';
+  fs.writeFileSync(path.join(ACEVO_DATA, a), '{');
+  settings.dismissNotice(a);
+  assert.ok(!settings.fileNotices().some((n) => n.keptAs === a));
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(ACEVO_DATA, 'notices-dismissed.json'), 'utf8')), { copies: [a] }, 'names only');
+  fs.writeFileSync(path.join(ACEVO_DATA, b), '{');
+  assert.ok(settings.fileNotices().some((n) => n.keptAs === b), 'a new damaged copy is shown');
+  // the copy of this run (state aside) can be dismissed too
+  const thisRun = settings.fileNotices().find((n) => n.file === 'settings.json' && n.state === 'aside').keptAs;
+  settings.dismissNotice(thisRun);
+  assert.ok(!settings.fileNotices().some((n) => n.keptAs === thisRun));
+  for (const f of [a, b]) fs.rmSync(path.join(ACEVO_DATA, f));
+});
+
+test('delete copy: only a kept copy in data\\ goes; live files, other names, folders and paths are refused', () => {
+  const c = 'setup-meta.json.unreadable-1700000000003';
+  fs.writeFileSync(path.join(ACEVO_DATA, c), '{');
+  settings.dismissNotice(c);
+  settings.deleteKeptCopy(c);
+  assert.ok(!fs.existsSync(path.join(ACEVO_DATA, c)));
+  assert.ok(!JSON.parse(fs.readFileSync(path.join(ACEVO_DATA, 'notices-dismissed.json'), 'utf8')).copies.includes(c), 'its dismissal goes with it');
+  assert.throws(() => settings.deleteKeptCopy(c), (e) => e.code === 404);
+  const live = fs.readFileSync(path.join(ACEVO_DATA, 'settings.json'), 'utf8');
+  fs.writeFileSync(path.join(dir, 'outside.json.unreadable-1'), 'x');
+  fs.mkdirSync(path.join(ACEVO_DATA, 'race.json.unreadable-1700000000004'));
+  for (const bad of ['settings.json', 'race.json', 'setup-meta.json', '../settings.json', '..\\settings.json', 'settings.json.unreadable-1/../../settings.json',
+    path.join(ACEVO_DATA, 'settings.json.unreadable-1'), '..\\race.json.unreadable-1', '../outside.json.unreadable-1', 'notices-dismissed.json', 'telemetry.db', 'race.json.unreadable-1700000000004', '', null, 5, ['x']]) {
+    assert.throws(() => settings.deleteKeptCopy(bad), (e) => e.code === 400 || e.code === 404, String(bad));
+    assert.throws(() => settings.dismissNotice(bad), (e) => e.code === 400 || e.code === 404, String(bad));
+  }
+  assert.equal(fs.readFileSync(path.join(ACEVO_DATA, 'settings.json'), 'utf8'), live, 'the live file is untouched');
+  assert.ok(fs.existsSync(path.join(dir, 'outside.json.unreadable-1')) && fs.statSync(path.join(ACEVO_DATA, 'race.json.unreadable-1700000000004')).isDirectory());
+  fs.rmdirSync(path.join(ACEVO_DATA, 'race.json.unreadable-1700000000004'));
+});
+
+test('dismissals are read once and kept in memory; never recorded as a damaged settings file (round 3)', () => {
+  const real = fs.readFileSync; let reads = 0;
+  fs.readFileSync = (f, ...a) => { if (String(f).endsWith('notices-dismissed.json')) reads++; return real(f, ...a); };
+  try { for (let k = 0; k < 3; k++) settings.fileNotices(); } finally { fs.readFileSync = real; }
+  assert.equal(reads, 0, 'served from memory after the first read / write');
+  fs.writeFileSync(path.join(ACEVO_DATA, 'notices-dismissed.json'), '{broken');
+  settings.fileNotices();
+  assert.ok(!fileIssues().some((x) => x.file === 'notices-dismissed.json'), 'not a file issue');
+  assert.ok(!settings.fileNotices().some((n) => n.file === 'notices-dismissed.json'));
+  assert.ok(fs.existsSync(path.join(ACEVO_DATA, 'notices-dismissed.json')), 'not moved aside either');
 });

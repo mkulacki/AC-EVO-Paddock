@@ -1,7 +1,8 @@
 // Browser flows (PL2): the real pages in headless Edge (or Chrome), driven over the DevTools protocol with Node's own
 // WebSocket, against a mock server on scratch data. `npm run test:browser` (also part of `npm run verify`).
 // Covers: open a session, compare two laps, import a valid / duplicate / broken lap file, change a setting, keyboard
-// navigation (Alt+digit, Ctrl+K palette, ?, Esc). Every page must load without a JavaScript error.
+// navigation (Alt+digit, Ctrl+K palette, ?, Esc), the damaged-file notice in Settings (PL1D, OD-PL-5). Every page must
+// load without a JavaScript error.
 // Skipped when no Edge/Chrome is found (set PADDOCK_BROWSER to the browser's .exe to choose one).
 // No game, no network, no AI key: the server runs with --mock on a free port, the browser has a scratch profile.
 import { test, before, after } from 'node:test';
@@ -20,6 +21,7 @@ const BROWSER = BROWSERS.find((b) => fs.existsSync(b));
 const skip = !BROWSER ? 'no Edge or Chrome found (set PADDOCK_BROWSER)' : typeof WebSocket !== 'function' ? 'this Node has no WebSocket' : false;
 
 const env = isolate('browser');
+const OLD_COPY = 'race.json.unreadable-1700000000000';
 const childEnv = { ...process.env, ...env, PADDOCK_TEST_SEED: '7' };
 if (!process.versions.electron) delete childEnv.ELECTRON_RUN_AS_NODE;
 const node = (...args) => ['--no-warnings', '--import', pathToFileURL(path.join(ROOT, 'test/preload-seed.js')).href, ...args];
@@ -65,7 +67,8 @@ async function press(key, { alt = false, ctrl = false, shift = false, code } = {
   const modifiers = (alt ? 1 : 0) | (ctrl ? 2 : 0) | (shift ? 8 : 0);
   const vk = KEYS[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
   const c = code ?? (key.length === 1 ? (/[0-9]/.test(key) ? `Digit${key}` : /[a-z]/i.test(key) ? `Key${key.toUpperCase()}` : '') : key);
-  const text = key.length === 1 && !alt && !ctrl ? key : undefined;
+  // Enter carries its text ("\r") as a real key does: that is what activates a focused button
+  const text = alt || ctrl ? undefined : key === 'Enter' ? '\r' : key.length === 1 ? key : undefined;
   await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code: c, modifiers, windowsVirtualKeyCode: vk, text });
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code: c, modifiers, windowsVirtualKeyCode: vk });
 }
@@ -75,6 +78,10 @@ before(async () => {
   if (skip) return;
   // demo laps on scratch data, then the server on a free port (as test/smoke.test.js does)
   execFileSync(process.execPath, node(path.join(ROOT, 'src/mock.js'), '--seed', '6'), { env: childEnv, cwd: ROOT, stdio: 'ignore' });
+  // a damaged setup-meta.json: the server keeps it aside at start and the Settings page must say so (OD-PL-5)
+  fs.writeFileSync(path.join(env.ACEVO_DATA, 'setup-meta.json'), '{"files": {"x": {"notes": "half');
+  // and a damaged copy left by an earlier run (listed as 'earlier')
+  fs.writeFileSync(path.join(env.ACEVO_DATA, OLD_COPY), '{');
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   server = spawn(process.execPath, node(path.join(ROOT, 'src/server.js'), '--mock', '1'), { env: { ...childEnv, PORT: String(port) }, cwd: ROOT });
@@ -211,6 +218,112 @@ test('settings: a changed driver name is saved; the Gemini key field never holds
   await go('#/settings', "document.querySelector('#driverName')");
   assert.equal(await js("document.querySelector('#driverName').value"), 'Browser Test', 'kept after leaving the page');
   assert.equal(await js("document.querySelector('#geminiApiKey').value"), '', 'no key set, none shown');
+  assert.deepEqual(errors, []);
+});
+
+test('settings: a damaged data file is named, with the copy kept and how to recover (OD-PL-5)', { skip }, async () => {
+  const kept = fs.readdirSync(env.ACEVO_DATA).find((n) => n.startsWith('setup-meta.json.unreadable-'));
+  assert.ok(kept, 'kept aside by the server');
+  const n = (await api('/api/settings')).body.fileNotices;
+  assert.deepEqual(n.map((x) => [x.file, x.state, x.keptAs, x.savesRefused]), [['setup-meta.json', 'aside', kept, false], ['race.json', 'earlier', OLD_COPY, false]]);
+  assert.equal((await api('/api/settings')).body.canSave, true);
+  await go('#/settings', "document.querySelector('#fileNotices')");
+  assert.equal(await js("document.querySelector('#fileNotices').getAttribute('role')"), 'note', 'a note, not a live region announced on load');
+  const text = await js("document.querySelector('#fileNotices').textContent");
+  assert.match(text, /setup-meta\.json was damaged/);
+  assert.ok(text.includes(`data/${kept}`), 'where the copy is');
+  assert.match(text, /rename it back/);
+  assert.ok(!text.includes(env.ACEVO_DATA), 'no full folder path');
+  assert.equal(await js("document.querySelector('#fileNotices a[href=\"#/setups\"]') !== null"), true, 'a link to where the notes are');
+  assert.deepEqual(errors, []);
+});
+
+test('settings: Dismiss hides a notice for good; Delete copy asks on the page, Esc cancels, then deletes (decision B)', { skip }, async () => {
+  const kept = fs.readdirSync(env.ACEVO_DATA).find((n) => n.startsWith('setup-meta.json.unreadable-'));
+  const li = (name) => `document.querySelector('#fileNotices li:has([data-fn-dismiss="${name}"])')`;
+  await go('#/settings', `${li(OLD_COPY)}`);
+  // Dismiss, by keyboard: focus the button and press Enter
+  await js(`${li(OLD_COPY)}.querySelector('[data-fn-dismiss]').focus(); 1`);
+  await press('Enter');
+  await waitFor(`!${li(OLD_COPY)}`, 'the dismissed notice gone');
+  assert.ok(fs.existsSync(path.join(env.ACEVO_DATA, OLD_COPY)), 'dismiss deletes nothing');
+  await go('#/home');
+  await go('#/settings', "document.querySelector('#fileNotices')");
+  assert.equal(await js(`!!${li(OLD_COPY)}`), false, 'still hidden after leaving the page');
+  // Delete copy: an on-page confirm step (no dialog), Esc goes back, then Delete
+  const n0 = dialogs.length;
+  await js(`${li(kept)}.querySelector('[data-fn-delete]').click(); 1`);
+  await waitFor(`!${li(kept)}.querySelector('.fn-confirm').hidden && document.activeElement === ${li(kept)}.querySelector('[data-fn-no]')`, 'the confirm step, focused on Keep it');
+  await press('Escape');
+  await waitFor(`${li(kept)}.querySelector('.fn-confirm').hidden && document.activeElement === ${li(kept)}.querySelector('[data-fn-delete]')`, 'Esc: back to the buttons');
+  assert.ok(fs.existsSync(path.join(env.ACEVO_DATA, kept)));
+  await js(`${li(kept)}.querySelector('[data-fn-delete]').click(); ${li(kept)}.querySelector('[data-fn-yes]').click(); 1`);
+  await waitFor("!document.querySelector('#fileNotices')", 'no notice left');
+  assert.ok(!fs.existsSync(path.join(env.ACEVO_DATA, kept)), 'the copy is deleted');
+  assert.ok(fs.existsSync(path.join(env.ACEVO_DATA, OLD_COPY)), 'the dismissed one is untouched');
+  assert.equal(dialogs.length, n0, 'no confirm()/alert() dialog');
+  assert.deepEqual(errors, []);
+});
+
+test('settings notice API: only kept copies in data\\, only from Paddock itself; live files are never deleted', { skip }, async () => {
+  const post = (body, origin = base) => api('/api/settings/notice', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  for (const keptAs of ['settings.json', 'race.json', 'setup-meta.json', '../settings.json', '..\\settings.json', 'settings.json.unreadable-1/../../x', path.join(env.ACEVO_DATA, OLD_COPY), 'telemetry.db']) {
+    const r = await post({ action: 'delete', keptAs });
+    assert.ok(r.status === 400 || r.status === 404, `${keptAs}: ${r.status}`);
+  }
+  assert.equal((await post({ action: 'rename', keptAs: OLD_COPY })).status, 400);
+  assert.equal((await post({ action: 'delete', keptAs: OLD_COPY }, 'http://evil.example')).status, 403, 'another site is refused');
+  assert.ok(fs.existsSync(path.join(env.ACEVO_DATA, OLD_COPY)));
+  assert.equal((await post({ action: 'delete', keptAs: OLD_COPY })).status, 200);
+  assert.ok(!fs.existsSync(path.join(env.ACEVO_DATA, OLD_COPY)));
+});
+
+test('settings: leaving the page before its cards load is not an error (root cause of the flaky keyboard test)', { skip }, async () => {
+  // the backup and update cards draw after their answers arrive; slow those down and leave at once, as Alt+0 then Alt+1 does
+  await js(`window.__realFetch = window.__realFetch || window.fetch;
+    window.fetch = async (u, o) => { if (/\\/api\\/(backup|updates)$/.test(String(u))) await new Promise((r) => setTimeout(r, 400)); return window.__realFetch(u, o); }; 1`);
+  try {
+    await go('#/settings', "document.querySelector('#sysBackup')");
+    await go('#/home');
+    await sleep(800);
+  } finally { await js('window.fetch = window.__realFetch; 1'); }
+  assert.deepEqual(errors, []);
+});
+
+test('restore confirm text: key and sign-in with the settings part, passwords and servers with the race part (round 3)', { skip }, async () => {
+  const note = (parts) => js(`import('/system.js').then((m) => m.restoreSecretsNote(${JSON.stringify(parts)}))`);
+  assert.equal(await note(['laps']), '');
+  const s = await note(['settings']), r = await note(['race']), both = await note(['settings', 'race']);
+  assert.match(s, /Gemini key and leaderboard sign-in/); assert.doesNotMatch(s, /password|servers/);
+  assert.match(r, /server passwords/); assert.match(r, /servers missing from the backup are kept/); assert.doesNotMatch(r, /Gemini|sign-in/);
+  assert.equal(both, s + r);
+});
+
+test('settings: "Check now" answered after leaving the page is not an error (round 3)', { skip }, async () => {
+  await go('#/settings', "document.querySelector('#updNow')");
+  await js(`window.__realFetch = window.__realFetch || window.fetch;
+    window.fetch = async (u, o) => { if (String(u).endsWith('/api/updates/check')) { await new Promise((r) => setTimeout(r, 400)); return new Response('{"current":"t","enabled":true}', { status: 200, headers: { 'content-type': 'application/json' } }); } return window.__realFetch(u, o); }; 1`);
+  try {
+    await js("document.querySelector('#updNow').click(); 1");
+    await go('#/home');
+    await sleep(800);
+  } finally { await js('window.fetch = window.__realFetch; 1'); }
+  assert.deepEqual(errors, []);
+});
+
+test('settings: when settings.json cannot be saved, Save is disabled with the reason (review nit)', { skip }, async () => {
+  // the server's answer is changed in the page only: making settings.json unreadable would need another server
+  await js(`window.__realFetch = window.__realFetch || window.fetch;
+    window.fetch = async (u, o) => { const r = await window.__realFetch(u, o);
+      if (String(u).endsWith('/api/settings') && !(o && o.method)) { const j = await r.json(); return new Response(JSON.stringify({ ...j, canSave: false }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+      return r; }; 1`);
+  try {
+    await go('#/settings', "document.querySelector('#save')");
+    assert.equal(await js("document.querySelector('#save').disabled"), true);
+    assert.match(await js("document.querySelector('#saved').textContent"), /Saving is off: settings\.json could not be read/);
+  } finally { await js('window.fetch = window.__realFetch; 1'); }
+  await go('#/settings', "document.querySelector('#save')");
+  assert.equal(await js("document.querySelector('#save').disabled"), false, 'enabled when it can be saved');
   assert.deepEqual(errors, []);
 });
 

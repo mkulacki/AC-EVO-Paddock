@@ -868,6 +868,16 @@ async function route(req, res) {
   if (p === '/api/board/combos') { const r = await board.call('/v1/combos'); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/board/versions') { const r = await board.call(`/v1/versions?${url.searchParams}`); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/board/table') { const r = await board.table(Object.fromEntries(url.searchParams)); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
+  // the damaged-file notice in Settings: hide it for one kept copy, or delete that copy (names checked in src/settings.js)
+  if (p === '/api/settings/notice' && m === 'POST') {
+    const { action, keptAs } = await readJson(req);
+    try {
+      if (action === 'dismiss') settings.dismissNotice(keptAs);
+      else if (action === 'delete') { settings.deleteKeptCopy(keptAs); console.log(`[data] deleted the damaged copy ${keptAs}`); }
+      else return send(res, 400, { error: 'Unknown action' });
+    } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
+    return send(res, 200, { fileNotices: settings.fileNotices() });
+  }
   if (p === '/api/settings') {
     if (m === 'POST') {
       const body = await readJson(req);
@@ -880,8 +890,10 @@ async function route(req, res) {
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
       if (settings.get().markKey !== oldKey) bindMarkKey();
     }
-    // the game files folder in use (read at start) and the one Windows reports, for the Settings page
-    return send(res, 200, { ...settings.publicView(), aceInUse: ACE, aceAuto: ACE_AUTO, aceExists: fs.existsSync(ACE), markKeyState });
+    // the game files folder in use (read at start) and the one Windows reports, for the Settings page; damaged or
+    // unreadable files of the driver's (OD-PL-5) and whether settings can be saved
+    return send(res, 200, { ...settings.publicView(), aceInUse: ACE, aceAuto: ACE_AUTO, aceExists: fs.existsSync(ACE), markKeyState,
+      fileNotices: settings.fileNotices(), canSave: settings.saveable() });
   }
   if (p === '/api/ai/models') return send(res, 200, await ai.listModels());
   if (p === '/api/ai/analyze' && m === 'POST') {

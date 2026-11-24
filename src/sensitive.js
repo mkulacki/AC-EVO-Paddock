@@ -5,7 +5,7 @@
 //
 //   secret     a value that must never leave this PC by accident (Gemini key, saved server passwords)
 //   sign-in    the leaderboard login and who it belongs to: never in any backup, and a restore never brings it back
-//              (decision OD-PL-1: a restore signs the leaderboard out; one Steam sign-in renews it)
+//              from one: the install's current sign-in is kept (decision OD-PL-1 (b), like the Gemini key)
 
 // settings.json fields: kind, the value a stripped copy gets, and
 // page: what the browser gets (src/settings.js publicView): 'masked' (last 4 characters), 'hidden', or 'shown'
@@ -71,14 +71,18 @@ export function settingsSecrets(s) {
 
 /**
  * settings.json brought back by a restore, merged with the current one:
- * - secrets the backup left out (empty or missing) are kept from the current file;
- * - the sign-in is never taken from the backup and is cleared (OD-PL-1): the driver signs in with Steam again.
+ * - current secrets win (user decision 2026-11-24): a secret the install has (Gemini key) is never replaced by the
+ *   backup's; only an empty or missing one is filled from the backup;
+ * - the sign-in is never taken from the backup (an older one may still hold a token): the current install's sign-in
+ *   is kept as it is, or stays empty when there is none (OD-PL-1 (b)).
  */
 export function mergeRestoredSettings(restored, current) {
   const out = restored && typeof restored === 'object' && !Array.isArray(restored) ? { ...restored } : {};
+  const cur = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+  const signedIn = SIGN_IN_FIELDS.every((k) => cur[k]); // only a whole sign-in is kept (token and who it is), never half
   for (const [k, f] of Object.entries(SETTINGS_FIELDS)) {
-    if (f.kind === 'sign-in') out[k] = f.empty;
-    else if (!out[k] && current?.[k]) out[k] = current[k];
+    if (f.kind === 'sign-in') out[k] = signedIn ? cur[k] : f.empty;
+    else if (cur[k]) out[k] = cur[k];
   }
   return out;
 }

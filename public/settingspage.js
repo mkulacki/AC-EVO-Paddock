@@ -17,9 +17,64 @@ const HUD_GROUPS = [
 // what the preview is drawn over, to judge the HUD against bright and dark scenes
 const HUD_PREVIEW_BG = [['dark', 'Dark'], ['light', 'Light'], ['track', 'Track']];
 const THEMES = [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']];
+
+// Damaged or unreadable files of the driver's (decision OD-PL-5; /api/settings fileNotices, src/settings.js): which file,
+// where the damaged copy is kept, and how to get its contents back. Names only, the folder is always data\.
+const OWN_FILES = {
+  'settings.json': ['your settings (driver name, Gemini key, HUD and the other choices on this page)', 'enter your settings again on this page'],
+  'race.json': ['your Race tab presets and saved servers', 'add them again on the <a href="#/race">Race</a> tab'],
+  'setup-meta.json': ['your notes on setup files', 'write the notes again on the <a href="#/setups">Setups</a> tab'],
+};
+function fileNoticeHtml(n) {
+  const [what, redo] = OWN_FILES[n.file] || ['what it holds', 'enter it again'];
+  const f = `<code>${esc(n.file)}</code>`, kept = n.keptAs ? `<code>data/${esc(n.keptAs)}</code>` : '';
+  if (n.state === 'earlier') return `A damaged copy of ${f} from ${esc(new Date(n.at).toLocaleString())} is still kept as ${kept}.
+    If you no longer need what was in it, delete the copy, or dismiss this notice.`;
+  if (n.state === 'aside') return `<b>${f} was damaged</b> when Paddock started, so ${what} started from defaults.
+    What was in it is kept as ${kept}. To get it back, quit Paddock, then repair that file (it is plain JSON text) or rename it back to ${f}
+    (replacing the new one), and start Paddock again. Or ${redo}.`;
+  const refused = n.file === 'settings.json' ? 'Saving on this page is refused' : 'Saving it is refused';
+  if (n.damaged) return `<b>${f} is damaged</b> and could not be moved aside, so ${what} use defaults. ${refused}, so nothing in it is overwritten.
+    Quit Paddock, repair or remove <code>data/${esc(n.file)}</code>, and start Paddock again.`;
+  return `<b>${f} could not be read</b> (another program, for example antivirus or OneDrive, may be holding it), so ${what} use defaults for now.
+    ${refused} until it can be read, so nothing in it is lost. Close the program holding it and restart Paddock.`;
+}
+// a notice with a kept copy can be dismissed (it stays hidden for that copy) or the copy deleted, after a confirm step
+// on the page itself (user decision B); a file that could not be read has no copy and no buttons
+const fileActionsHtml = (n) => (n.keptAs ? `<div class="row fn-actions" style="margin:4px 0 0">
+    <button class="small ghost" data-fn-dismiss="${esc(n.keptAs)}">Dismiss</button>
+    <button class="small ghost danger-ghost" data-fn-delete="${esc(n.keptAs)}">Delete copy</button></div>
+  <div class="row fn-confirm" hidden style="margin:4px 0 0"><span>Delete <code>data/${esc(n.keptAs)}</code> for good? What was in it cannot be brought back.</span>
+    <button class="small danger-ghost" data-fn-yes="${esc(n.keptAs)}">Delete</button><button class="small ghost" data-fn-no>Keep it</button></div>
+  <div class="error fn-msg" style="font-size:var(--fs-xs)"></div>` : '');
+const fileNoticesHtml = (list) => (list?.length ? `<div class="note-warn" id="fileNotices" role="note" aria-labelledby="fileNoticesTitle" style="margin:0 0 12px">
+  <h2 id="fileNoticesTitle" style="margin:0 0 6px;font-size:var(--fs-md)">${list.some((n) => n.state !== 'earlier') ? 'A data file could not be read' : 'Damaged data files kept'}</h2>
+  <ul style="margin:0;padding-left:18px">${list.map((n) => `<li data-file="${esc(n.file)}" data-state="${esc(n.state)}" style="margin:0 0 6px">${fileNoticeHtml(n)}${fileActionsHtml(n)}</li>`).join('')}</ul></div>` : '');
+/** Wires the notice's buttons; after a change the notice is drawn again from the server's answer. */
+function bindFileNotices(box) {
+  const redraw = (list, focusSel) => {
+    box.innerHTML = fileNoticesHtml(list);
+    bindFileNotices(box);
+    // focus goes somewhere sensible: the next notice's first button, else the Settings heading
+    (box.querySelector(focusSel || 'button') || document.querySelector('#settingsTitle'))?.focus();
+  };
+  const act = async (li, action, keptAs) => {
+    try { const r = await post('/api/settings/notice', { action, keptAs }); redraw(r.fileNotices); }
+    catch (e) { li.querySelector('.fn-msg').textContent = e.message; }
+  };
+  box.querySelectorAll('li').forEach((li) => {
+    const actions = li.querySelector('.fn-actions'), confirmRow = li.querySelector('.fn-confirm');
+    if (!actions) return;
+    li.querySelector('[data-fn-dismiss]').onclick = (e) => act(li, 'dismiss', e.currentTarget.dataset.fnDismiss);
+    li.querySelector('[data-fn-delete]').onclick = () => { actions.hidden = true; confirmRow.hidden = false; confirmRow.querySelector('[data-fn-no]').focus(); };
+    confirmRow.querySelector('[data-fn-no]').onclick = () => { confirmRow.hidden = true; actions.hidden = false; li.querySelector('[data-fn-delete]').focus(); };
+    confirmRow.querySelector('[data-fn-yes]').onclick = (e) => act(li, 'delete', e.currentTarget.dataset.fnYes);
+    confirmRow.onkeydown = (e) => { if (e.key === 'Escape') { e.stopPropagation(); confirmRow.querySelector('[data-fn-no]').click(); } };
+  });
+}
 export async function viewSettings(view, cleanup, { restartPaddock, setStatus }) {
   const s = await api('/api/settings');
-  view.innerHTML = `<div class="card"><h1>Settings</h1><p class="muted">Stored locally in <code>data/settings.json</code>.</p>
+  view.innerHTML = `<div class="card"><h1 id="settingsTitle" tabindex="-1">Settings</h1><p class="muted">Stored locally in <code>data/settings.json</code>.</p><div id="fileNoticesBox">${fileNoticesHtml(s.fileNotices)}</div>
     <div class="form">
       <label>Theme</label><div class="row"><span class="seg" id="theme">${THEMES.map(([k, label]) => `<button class="small" data-theme="${k}">${label}</button>`).join('')}</span></div>
       <div class="hint">Saved on this computer straight away. "System" follows the Windows light / dark setting.</div>
@@ -170,6 +225,12 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
     try { sp = (await post('/api/settings', { spotter: sp })).spotter; await post('/api/spotter/test', {}); } catch (e) { $('#spSaved').textContent = e.message; }
     setTimeout(spShowState, 300);
   };
+  bindFileNotices($('#fileNoticesBox'));
+  // settings.json could not be read at start: saving is refused by the server (src/settings.js), so the button says so
+  if (s.canSave === false) {
+    $('#save').disabled = true;
+    $('#saved').textContent = 'Saving is off: settings.json could not be read (see the notice above). Close the program holding it and restart Paddock.';
+  }
   $('#save').onclick = async () => {
     const body = Object.fromEntries(['driverName', 'geminiApiKey', 'geminiModel', 'language', 'gamePath', 'aceDir'].map((k) => [k, $('#' + k).value.trim()]));
     try {

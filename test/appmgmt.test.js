@@ -84,7 +84,7 @@ test('restore: staged with a safety backup first; refused for a damaged database
   assert.equal(backup.listBackups().length, before + 1);
   assert.match(r.before, /before-restore/);
   const safety = backup.listBackups().find((b) => b.name === r.before);
-  assert.equal(safety.includesSecrets, true, 'the local safety copy keeps the key');
+  assert.equal(safety.includesSecrets, false, 'the safety copy holds no secrets (OD-PL-4)');
   backup.cancelRestore();
   assert.ok(!backup.pending());
   // a backup whose database is not Paddock's

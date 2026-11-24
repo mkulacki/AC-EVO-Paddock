@@ -40,6 +40,20 @@ function removeStaleTemps(file) {
   }
 }
 
+// files loadJson found damaged or unreadable in this run, by full path (decision OD-PL-5: the Settings page names them).
+// Only the file name and the name of the kept copy are recorded, never the folder or what was in the file.
+const issues = new Map();
+// (not the parse error either: JSON.parse quotes a piece of the file, which may be a key)
+const noteIssue = (file, { state, aside = null, damaged = false }) => {
+  if (state === 'ok' || state === 'missing') issues.delete(file);
+  else issues.set(file, { file: path.basename(file), state, damaged: state === 'aside' || damaged, keptAs: aside ? path.basename(aside) : null, at: Date.now() });
+};
+/**
+ * Files that were damaged ('aside': kept as keptAs, defaults used) or could not be read ('failed': not saved over;
+ * damaged = it was damaged but could not be moved aside, else it could not be read at all), this run; dir: only that folder's.
+ */
+export const fileIssues = (dir = null) => [...issues].filter(([f]) => !dir || path.dirname(f) === path.resolve(dir)).map(([, x]) => ({ ...x }));
+
 /**
  * Loads a JSON file. -> {value, state, canSave}
  *   missing  → dflt, canSave
@@ -50,7 +64,12 @@ function removeStaleTemps(file) {
  *              dflt, and canSave = false: the caller must not write the file (it would replace the driver's data)
  * accept(value) says whether the parsed value is the expected kind (default: a plain object).
  */
-export function loadJson(file, dflt, { accept = (v) => !!v && typeof v === 'object' && !Array.isArray(v), log = console.error, retries = 5 } = {}) {
+export function loadJson(file, dflt, opts = {}) {
+  const out = load(file, dflt, opts);
+  noteIssue(file, out);
+  return { value: out.value, state: out.state, canSave: out.canSave };
+}
+function load(file, dflt, { accept = (v) => !!v && typeof v === 'object' && !Array.isArray(v), log = console.error, retries = 5 } = {}) {
   removeStaleTemps(file);
   let text;
   for (let k = 0; ; k++) {
@@ -67,10 +86,10 @@ export function loadJson(file, dflt, { accept = (v) => !!v && typeof v === 'obje
   const aside = `${file}.unreadable-${Date.now()}`;
   try { fs.renameSync(file, aside); } catch (e) {
     log(`[data] ${path.basename(file)} is damaged (${why}) and could not be kept aside (${e.code || e.message}): using defaults, not saving over it`);
-    return { value: dflt, state: 'failed', canSave: false };
+    return { value: dflt, state: 'failed', canSave: false, damaged: true };
   }
   log(`[data] ${path.basename(file)} is damaged (${why}): kept as ${path.basename(aside)}, using defaults`);
-  return { value: dflt, state: 'aside', canSave: true };
+  return { value: dflt, state: 'aside', canSave: true, aside };
 }
 
 /** loadJson's value only (for files whose loss costs nothing). */

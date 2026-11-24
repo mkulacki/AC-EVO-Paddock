@@ -704,6 +704,7 @@ table.technique td { white-space: nowrap; }
 
 /* ---- Car & setup tab: suggestions, the four tyres, balance */
 .note-warn { border-left: 3px solid var(--warning, #9a7300); font-size: var(--fs-sm); padding: 10px 14px; }
+.fn-actions[hidden], .fn-confirm[hidden] { display: none; } /* Settings: damaged-file notice (public/settingspage.js) */
 .sugs { list-style: none; margin: 0; padding: 0; }
 .sugs li { display: grid; grid-template-columns: 10px 96px 1fr; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
 .sugs .lvl { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
