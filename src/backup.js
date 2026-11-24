@@ -4,7 +4,8 @@
 // driver picks which of these parts (PARTS) go in; a restore brings back only the parts the backup holds.
 // Left out: caches (track/car data, thumbnails), the game catalogue the HUD read, the Mods tab manifest (it describes
 // the files in this PC's game folder, so restoring it elsewhere or later would not match the disk), disabled mods,
-// logs and the backups themselves. The Gemini key and saved server passwords are left out unless asked for.
+// logs and the backups themselves. The Gemini key and saved server passwords are left out unless asked for; the
+// leaderboard sign-in (token and Steam identity) is never in a backup (src/sensitive.js, decision OD-PL-1).
 // Restore: the backup is checked and unpacked to data\restore-pending, a backup of the current data is made first,
 // and the files are swapped at the next start (src/restore-apply.js), before the database is opened.
 import fs from 'node:fs';
@@ -13,12 +14,15 @@ import { DatabaseSync } from 'node:sqlite';
 import * as db from './db.js';
 import { writeZip, list, extract, readEntry } from './zip.js';
 import { PENDING, RESTORABLE } from './restore-apply.js';
+import { stripSettings, stripRace } from './sensitive.js';
 
 export const BACKUP_DIR = path.join(db.DATA_DIR, 'backups');
 export const FORMAT = 'acevo-paddock-backup';
 const FORMAT_VERSION = 1;
 export const JSON_FILES = RESTORABLE.filter((f) => f !== 'telemetry.db');
 const MAX_DB = 3.9 * 1024 ** 3; // the zip has no Zip64: a bigger database cannot be backed up this way
+// an uploaded backup can be at most this big (the largest backup Paddock makes, plus room for the small files)
+export const MAX_UPLOAD = Math.ceil(MAX_DB + 256 * 1024 ** 2);
 
 const p2 = (n) => String(n).padStart(2, '0');
 const stamp = (d = new Date()) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
@@ -27,7 +31,7 @@ const err = (msg, code = 400) => Object.assign(new Error(msg), { code });
 // What a backup can hold, chosen in Settings: each part is one file in data\.
 export const PARTS = [
   { id: 'laps', file: 'telemetry.db', label: 'Laps, sessions and reports', hint: 'every lap with its telemetry, sessions, reports, brake marks, goals and saved AI answers' },
-  { id: 'settings', file: 'settings.json', label: 'Settings', hint: 'your driver name, HUD and spotter settings, folders (the Gemini key only if you include it)' },
+  { id: 'settings', file: 'settings.json', label: 'Settings', hint: 'your driver name, HUD and spotter settings, folders (the Gemini key only if you include it; never the leaderboard sign-in)' },
   { id: 'race', file: 'race.json', label: 'Race tab presets and servers', hint: 'saved presets, online servers (passwords only if you include them) and the last setup' },
   { id: 'setupNotes', file: 'setup-meta.json', label: 'Setup notes', hint: "your notes on setups and where they came from (the setup files themselves stay in the game's folder)" },
 ];
@@ -61,13 +65,13 @@ try {
   for (const n of fs.readdirSync(BACKUP_DIR)) if (/^\.(backup|upload)-|\.part$|\.tmp$/.test(n)) fs.rmSync(path.join(BACKUP_DIR, n), { force: true });
 } catch { /* no backups yet */ }
 
-/** The secrets a shared or uploaded backup should not carry: Gemini key, server passwords (anywhere in race.json). */
-export function stripSecrets(name, obj) {
-  if (name === 'settings.json' && obj.geminiApiKey) obj.geminiApiKey = '';
-  if (name === 'race.json') (function walk(o) {
-    if (Array.isArray(o)) o.forEach(walk);
-    else if (o && typeof o === 'object') for (const k of Object.keys(o)) { if (k === 'password') o[k] = ''; else walk(o[k]); }
-  })(obj);
+/**
+ * The copy of a data file that goes into a backup: the leaderboard sign-in always goes; the Gemini key and server
+ * passwords (anywhere in race.json) go unless keepSecrets. Other files are returned as they are.
+ */
+export function stripSecrets(name, obj, { keepSecrets = false } = {}) {
+  if (name === 'settings.json') return stripSettings(obj, { keepSecrets });
+  if (name === 'race.json') return stripRace(obj, { keepSecrets });
   return obj;
 }
 
@@ -97,10 +101,14 @@ async function createNow({ includeSecrets = false, reason = 'manual', appVersion
       const file = path.join(db.DATA_DIR, f);
       if (!pick.has(f) || !fs.existsSync(file)) continue;
       let text = fs.readFileSync(file, 'utf8');
-      if (!includeSecrets) { try { text = JSON.stringify(stripSecrets(f, JSON.parse(text)), null, 2); } catch { continue; } } // unreadable: left out
+      // settings and race.json are always rewritten (the sign-in never goes in); an unreadable one is left out
+      if (f === 'settings.json' || f === 'race.json') {
+        try { text = JSON.stringify(stripSecrets(f, JSON.parse(text), { keepSecrets: !!includeSecrets }), null, 2); } catch { continue; }
+      }
       entries.push({ name: f, data: text });
     }
-    const manifest = { format: FORMAT, version: FORMAT_VERSION, app: appVersion, createdAt: now.getTime(), reason, includesSecrets: !!includeSecrets,
+    // includesSecrets: the Gemini key and passwords are in it. signIn: false = no leaderboard login (never, since PL1)
+    const manifest = { format: FORMAT, version: FORMAT_VERSION, app: appVersion, createdAt: now.getTime(), reason, includesSecrets: !!includeSecrets, signIn: false,
       files: entries.map((e) => e.name), counts: pick.has('telemetry.db') ? db.counts() : null };
     if (!entries.length) throw err('Nothing to back up: the chosen files do not exist yet');
     await writeZip(path.join(BACKUP_DIR, name), [{ name: 'manifest.json', data: JSON.stringify(manifest, null, 2) }, ...entries]);
@@ -194,6 +202,9 @@ export async function stageRestore(name, { appVersion = null, stillIdle = () => 
       try {
         const tables = new Set(t.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name));
         if (!tables.has('laps') || !tables.has('sessions')) throw err('The database in this backup is not a Paddock laps database');
+        // Paddock never makes triggers, views or virtual tables: one in a backup would run code on Paddock's own queries
+        const odd = t.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view') OR (type = 'table' AND sql LIKE 'CREATE VIRTUAL%') LIMIT 1").get();
+        if (odd) throw err(`The database in this backup contains a ${odd.type === 'table' ? 'virtual table' : odd.type} Paddock never makes (${String(odd.name).slice(0, 40)}): not restored`);
         if (t.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw err('The database in this backup is damaged');
         if (t.prepare('PRAGMA user_version').get().user_version > db.counts().schema) throw err('This backup was made by a newer Paddock: update Paddock first');
       } finally { t.close(); }

@@ -193,6 +193,9 @@ export function setLapBoard(id, b) { db.prepare('UPDATE laps SET board = ? WHERE
 export const boardBests = () => db.prepare(`SELECT ${LAP_COLS} FROM laps l WHERE source = 'local' AND valid = 1 AND cond IS NOT NULL
   AND id = (SELECT id FROM laps m WHERE m.source = 'local' AND m.valid = 1 AND m.cond IS NOT NULL AND m.track = l.track AND m.layout = l.layout
     AND m.car = l.car AND json_extract(m.cond, '$.game') IS json_extract(l.cond, '$.game') ORDER BY m.lap_time_ms, m.id LIMIT 1)`).all();
+/** A stored lap that is the same lap (import duplicate check, OD-PL-3): same combo, lap time, recorded time and sample count. */
+export const findSameLap = (l) => db.prepare('SELECT id, driver, source, lap_time_ms, recorded_at FROM laps WHERE track = ? AND layout = ? AND car = ? AND lap_time_ms = ? AND recorded_at = ? AND samples = ? LIMIT 1')
+  .get(l.track, l.layout, l.car, l.lapTimeMs, l.recordedAt, l.data.t.length) || null;
 /** A leaderboard lap downloaded before (source 'online', laps.board = {online: its id on the server}). */
 export const findOnlineLap = (remoteId) => db.prepare(`SELECT ${LAP_COLS} FROM laps WHERE source = 'online' AND json_extract(board, '$.online') = ?`).get(remoteId);
 export const getLapAids = (id) => { const r = db.prepare('SELECT aids FROM laps WHERE id = ?').get(id); return r?.aids ? JSON.parse(r.aids) : null; };

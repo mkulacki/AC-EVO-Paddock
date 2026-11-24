@@ -1,6 +1,7 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './db.js';
+import { pageView } from './sensitive.js';
+import { loadJson, writeJsonAtomic, notSaved } from './jsonfile.js';
 
 const FILE = path.join(DATA_DIR, 'settings.json');
 const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName: '', language: 'English', port: 8080,
@@ -48,20 +49,51 @@ function normSpotter(p) {
     points: pick(p?.points, ['best', 'mine'], D.points) };
 }
 
-let current = { ...DEFAULTS };
-try { current = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; } catch { /* first run */ }
+// A file from disk (or brought back by a restore) is trusted only as far as the types go: each known setting with a
+// value of the wrong kind gets its default; unknown keys are kept as they are (a newer Paddock may have written them).
+export function normalize(raw) {
+  const out = { ...DEFAULTS, ...raw };
+  for (const [k, d] of Object.entries(DEFAULTS)) {
+    const v = out[k];
+    if (typeof d === 'string') { if (typeof v !== 'string') out[k] = d; }
+    else if (typeof d === 'boolean') { if (typeof v !== 'boolean') out[k] = d; }
+    else if (typeof d === 'number') out[k] = v !== null && v !== '' && Number.isFinite(+v) ? +v : d;
+    else if (d === null && v !== null && (typeof v !== 'object' || Array.isArray(v))) out[k] = null;
+  }
+  return out;
+}
+
+// missing = first run; damaged = kept aside as settings.json.unreadable-<time>, defaults used; could not be read at all
+// (locked by antivirus / OneDrive, after retries) = defaults in memory, and the file is not saved over (canSave false)
+const loaded = loadJson(FILE, {});
+let canSave = loaded.canSave;
+let current = normalize(loaded.value);
 let hud = normHud(current.hud); // cached: sent to the HUD 20 times a second
 let spotter = normSpotter(current.spotter); // cached: read 60 times a second
 
 export const get = () => current;
 export const hudConfig = () => hud;
 export const spotterConfig = () => spotter;
+/** Saves a change. The values in memory change only once the file is written; a failed write throws and changes nothing. */
 export function update(patch) {
-  for (const k of Object.keys(DEFAULTS)) if (patch[k] !== undefined) current[k] = patch[k];
-  if (patch.hud !== undefined) current.hud = hud = normHud(patch.hud);
-  if (patch.spotter !== undefined) current.spotter = spotter = normSpotter({ ...spotter, ...patch.spotter });
-  fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
+  if (!canSave) {
+    // the file could not be read at start: try again now, and never write over it while it holds unread settings
+    const again = loadJson(FILE, {}, { retries: 2 });
+    if (!again.canSave) throw notSaved(FILE);
+    canSave = true;
+    if (again.state === 'ok') { current = normalize(again.value); hud = normHud(current.hud); spotter = normSpotter(current.spotter); }
+  }
+  const next = { ...current };
+  for (const k of Object.keys(DEFAULTS)) if (patch[k] !== undefined) next[k] = patch[k];
+  const nextHud = patch.hud !== undefined ? normHud(patch.hud) : hud;
+  const nextSpotter = patch.spotter !== undefined ? normSpotter({ ...spotter, ...patch.spotter }) : spotter;
+  if (patch.hud !== undefined) next.hud = nextHud;
+  if (patch.spotter !== undefined) next.spotter = nextSpotter;
+  writeJsonAtomic(FILE, next); // temp file + rename: a crash never leaves half a file
+  current = next; hud = nextHud; spotter = nextSpotter;
   return current;
 }
+/** false while settings.json could not be read and is protected from being saved over. */
+export const saveable = () => canSave;
 // settings safe to send to the browser
-export const publicView = () => ({ ...current, hud, spotter, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey, boardToken: undefined });
+export const publicView = () => ({ ...pageView(current), hud, spotter, hasKey: !!current.geminiApiKey });

@@ -412,3 +412,17 @@ test('app: beaten notices, the HUD target, and downloading another driver lap', 
   assert.deepEqual([app.status().notices[0].kind, app.status().notices[0].from, app.status().notices[0].to], ['gained', 2, 1]);
   assert.match(app.status().notices[0].text, /your 1:39\.000/);
 });
+
+test('downloading an online lap (PL1.2): a server that sends a gzip bomb or an incomplete lap is refused, nothing stored', async () => {
+  const before = db.listLaps().length;
+  const reply = (body) => async () => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+  const bomb = telc.toBase64(new Uint8Array(zlib.gzipSync(Buffer.alloc(20 * 1024 * 1024))));
+  const lap = { ok: true, track: 'imola', layout: '', car: 'kart', lapMs: 100000, name: 'X' };
+  const app1 = lb.createLeaderboard({ recorder: null, appVersion: 'test', fetchImpl: reply({ ...lap, tel: bomb }) });
+  await assert.rejects(app1.fetchOnline(990001), /too large/);
+  const app2 = lb.createLeaderboard({ recorder: null, appVersion: 'test', fetchImpl: reply({ ok: true, tel: bomb }) });
+  await assert.rejects(app2.fetchOnline(990002), /incomplete lap/);
+  const app3 = lb.createLeaderboard({ recorder: null, appVersion: 'test', fetchImpl: reply({ ...lap, tel: 'AAAA' }) });
+  await assert.rejects(app3.fetchOnline(990003), /cannot be read/);
+  assert.equal(db.listLaps().length, before);
+});

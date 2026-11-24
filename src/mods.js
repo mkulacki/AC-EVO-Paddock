@@ -28,6 +28,9 @@ const PROTECTED = new Set(['aceuiapploader', 'app:trainerhud']);
 // Paddock installs the loader by itself; one the player disabled or deleted here is not put back automatically
 const hasLoader = (files) => files.some((f) => String(f.path ?? f).toLowerCase() === 'mods/aceuiapploader.kspkg');
 
+// file moves of an install, replaceable by tests (to simulate a rename that Windows refuses midway)
+export const io = { rename: (a, b) => fs.renameSync(a, b) };
+
 class ModError extends Error { constructor(msg, code = 400, extra = {}) { super(msg); this.code = code; Object.assign(this, extra); } }
 export { ModError };
 
@@ -260,11 +263,15 @@ export function merge(id, into) {
 }
 
 // ------------------------------------------------------------------ install
+// Windows device names (CON, aux.txt …) and names ending in a dot or space are not ordinary files on Windows: refused
+const DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
 const cleanSegs = (p) => {
   const segs = p.split('/').filter(Boolean);
   if (segs.some((s) => s === '.' || s === '..' || s.includes(':'))) return null;
   return segs;
 };
+// checked only on the files that will be written (an odd name in a skipped folder does not stop the install)
+const oddName = (rel) => rel.split('/').some((s) => DEVICE.test(s) || /[. ]$/.test(s));
 const lower = (a) => a.map((s) => s.toLowerCase());
 
 // where each zip entry goes: [{ entry, rel }], plus skipped names
@@ -344,6 +351,8 @@ export async function install(tmpFile, origName, { overwrite = false } = {}) {
     const rel = `Video/ACEUIAppLoader-${a}.settingspreset`;
     if (!relsLower.has(rel.toLowerCase()) && !fs.existsSync(abs(rel))) plan.push({ entry: null, empty: true, rel });
   }
+  const odd = plan.find((p) => oddName(p.rel));
+  if (odd) throw new ModError(`Unsafe path in the zip: ${odd.entry?.name || odd.rel}`);
   // duplicates inside the zip (e.g. a .kspkg twice in different folders)
   const seen = new Set();
   plan = plan.filter((p) => { const k = p.rel.toLowerCase(); if (seen.has(k)) { skipped.push(p.entry?.name || p.rel); return false; } seen.add(k); return true; });
@@ -356,8 +365,9 @@ export async function install(tmpFile, origName, { overwrite = false } = {}) {
     throw new ModError(`${conflicts.length} file(s) already exist`, 409, { conflicts });
   }
 
-  // extract next to the destination, then swap in
-  const written = [];
+  // extract next to the destination, then swap in. A file being replaced is moved aside first (<file>.paddock-old)
+  // and put back if any later step fails, so a failed install leaves the game folder as it was (PL1).
+  const written = [], moved = [], placed = [];
   try {
     for (const p of plan) {
       const dst = abs(p.rel), part = `${dst}.part`;
@@ -367,11 +377,26 @@ export async function install(tmpFile, origName, { overwrite = false } = {}) {
       else fs.copyFileSync(tmpFile, part);
       written.push(part);
     }
-    for (const p of plan) fs.renameSync(`${abs(p.rel)}.part`, abs(p.rel));
+    for (const p of plan) {
+      const dst = abs(p.rel);
+      if (fs.existsSync(dst)) {
+        // a free name: an existing .paddock-old may be the only copy left by an install that crashed
+        let aside = `${dst}.paddock-old`;
+        for (let k = 2; fs.existsSync(aside); k++) aside = `${dst}.paddock-old-${k}`;
+        io.rename(dst, aside);
+        moved.push([dst, aside]);
+      }
+      io.rename(`${dst}.part`, dst);
+      placed.push(dst);
+    }
   } catch (e) {
     for (const f of written) fs.rmSync(f, { force: true });
+    for (const f of placed) fs.rmSync(f, { force: true });
+    const lost = [];
+    for (const [dst, aside] of moved.reverse()) { try { io.rename(aside, dst); } catch { lost.push(aside); } }
+    if (lost.length) console.error(`[mods] install rollback: could not put back ${lost.join(', ')}`);
     prune(plan.map((p) => p.rel));
-    throw e instanceof ModError ? e : new ModError(`Install failed: ${e.message}`, 500);
+    throw e instanceof ModError ? e : new ModError(`Install failed: ${e.message}${lost.length ? ` (replaced files kept as .paddock-old: ${lost.length})` : ' (nothing was changed)'}`, 500);
   }
 
   // the new mod owns its files now; drop them from the mods that had them, and drop mods left empty
@@ -383,5 +408,7 @@ export async function install(tmpFile, origName, { overwrite = false } = {}) {
   const id = newId();
   store.mods.push({ id, name, files: plan.map((p) => p.rel), keys, enabled: true, source: 'upload', file: base, installedAt: Date.now() });
   save(store);
+  // the replaced files are no longer needed; best effort (the install itself is done)
+  for (const [, aside] of moved) { try { fs.rmSync(aside, { recursive: true, force: true }); } catch (e) { console.error(`[mods] could not remove ${aside}: ${e.message}`); } }
   return { id, installed: plan.length, skipped, replaced: conflicts.length, mods: list() };
 }

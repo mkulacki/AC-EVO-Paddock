@@ -387,3 +387,20 @@
 - **Known limitations:** no game, shared memory, in-game HUD, Steam login, Cloudflare, packaged exe or `npm audit` run (docs-only phase; see the report).
 - **Review findings:** n/a (documentation only).
 - **User approval:** pending. Push/merge not done.
+
+## PL1: Security and data safety
+
+- **Started / finished:** 2026-11-24 · branch `platform/pl1-data-safety` (from `platform/integration` = `0365ce6`) · scope in `docs/platform/BACKLOG.md` (PL1); report `docs/platform/PL1-report.md`
+- **Objectives:** credential-safe backups with one sensitive-settings list; hardened lap import; audit and fix the adjacent boundaries (archives, mod installs, setup import, restore, diagnostics, settings files).
+- **Changes:**
+  - `src/sensitive.js` (new): the one list of secrets and sign-in fields, used by backups, restore, diagnostics, the page's settings view and the settings route. Backups never hold the leaderboard token or Steam identity; a restore clears the sign-in (OD-PL-1), keeps the current Gemini key when the backup has none; manifests are accurate (`signIn: false`).
+  - `src/jsonfile.js` (new): atomic writes and damaged-file quarantine for `settings.json`, `race.json`, `setup-meta.json`; settings type-normalised on load.
+  - `src/lapfile.js` (new): bounded lap import (16 MB file, 64 MB unpacked via `maxOutputLength`, 250 000 samples, 64 channels), full meta/channel checks, duplicates refused (OD-PL-3), 400/409/413 messages; exports without `board` (OD-PL-2); online lap downloads capped.
+  - `src/zip.js`: streamed extraction stops at the stated size; directory size check; backup uploads capped. `src/mods.js`: install rollback restores replaced files; device names refused. `src/setups.js`: size check first, device names escaped. `src/backup.js`: restored DBs with triggers/views refused. `src/server.js`: private GETs refuse cross-site requests.
+  - Commits: `665a235`, `0d93ed3`, `7f224f8`, `eff137d`, `4eb5cd8`, `5b3dc56`, `8039ebf`, `3600bb7` (docs), and `1a694d4` (review fixes).
+- **Review findings (independent review):** 1 important, fixed: a `settings.json` locked at start could be overwritten with defaults (now: retry, then saves refused until readable). 6 nits, fixed: memory changed before the write; stale `*.tmp` files with the key; `GET /api/race` returned `presets`/`last` with passwords; mod install deleted an existing `.paddock-old`, could fail after the swap on cleanup, and rejected zips for odd names in skipped entries.
+- **Findings:** every PL0 1.1–1.3 verified finding fixed with a regression test; 1.3-f/h (device names) fixed conservatively by refusal; 1.3-l resolved (Paddock creates no triggers/views) and fixed. Details and `file:line` in the report.
+- **Tests:** `npm run check` 104/104 → 112/112; `npm test` 175/175 → 213/213 (17 → 22 files). No failures.
+- **Known limitations:** not run in game, on the live leaderboard, in the packaged exe or under Electron's Node 24; Windows rename retries and a real 4 GB upload not exercised.
+- **Open decisions:** OD-PL-1 … 4 defaults applied (still open for confirmation); new OD-PL-5 (damaged-file notice), OD-PL-6 (mod upload cap), OD-PL-7 (unknown lap channels).
+- **User approval:** pending. Push/merge not done.

@@ -1,11 +1,12 @@
 // Diagnostics (Settings → Diagnostics): what a bug report needs, in one place, with private data taken out:
-// the Gemini key, saved server passwords, the driver name and the Windows user folder never appear in it.
+// the Gemini key, the leaderboard token, saved server passwords, driver and Steam names and the Windows user folder never appear in it.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as db from './db.js';
 import * as settings from './settings.js';
 import * as channels from './channels.js';
+import { settingsSecrets, raceSecrets } from './sensitive.js';
 
 const LOG_FILE = path.join(db.DATA_DIR, 'logs', 'paddock.log'); // written by the desktop app (desktop/main.cjs)
 
@@ -30,15 +31,15 @@ export function redact(text, { secrets = [], names = [] } = {}) {
   return t.replace(/AIza[0-9A-Za-z_-]{20,}/g, '[secret]').replace(/\bAQ\.[A-Za-z0-9_-]{20,}/g, '[secret]').replace(/\bgh[pousr]_[A-Za-z0-9]{20,}/g, '[secret]');
 }
 
-/** Private values to take out: the key, server passwords, driver names (settings and recorded laps). */
+/**
+ * Private values to take out (the list in src/sensitive.js): the key, the leaderboard token, server passwords; names:
+ * the driver (settings and laps, including downloaded online laps) and the Steam name of the leaderboard sign-in.
+ */
 function privateValues() {
   const s = settings.get();
-  const secrets = [s.geminiApiKey];
-  try {
-    const race = JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'race.json'), 'utf8'));
-    (function walk(o) { if (Array.isArray(o)) o.forEach(walk); else if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) { if (k === 'password' && v) secrets.push(v); else walk(v); } })(race);
-  } catch { /* no saved servers */ }
-  const names = [s.driverName, ...new Set(db.listLaps().map((l) => l.driver))].filter((n) => n && n !== 'Mock Driver');
+  const secrets = settingsSecrets(s);
+  try { secrets.push(...raceSecrets(JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'race.json'), 'utf8')))); } catch { /* no saved servers */ }
+  const names = [s.driverName, s.boardSteam?.name, ...new Set(db.listLaps().map((l) => l.driver))].filter((n) => typeof n === 'string' && n && n !== 'Mock Driver');
   return { secrets, names };
 }
 
@@ -89,7 +90,7 @@ export function build(parts) {
   const log = logTail();
   const text = [
     `AC EVO Paddock diagnostics, ${json.generatedAt}`,
-    'Private data removed: Gemini key, server passwords, driver names, Windows user folder.',
+    'Private data removed: Gemini key, leaderboard sign-in, server passwords, driver and Steam names, Windows user folder.',
     '',
     ...Object.entries(json).filter(([k]) => k !== 'generatedAt').map(([k, v]) => `## ${k}\n${typeof v === 'object' && v ? Object.entries(v).map(([a, b]) => `- ${a}: ${typeof b === 'object' && b !== null ? JSON.stringify(b) : b}`).join('\n') : v}`),
     '',

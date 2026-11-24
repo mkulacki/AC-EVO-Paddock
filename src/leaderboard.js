@@ -21,7 +21,11 @@ import * as svc from './service.js';
 import * as carsDb from './cars.js';
 import { resample } from './analysis.js';
 import { STATUS } from './shm.js';
-import { encodeTel, decodeTel, toBase64, fromBase64, TEL_STEP } from './telcodec.js';
+import { encodeTel, decodeTel, toBase64, fromBase64, TEL_STEP, telBytes } from './telcodec.js';
+import { gunzipLimited, LIMITS } from './lapfile.js';
+
+// the largest light telemetry a lap can have: a 100 km lap on the 2 m grid (a real one is under 1 MB)
+const ONLINE_TEL_BYTES = telBytes(LIMITS.trackLength / TEL_STEP + 1);
 
 export const DEFAULT_URL = 'https://acevo-paddock-leaderboard.acevo-paddock.workers.dev'; // leaderboard/wrangler.toml (local test server: npm run board, http://127.0.0.1:8787)
 const TIMEOUT_MS = 8000;
@@ -339,9 +343,14 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     if (have) return have.id;
     const r = await call(`/v1/telemetry?lap=${remoteId}`);
     if (!r.body?.ok) throw new Error(r.body?.error || `HTTP ${r.status}`);
-    const gz = fromBase64(r.body.tel);
-    const d = gz && decodeTel(new Uint8Array(zlib.gunzipSync(gz)));
-    if (!d) throw new Error('the telemetry of this lap cannot be read');
+    const b = r.body;
+    if (typeof b.track !== 'string' || typeof b.layout !== 'string' || typeof b.car !== 'string' || !(Number(b.lapMs) > 0)) throw new Error('the server sent an incomplete lap');
+    const gz = typeof b.tel === 'string' && b.tel.length <= ONLINE_TEL_BYTES * 2 ? fromBase64(b.tel) : null;
+    // capped: the server is user-settable (boardUrl), so its gzip is not trusted to unpack to a sane size
+    let raw = null;
+    try { raw = gz && gunzipLimited(gz, ONLINE_TEL_BYTES); } catch (e) { throw new Error(e.code === 413 ? 'the telemetry of this lap is too large' : 'the telemetry of this lap cannot be read'); }
+    const d = raw && decodeTel(new Uint8Array(raw));
+    if (!d || d.n > LIMITS.samples) throw new Error('the telemetry of this lap cannot be read');
     const data = { t: d.t, d: d.d, spd: d.spd, thr: d.thr, brk: d.brk, str: d.str, gear: d.gear, rpm: d.rpm, x: d.x, z: d.z };
     const id = db.insertLap({ sessionId: null, track: r.body.track, layout: r.body.layout, car: r.body.car, lapNumber: 0, lapTimeMs: r.body.lapMs, valid: true,
       driver: r.body.name || 'Online', source: 'online', recordedAt: Date.now(), trackLength: (d.n - 1) * d.step, data });

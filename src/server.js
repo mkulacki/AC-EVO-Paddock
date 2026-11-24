@@ -1,7 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import * as db from './db.js';
 import * as svc from './service.js';
@@ -40,6 +39,9 @@ import * as channels from './channels.js';
 import * as backup from './backup.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
+import * as sensitive from './sensitive.js';
+import * as lapfile from './lapfile.js';
+import { limitBytes } from './zip.js';
 import * as updates from './updates.js';
 import { pipeline } from 'node:stream/promises';
 
@@ -293,9 +295,9 @@ const send = (res, code, body, type = 'application/json') => {
   res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
   res.end(type === 'application/json' ? JSON.stringify(body) : body);
 };
-const readBody = (req) => new Promise((resolve, reject) => {
+const readBody = (req, max = 50e6) => new Promise((resolve, reject) => {
   const chunks = []; let size = 0;
-  req.on('data', (c) => { size += c.length; if (size > 50e6) { reject(new Error('too large')); req.destroy(); } else chunks.push(c); });
+  req.on('data', (c) => { size += c.length; if (size > max) { reject(Object.assign(new Error('The upload is too large'), { code: 413 })); req.destroy(); } else chunks.push(c); });
   req.on('end', () => resolve(Buffer.concat(chunks)));
   req.on('error', reject);
 });
@@ -315,11 +317,19 @@ const safeName = (s) => String(s).replace(/[^a-z0-9_.-]+/gi, '_');
 // Only Paddock's own pages may use the API. The server listens on 127.0.0.1 only, but a web page open in the
 // browser could still send requests to it (cross-site requests, DNS rebinding): those are refused here.
 const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
-function foreignRequest(req) {
+// GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
+// site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
+// from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export)/;
+function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
   if (!OWN_HOSTS.has(name)) return 'unknown host';
-  if (req.method === 'GET' || req.method === 'HEAD') return null;
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    if (!PRIVATE_GET.test(p)) return null;
+    const site = req.headers['sec-fetch-site'];
+    if (site === 'cross-site' || site === 'same-site') return `${site} request for private data`;
+  }
   if (req.headers['sec-fetch-site'] === 'cross-site') return 'cross-site request';
   const origin = req.headers.origin;
   if (origin && origin !== 'null') {
@@ -333,7 +343,7 @@ async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const m = req.method;
-  const foreign = foreignRequest(req);
+  const foreign = foreignRequest(req, p);
   if (foreign) { console.warn(`[http] refused ${m} ${p}: ${foreign} (host ${req.headers.host}, origin ${req.headers.origin ?? '-'})`); return send(res, 403, { error: 'Forbidden' }); }
 
   if (p === '/api/events') {
@@ -481,7 +491,9 @@ async function route(req, res) {
         return res.end(buf);
       }
       if (p === '/api/setups/import' && m === 'POST') {
-        const buf = await readBody(req);
+        // a setup file is a few kB: a body over the limit is not read whole (413)
+        let buf;
+        try { buf = await readBody(req, setups.MAX_SETUP_BYTES + 1); } catch (e) { return send(res, e.code === 413 ? 413 : 400, { error: e.code === 413 ? 'Not an AC EVO setup file (.carsetup): far too big' : e.message }); }
         try { return send(res, 200, setups.importFile(buf, { filename: q.get('filename') || '', trackId: q.get('track') || null })); }
         catch (e) { if (e.needsTrack) return send(res, 409, { error: e.message, needsTrack: true, car: e.car }); throw e; }
       }
@@ -630,7 +642,8 @@ async function route(req, res) {
       if (p === '/api/backup/upload' && m === 'POST') { // streamed: a backup can be big
         fs.mkdirSync(backup.BACKUP_DIR, { recursive: true });
         const tmp = path.join(backup.BACKUP_DIR, `.upload-${Date.now()}-${process.pid}`);
-        try { await pipeline(req, fs.createWriteStream(tmp)); return send(res, 200, backup.importUpload(tmp)); } finally { fs.rmSync(tmp, { force: true }); }
+        // capped: nothing bigger than the largest backup Paddock makes (the disk is not filled by a stray upload)
+        try { await pipeline(req, limitBytes(backup.MAX_UPLOAD, 'The uploaded backup'), fs.createWriteStream(tmp)); return send(res, 200, backup.importUpload(tmp)); } finally { fs.rmSync(tmp, { force: true }); }
       }
       if (p === '/api/backup/restore' && m === 'POST') {
         if (busy()) return;
@@ -752,23 +765,25 @@ async function route(req, res) {
   if ((mm = p.match(/^\/api\/laps\/(\d+)\/export$/))) {
     const lap = db.getLap(Number(mm[1]));
     if (!lap) return send(res, 404, { error: 'not found' });
-    const { data, id, session_id, ...meta } = lap;
-    const file = zlib.gzipSync(JSON.stringify({ format: 'acevo-trainer-lap', version: 1, meta, data }));
+    const file = lapfile.exportLapFile(lap); // without the leaderboard data (OD-PL-2)
+    const meta = lap;
     const name = safeName(`${meta.track}_${meta.car}_${meta.driver}_${(meta.lap_time_ms / 1000).toFixed(3)}.lap.gz`);
     res.writeHead(200, { 'content-type': 'application/gzip', 'content-disposition': `attachment; filename="${name}"` });
     return res.end(file);
   }
   if (p === '/api/laps/import' && m === 'POST') {
-    let buf = await readBody(req);
-    if (buf[0] === 0x1f && buf[1] === 0x8b) buf = zlib.gunzipSync(buf);
-    const obj = JSON.parse(buf.toString());
-    if (obj.format !== 'acevo-trainer-lap' || !obj.data?.t || !obj.data?.d) return send(res, 400, { error: 'Not an acevo-trainer lap file' });
-    const mt = obj.meta;
-    const id = db.insertLap({ sessionId: null, track: mt.track, layout: mt.layout, car: mt.car, lapNumber: mt.lap_number,
-      lapTimeMs: mt.lap_time_ms, valid: !!mt.valid, driver: mt.driver || 'Imported', source: 'import',
-      recordedAt: mt.recorded_at || Date.now(), trackLength: mt.track_length, data: obj.data });
-    svc.invalidate();
-    return send(res, 200, { ok: true, id });
+    // checked within fixed limits before anything is stored (src/lapfile.js); one INSERT, so all or nothing
+    try {
+      const { lap, recordedAtGiven } = lapfile.parseLapFile(await readBody(req, lapfile.LIMITS.fileBytes));
+      const same = recordedAtGiven ? db.findSameLap(lap) : null;
+      if (same) return send(res, 409, { error: `This lap is already in Paddock (lap #${same.id}, ${same.driver}, ${(same.lap_time_ms / 1000).toFixed(3)} s)`, existing: same.id });
+      const id = db.insertLap({ ...lap, sessionId: null, source: 'import' });
+      svc.invalidate();
+      return send(res, 200, { ok: true, id });
+    } catch (e) {
+      if (!(e.code >= 400 && e.code < 500)) console.error(`[import] lap import failed: ${e.message}`);
+      return send(res, e.code >= 400 && e.code < 500 ? e.code : 500, { error: e.code >= 400 && e.code < 500 ? e.message : 'The lap could not be imported' });
+    }
   }
   if (p === '/api/spotter/test' && m === 'POST') { spotter.test(); return send(res, 200, { ok: true }); }
   // ---- own brake marks (track page) and marking them (button, pedal)
@@ -858,7 +873,8 @@ async function route(req, res) {
       const body = await readJson(req);
       if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.startsWith('••••')) delete body.geminiApiKey;
       if (body.markButton !== undefined && body.markButton !== null) delete body.markButton; // set only by /api/wheel/capture
-      delete body.channelChecks; delete body.probeConfirmed; delete body.boardToken; delete body.boardSteam; // set only by the Steam sign-in // set only by /api/setupcheck/confirm
+      delete body.channelChecks; delete body.probeConfirmed; // set only by /api/setupcheck/confirm
+      for (const k of sensitive.SIGN_IN_FIELDS) delete body[k]; // set only by the Steam sign-in (src/sensitive.js)
       const oldPath = settings.get().gamePath, oldKey = settings.get().markKey;
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
@@ -918,7 +934,7 @@ async function route(req, res) {
       if (!q.preset || q.preset === 'hotlap' || q.preset === 'quick') spec = base; // 'hotlap': planners saved before 2026-11-19
       else if (q.preset === 'practice') spec = { ...base, mode: 'practice', practiceMin: 30 };
       else {
-        const pr = race.lists().presets.find((x) => x.id === q.preset);
+        const pr = race.presetById(q.preset);
         if (!pr) return send(res, 400, { error: 'Preset not found' });
         if (pr.spec?.kind === 'mp') return send(res, 400, { error: 'Online presets join a server: start them from the Race tab' });
         spec = { ...pr.spec, kind: 'solo', car: base.car, track: base.track, noRemember: true };

@@ -7,6 +7,19 @@ import { Readable, Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 const EOCD = 0x06054b50, EOCD64 = 0x06064b50, LOC64 = 0x07064b50, CEN = 0x02014b50, LOC = 0x04034b50;
+const MAX_DIR = 64 * 1024 ** 2; // a central directory this big would list about half a million files
+
+/**
+ * A pass-through stream that fails once more than max bytes went through it (code 413).
+ * Used to stop a streamed extraction at the size the zip states, and to cap uploads.
+ */
+export function limitBytes(max, what = 'The data') {
+  let n = 0;
+  return new Transform({ transform(chunk, _enc, cb) {
+    n += chunk.length;
+    if (n > max) cb(Object.assign(new Error(`${what} is larger than expected`), { code: 413 })); else cb(null, chunk);
+  } });
+}
 
 function readAt(fd, pos, len) {
   const b = Buffer.alloc(len);
@@ -34,6 +47,8 @@ export function list(file) {
         count = Number(z.readBigUInt64LE(32)); cdSize = Number(z.readBigUInt64LE(40)); cdOff = Number(z.readBigUInt64LE(48));
       }
     }
+    // the directory must lie inside the file (a crafted size would make this allocate gigabytes)
+    if (cdOff + cdSize > size || cdSize > MAX_DIR) throw new Error('Damaged zip directory');
     const cd = readAt(fd, cdOff, cdSize);
     const out = [];
     let p = 0;
@@ -95,9 +110,15 @@ export async function extract(file, entry, dest) {
   } finally { fs.closeSync(fd); }
   const src = entry.csize ? fs.createReadStream(file, { start, end: start + entry.csize - 1 }) : null;
   if (!src) { fs.writeFileSync(dest, ''); return; }
-  const steps = [src, ...(entry.method === 8 ? [zlib.createInflateRaw()] : []), fs.createWriteStream(dest)];
-  await pipeline(...steps);
-  if (fs.statSync(dest).size !== entry.size) throw new Error(`${entry.name}: size mismatch after extracting`);
+  // never write more than the entry says it holds: a crafted zip could otherwise fill the disk before the size check
+  const steps = [src, ...(entry.method === 8 ? [zlib.createInflateRaw()] : []), limitBytes(entry.size, entry.name), fs.createWriteStream(dest)];
+  try {
+    await pipeline(...steps);
+    if (fs.statSync(dest).size !== entry.size) throw new Error(`${entry.name}: size mismatch after extracting`);
+  } catch (e) {
+    fs.rmSync(dest, { force: true });
+    throw e.code === 413 ? new Error(`${entry.name}: larger than it says (damaged or crafted zip)`) : e;
+  }
 }
 
 // ---------------------------------------------------------------- writer (backups)

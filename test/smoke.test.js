@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -214,6 +215,33 @@ test('application management routes: export, diagnostics without private data, u
   assert.equal((await fetch(base + '/api/backup/file?name=..%2fsettings.json')).status, 400);
 });
 
+test('lap import route (PL1.2): duplicate refused with the existing lap named, bad files 400, bombs 413, never a 500', async () => {
+  const o = await json('/api/overview');
+  const id = o.laps[0].id;
+  const r0 = await fetch(`${base}/api/laps/${id}/export`);
+  assert.equal(r0.status, 200);
+  const file = Buffer.from(await r0.arrayBuffer());
+  const imp = (body) => fetch(base + '/api/laps/import', { method: 'POST', body, headers: { 'content-type': 'application/octet-stream' } });
+  const dup = await imp(file);
+  assert.equal(dup.status, 409);
+  assert.match((await dup.json()).error, new RegExp(`already in Paddock \\(lap #${id}`));
+  const obj = JSON.parse(zlib.gunzipSync(file));
+  const fresh = await imp(zlib.gzipSync(JSON.stringify({ ...obj, meta: { ...obj.meta, recorded_at: obj.meta.recorded_at + 1 } })));
+  assert.equal(fresh.status, 200);
+  const newId = (await fresh.json()).id;
+  assert.ok(newId > 0);
+  assert.equal((await json('/api/overview')).laps.find((l) => l.id === newId).source, 'import');
+  for (const [body, code] of [[Buffer.from('junk'), 400], [zlib.gzipSync(JSON.stringify({ ...obj, meta: undefined })), 400],
+    [zlib.gzipSync(JSON.stringify({ ...obj, data: { ...obj.data, t: 5 } })), 400], [zlib.gzipSync(Buffer.alloc(70 * 1024 * 1024, 0x20)), 413]]) {
+    const r = await imp(body);
+    assert.equal(r.status, code, (await r.json()).error);
+  }
+  assert.ok(!/\[import\] lap import failed/.test(log), 'no unexpected import error');
+  // setup files are a few kB: a big body is refused without being read whole (PL0 1.3-i)
+  const big = await fetch(base + '/api/setups/import?filename=x.carsetup', { method: 'POST', body: Buffer.alloc(200 * 1024, 0x7b), headers: { 'content-type': 'application/octet-stream' } }).catch((e) => e);
+  assert.ok(big instanceof Error || big.status === 413, `setup import of 200 kB: ${big.status}`);
+});
+
 test('only Paddock pages may use the API: foreign origins, cross-site requests and other host names are refused', async () => {
   const send = (headers, method = 'POST', p = '/api/backup/restore') => new Promise((resolve, reject) => {
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { 'content-type': 'text/plain', ...headers } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
@@ -225,6 +253,16 @@ test('only Paddock pages may use the API: foreign origins, cross-site requests a
   assert.equal(await send({ 'sec-fetch-site': 'cross-site' }), 403);
   assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/diagnostics'), 403, 'DNS rebinding');
   assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/backup/file?name=x.zip'), 403);
+  // PL1 (PL0 1.1-e): GETs of private data refuse other sites too; ordinary GETs and typed/opened URLs stay allowed
+  for (const p of ['/api/diagnostics', '/api/backup/file?name=x.zip', '/api/export/laps.csv', '/api/laps/1/export', '/api/setups/export?id=x']) {
+    assert.equal(await send({ 'sec-fetch-site': 'cross-site' }, 'GET', p), 403, `${p} cross-site`);
+    assert.equal(await send({ 'sec-fetch-site': 'same-site' }, 'GET', p), 403, `${p} from another local port`);
+    assert.equal(await send({ origin: 'https://evil.example' }, 'GET', p), 403, `${p} with a foreign origin`);
+  }
+  assert.equal(await send({ 'sec-fetch-site': 'same-origin' }, 'GET', '/api/diagnostics'), 200);
+  assert.equal(await send({ 'sec-fetch-site': 'none' }, 'GET', '/api/export/laps.csv'), 200);
+  assert.equal(await send({}, 'GET', '/api/export/laps.csv'), 200);
+  assert.equal(await send({ 'sec-fetch-site': 'cross-site' }, 'GET', '/'), 200, 'opening Paddock from a link still works');
   // Paddock's own page: allowed (the restore itself then fails: on track / no such backup)
   assert.notEqual(await send({ origin: `http://127.0.0.1:${port}` }), 403);
   assert.notEqual(await send({ origin: `http://localhost:${port}`, host: `localhost:${port}` }), 403);

@@ -93,6 +93,16 @@ test('restore: staged with a safety backup first; refused for a damaged database
   await zip.writeZip(bad, [{ name: 'manifest.json', data: JSON.stringify({ format: backup.FORMAT, version: 1, files: ['telemetry.db'] }) }, { name: 'telemetry.db', file: junk }]);
   await assert.rejects(backup.stageRestore('paddock-backup-bad.zip'), /not a Paddock laps database/);
   assert.ok(!backup.pending(), 'nothing left staged after a refusal');
+  // PL1 (PL0 1.3-l): a database with a trigger or view (Paddock never makes one) is refused
+  for (const [n, sql] of [['trig', "CREATE TRIGGER t AFTER INSERT ON laps BEGIN DELETE FROM sessions; END"], ['view', 'CREATE VIEW v AS SELECT * FROM laps']]) {
+    const f = path.join(dir, `${n}.db`); const t = new DatabaseSync(f);
+    t.exec(`CREATE TABLE laps (id); CREATE TABLE sessions (id); ${sql}`); t.close();
+    const z = `paddock-backup-${n}.zip`;
+    await zip.writeZip(path.join(backup.BACKUP_DIR, z), [{ name: 'manifest.json', data: JSON.stringify({ format: backup.FORMAT, version: 1, files: ['telemetry.db'] }) }, { name: 'telemetry.db', file: f }]);
+    await assert.rejects(backup.stageRestore(z), new RegExp(`contains a ${n === 'trig' ? 'trigger' : 'view'} Paddock never makes`));
+    assert.ok(!backup.pending());
+    backup.remove(z);
+  }
 });
 
 test('restore at start: files swapped before the database opens; key and passwords kept from the current files', async () => {
@@ -201,6 +211,31 @@ test('crafted zips: an entry larger than it says, or an oversized manifest, is r
   buf.writeUInt32LE(10, cen + 24);
   fs.writeFileSync(z, buf);
   assert.throws(() => zip.readEntry(z, 'manifest.json'), /larger than it says/);
+  // PL1 (PL0 1.3-b): the streamed extraction (backups, mods) stops at the stated size too, and leaves no file behind
+  const dest = path.join(dir, 'bomb.out');
+  const entry = zip.list(z)[0];
+  assert.equal(entry.size, 10);
+  await assert.rejects(zip.extract(z, entry, dest), /larger than it says/);
+  assert.ok(!fs.existsSync(dest));
+});
+
+test('crafted zips: a central directory said to be bigger than the file is refused before reading it (PL0 1.3-c)', async () => {
+  const z = path.join(dir, 'bigdir.zip');
+  await zip.writeZip(z, [{ name: 'a.txt', data: 'hello' }]);
+  const buf = fs.readFileSync(z);
+  const end = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  buf.writeUInt32LE(0xfffffff0, end + 12); // cdSize ~4 GB in a tiny file
+  fs.writeFileSync(z, buf);
+  assert.throws(() => zip.list(z), /Damaged zip directory/);
+});
+
+test('limitBytes: passes data up to the limit, fails with 413 past it', async () => {
+  const { Readable, Writable } = await import('node:stream');
+  const { pipeline } = await import('node:stream/promises');
+  const sink = () => new Writable({ write(_c, _e, cb) { cb(); } });
+  await pipeline(Readable.from([Buffer.alloc(600), Buffer.alloc(400)]), zip.limitBytes(1000), sink());
+  await assert.rejects(pipeline(Readable.from([Buffer.alloc(600), Buffer.alloc(401)]), zip.limitBytes(1000, 'The upload'), sink()), (e) => e.code === 413 && /The upload is larger/.test(e.message));
+  assert.ok(backup.MAX_UPLOAD > 3.9 * 1024 ** 3);
 });
 
 // ---------------------------------------------------------------- export
