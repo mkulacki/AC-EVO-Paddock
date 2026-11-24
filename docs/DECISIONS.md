@@ -116,3 +116,16 @@ Earlier product decisions (Race tab, Mods, setups, spotter, brake marks, reports
 - **Session planner** builds the same order as the Race tab: a driven combo's catalogue track and car + a Race tab preset's session settings (or hotlap / 30 min practice with clear weather and optimum grip), with the goal id in the order's meta. Online presets are refused (they join a server). Starting asks before ending a running session, like *Start hotlap*.
 - **Notifications:** a goal met or an achievement reached is broadcast to the page (Home refreshes, a dot on Development) and shown as a desktop notification. Achievements already reached when Paddock starts are not announced.
 - **Sidebar:** Development sits after Sessions; Alt+1…9 follow the sidebar, so the later pages moved one number up.
+
+## 2026-11-24: Platform plan PL0, open decisions
+
+Raised in PL0 (`docs/platform/PL0-report.md`). Each has a conservative default that PL1 implements unless the user decides otherwise.
+
+- **OD-PL-1, leaderboard sign-in in backups and restores. OPEN (operator).** Secret-free backups carry `boardToken` and `boardSteam` today (finding 1.1-a), and a restore brings them back (1.1-c). Options: (a) never back up the token, a restore clears the sign-in and the driver signs in with Steam again; (b) as (a), but keep the current install's sign-in when the backup has none (like the Gemini key); (c) include the token in "include secrets" backups.
+  - **Conservative default:** (a) for every backup, including "include secrets" and before-restore backups. A token is a 180-day login and can be renewed with one Steam sign-in, so dropping it costs little.
+- **OD-PL-2, identity data in `.lap.gz` exports. OPEN (operator).** An exported lap carries the `board` column (Steam id, leaderboard URL, rank; for downloaded laps the other driver's id and name) (1.2-g). It is not a credential, but a shared file reveals it.
+  - **Conservative default:** leave `board` out of exports; keep `aids`, `cond` and `setup_info` (analysis needs them). Import already ignores `board`.
+- **OD-PL-3, importing a lap that is already there. OPEN (operator).** Today it is stored twice (1.2-d). Options: refuse, skip silently, import again.
+  - **Conservative default:** refuse with a message naming the existing lap (match on track, layout, car, lap time, recorded time and sample count).
+- **OD-PL-4, secrets in before-restore safety backups. OPEN (operator).** They always include secrets (1.1-e) so that undoing a restore gives back the key and passwords.
+  - **Conservative default:** keep them with secrets (minus the token, OD-PL-1), and keep the existing "with key" badge (`public/system.js:80`) ("Contains your Gemini key and server passwords", which stays accurate once the token is out). Not uploaded anywhere.

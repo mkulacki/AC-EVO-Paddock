@@ -1,10 +1,10 @@
 # Development state
 
-_Last updated: 2026-11-18_
+_Last updated: 2026-11-24_
 
-**Status:** P0–P10 approved and merged into `main`. **0.6.0-beta.1 released 2026-11-18.**
-**Current phase:** none (roadmap done).
-**Branch:** `main`.
+**Status:** P0–P10 done; **0.7.0-beta.1 released 2026-11-23**. Platform plan PL0–PL11 (`.claude/skills/paddock-operator/PLAN.md`) started.
+**Current phase:** PL0 (platform baseline) done on `platform/pl0-baseline`, awaiting review. Next: PL1.
+**Branch:** `platform/pl0-baseline` (not pushed, not merged).
 
 ## Phases
 
@@ -21,28 +21,32 @@ _Last updated: 2026-11-18_
 | P8 | AI coach upgrade | Done, approved 2026-11-17 |
 | P9 | Driver development | Done, approved 2026-11-17 (D3: yes) |
 | P10 | Final regression and release prep | Done, approved 2026-11-18, released |
+| PL0 | Platform baseline (docs only) | Done 2026-11-24, review pending |
+| PL1–PL11 | Platform plan | Not started; see `docs/platform/BACKLOG.md` |
 
 ## Current task
 
-None. 0.6.0-beta.1 (with the 2026-11-18 test-round changes) is published. SHA-256 of the zip: `3571634D8BC77CC2F3C9F884636F419249F70CDC49D979A2AFED1355FD04F62E`.
+None in progress. PL0 is committed on `platform/pl0-baseline`: report `docs/platform/PL0-report.md`, backlog `docs/platform/BACKLOG.md`.
 
 ## Known problems
 
 - Shared-memory groups (pit-box readings, temperatures, tyres, brakes, suspension) are unverified until the user checks them in game (Setups → Setup recognition). Slip can't be checked.
+- PL0 verified (static only) defects for PL1: leaderboard token in secret-free backups and restores; unbounded lap-import gunzip and no schema checks; unbounded streamed zip extraction; mod overwrite rollback; non-atomic `settings.json`/`race.json` writes. Details: PL0 report.
+- Tests run on Node 22.x; the packaged app runs Electron 44 / Node 24.22.2 (PL2).
 
 ## Test results
 
-- `npm run check` 93/93; `npm test` 137/137. Packaged exe smoke test passed; release zip verified (no data, no secrets).
+- PL0 baseline (2026-11-24, `be3b5ef` and this branch): `npm run check` 104/104; `npm test` 175/175.
 
 ## Pending user decisions
 
-- None open. D3 answered 2026-11-17: achievements and challenges yes.
-- D1 accent/navigation (before P4), D2 update mechanism (before P3), D3 gamification (before P9).
+- OD-PL-1 … OD-PL-4 in `docs/DECISIONS.md` (`OPEN (operator)`), each with a conservative default PL1 will use if not answered.
+- Push / merge of `platform/pl0-baseline`.
 
 ## Next action
 
-- 0.6.0-beta.1 is released (GitHub pre-release and overtake.gg). Nothing is in progress: wait for the next request, and start each feature on its own branch from `main`.
+- Start PL1 on a new branch (e.g. `platform/pl1-security`) from `platform/pl0-baseline` (or `main` after the merge), in the order of `docs/platform/BACKLOG.md` PL1: sensitive-settings inventory → backups/restore → atomic JSON writes → lap import → archives → mod overwrite → low items. Write a failing regression test for each verified finding first.
 
 ## How to resume
 
-Read this file, then `git status` / `git branch` / `git log -5`. Don't assume the last task finished: check its branch and run `npm test` (from P1 on).
+Read this file, then `git status` / `git branch` / `git log -5`. Don't assume the last task finished: check its branch and run `npm run check` and `npm test`.

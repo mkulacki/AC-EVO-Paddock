@@ -103,7 +103,7 @@ None in PL0. PL1.1 changes what a backup holds and what a restore does; PL1 must
 - **OD-PL-1:** leaderboard token in "include secrets" backups and on restore. Conservative default for PL1: never back up the token; a restore clears the sign-in (fresh Steam login).
 - **OD-PL-2:** strip `board` (Steam id, server URL) from `.lap.gz` exports. Conservative default: strip.
 - **OD-PL-3:** duplicate lap import. Conservative default: refuse and name the existing lap.
-- **OD-PL-4:** before-restore safety backups hold secrets. Conservative default: keep them (they make a restore undoable) but label them in the list.
+- **OD-PL-4:** before-restore safety backups hold secrets. Conservative default: keep them (they make a restore undoable) minus the token; the list already badges them "with key" (`public/system.js:80`).
 
 ## Remaining risks
 
