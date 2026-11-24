@@ -1,20 +1,21 @@
 # Feature inventory
 
 Audited 2026-11-17 against `main` = `de836d2` (v0.5.0-beta.1). It compares the requested capability list with the code.
+Refreshed 2026-11-24 for platform phase PL0 at `be3b5ef` (0.7.0-beta.1): the statuses below reflect P1–P10 and 0.7.0; see "Platform baseline (PL0)" at the end for the PL1–PL11 view.
 
 Status key: **Done** = implemented · **Partial** = implemented in part · **Missing** · **Broken** · **Refactor** = works but needs restructuring · **Not feasible** = cannot be done with the available data or infrastructure.
 "Unverified" means the feature exists, but its input channels are not confirmed in game.
 
 ## Already in the app (not in the requested list, kept as is)
 
-Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race weekend, online join, presets, random), in-game Paddock HUD (delta, cues, corners, track limits), audio brake spotter, own brake points, Mods tab (mod manager), bundled ACE UI App Loader management, Tracks tab (EVO-native track models), desktop overlay, lap export/import.
+Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race weekend, online join, presets, random), in-game Paddock HUD (delta, cues, corners, track limits), audio brake spotter, own brake points, Mods tab (mod manager), bundled ACE UI App Loader management, Tracks tab (EVO-native track models), desktop overlay, lap export/import, Cars page (0.7.0), online leaderboards with Steam sign-in, class boards, driver profiles, HUD leaderboard target and in-game board window (0.7.0, opt-in), System/Dark/Light theme switch (0.7.0).
 
 ## User interface and experience
 
 | Capability | Status | Where / note |
 | --- | --- | --- |
 | Motorsport engineering-cockpit design | Done | `style.css` "pit-wall timing screen" design system (0.5.0 design pass) |
-| Dark graphite interface | Done | dark first, light theme from the OS setting |
+| Dark graphite interface | Done | dark first; System / Dark / Light switch in Settings (0.7.0) |
 | Orange accent | Decided: lime (D1) | the user kept the lime accent |
 | Consistent typography/spacing | Done | Barlow / Barlow Condensed, type scale tokens |
 | Reusable component library | Partial | CSS classes are shared; no JS component helpers for cards, states and tables beyond `util.js` |
@@ -108,8 +109,29 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 
 | Item | Status |
 | --- | --- |
-| Automated tests | **Missing** (none) |
-| Lint / type checks | Missing (`node --check` only) |
+| Automated tests | Done (P1): `npm test` 175/175 in 17 files, `npm run check` 104/104 (PL0 baseline, 2026-11-24) |
+| Lint / type checks | Missing (`node --check` only); no CI workflow (PL2) |
 | `src/server.js` router + loop + orchestration in one file | Refactor (gradual) |
 | Shared-memory offsets for car data and setup fingerprint | **Unverified in game** |
 | Broken features found in the baseline | None. All main endpoints return 200 with seeded mock data |
+| Tested runtime = shipped runtime | No: tests on Node 22.x, the app on Electron 44 / Node 24.22.2 (PL2) |
+
+## Platform baseline (PL0, 2026-11-24)
+
+How the platform plan PL1–PL11 (a local operator plan, not in the repo; phase scopes are summarised in `docs/platform/BACKLOG.md`) maps onto what exists. "Extend" = build on the named phase's code, no parallel implementation.
+
+| Plan area | Existing base | Status at PL0 |
+| --- | --- | --- |
+| PL1.1 credential-safe backups | P3 `src/backup.js` `stripSecrets` | Partial: Gemini key and server passwords stripped; leaderboard token **not** (PL0 report) |
+| PL1.2 lap import hardening | `src/server.js` `/api/laps/import` | Partial: format check only; no size, schema or range limits |
+| PL1.3 adjacent boundaries | `src/zip.js`, `src/mods.js`, `src/setups.js`, `src/restore-apply.js`, `src/diagnostics.js` | Partial: path traversal guarded; extraction size and partial-overwrite gaps |
+| PL2 CI, browser tests, packaged smoke | `test/*.test.js`, headless-Edge screenshots done by hand | Missing: no `.github/workflows`, no scripted packaged smoke test, no `npm run verify` |
+| PL3 recording performance | 60 Hz loop in `src/server.js` | Missing: no measurements, no `docs/platform/PERFORMANCE.md` |
+| PL4 compatibility and provenance | P2 `src/channels.js`, laps `cond` (game + Paddock version) | Partial: channel checks are not tied to a game build or parser version; no comparison-compatibility classes; no single health panel (spread over Settings, Mods, status line) |
+| PL5 onboarding | P4 shell + palette, P5 Home | Partial: no first-run flow; no session notes, tags or corner bookmarks |
+| PL6 actionable analysis | P6 technique metrics, report, Consistency | Partial: corner rankings, ideal lap and score exist; no ranked opportunity list with entry/apex/exit split, no `docs/platform/ANALYSIS.md` |
+| PL7 structured practice | P8 training plans, P9 goals/challenges/planner | Partial: no prescriptions with evidence + success criterion + review point |
+| PL8 setup experiments | P7 setup history and comparison | Partial: no experiment/A-B object, no matched-condition filter |
+| PL9 HUD and live assistance | `src/live.js`, `src/gamebridge.js`, `mod/trainerhud` 0.14.0, `src/spotter.js` | Partial: fixed layouts (parts on/off, scale, opacity); no freshness indicator; no bridge stress test |
+| PL10 leaderboard integrity | `leaderboard/worker.js` `checkLap`, rate limit, reports + moderator hide | Partial: no written trust model, no verification tiers or audit trail |
+| PL11 data ownership | P3 backups (manual + before-restore), CSV/`.lap.gz` export | Partial: no scheduled backups, retention, storage forecast or partial-session recovery |

@@ -370,3 +370,20 @@
   - Session/Compare telemetry: a bigger track map, see-through race-car icons (each car on its own layer, 50–80 % opaque by car count), **+ / −** map zoom up to 8× that follows the car, and checkboxes for every chart.
   - Re-run: check 93/93, tests 137/137, packaged smoke test on a throwaway data dir (200, clean log, no `dist/win-unpacked/data`). Zip rebuilt and re-verified (676 entries, 155.8 MB, no data/settings/db/race.json, no key prefix or driver name). New SHA-256 `3571634D8BC77CC2F3C9F884636F419249F70CDC49D979A2AFED1355FD04F62E`.
 - **User approval:** **APPROVED** 2026-11-18 ("you may release changes on github and overtake"). Merged into `main`, pushed, tagged `v0.6.0-beta.1`, GitHub pre-release, overtake.gg update.
+
+## PL0: Platform baseline (no production behaviour change)
+
+- **Started / finished:** 2026-11-24 · branch `platform/pl0-baseline` (from `main` = `be3b5ef`, 0.7.0-beta.1) · the local operator plan (not in the repo); phase scopes are summarised in `docs/platform/BACKLOG.md`
+- **Objectives:** inventory features, architecture and integration boundaries for the PL1–PL11 platform plan; verify the PL1.1–1.3 hypotheses statically; write a prioritised backlog.
+- **Changes:** documentation only. `docs/ARCHITECTURE.md` (runtimes, integration-boundary table with `file:line`), `docs/FEATURE_INVENTORY.md` (0.7.0 refresh, plan mapping), `docs/platform/PL0-report.md`, `docs/platform/BACKLOG.md` (new), `docs/DECISIONS.md` (OD-PL-1…4, `OPEN (operator)`), this entry, `docs/DEVELOPMENT_STATE.md`. Nothing under `src/`, `public/`, `desktop/`, `mod/`, `leaderboard/` or `test/` changed.
+- **Findings (all static only, details in the PL0 report):**
+  - Verified: secret-free backups keep the leaderboard token and Steam identity (`src/backup.js:65-72`), the manifest says `includesSecrets: false`, and a restore brings the sign-in along (`src/restore-apply.js:19-22`); no central sensitive-settings list.
+  - Verified: lap import gunzips without a cap and checks only `format`, `data.t`, `data.d` (`src/server.js:763-765`); a non-array `data.t` or a missing required meta field fails at the insert with a raw 500 and stores nothing (runtime-checked by the reviewer on Node 22); duplicates are stored twice; exports carry the `board` Steam id.
+  - Verified: streamed zip extraction is not size-capped (`src/zip.js:86-101`); mod install can lose overwritten files on a mid-way failure (`src/mods.js:370`, catch `:371-375`); `settings.json`/`race.json` are written in place and an unreadable `settings.json` is silently replaced by defaults (`src/settings.js:52,63`).
+  - Rejected: path traversal in backup restore, mod zips and setup import; the token reaching the page or diagnostics; partial lap records.
+  - Unresolved: Windows device names in mod/setup paths; triggers/views in a restored database.
+  - Runtime gap: tests run on Node 22.23.4, the packaged app on Electron 44.11.1 / Node 24.22.2.
+- **Tests:** `npm run check` 104/104 → 104/104; `npm test` 175/175 → 175/175. No pre-existing failures.
+- **Known limitations:** no game, shared memory, in-game HUD, Steam login, Cloudflare, packaged exe or `npm audit` run (docs-only phase; see the report).
+- **Review findings:** n/a (documentation only).
+- **User approval:** pending. Push/merge not done.
