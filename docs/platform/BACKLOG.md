@@ -1,6 +1,6 @@
 # Platform backlog (PL1–PL11)
 
-Written in PL0 (2026-11-24) from `.claude/skills/paddock-operator/PLAN.md` and the PL0 findings (`docs/platform/PL0-report.md`). Scope here **refines** the plan; where they differ, this file is the newer word, and anything beyond the plan is an open decision in `docs/DECISIONS.md`.
+Written in PL0 (2026-11-24) from the local operator plan (not in the repo) and the PL0 findings (`docs/platform/PL0-report.md`). This file is the in-repo summary of every phase's scope and refines the plan; where they differ, this file is the newer word, and anything beyond the plan is an open decision in `docs/DECISIONS.md`.
 
 Priority: **P0** = data safety / must do next · **P1** = trust and reliability · **P2** = product value · **P3** = design only or optional.
 Finding IDs (1.1-a …) refer to the PL0 report.
@@ -42,7 +42,7 @@ Refined scope, in commit order:
 5. **Lap import** (1.2): `gunzipSync` with `maxOutputLength`; body cap for this route lower than 50 MB; schema check (format, version ≤ 1, `meta` fields and types, channel arrays of equal length, finite numbers, field ranges, sample-count and duration limits, `t` increasing, `d` non-decreasing, optional channels and `data.car` tolerated); duplicates per OD-PL-3; 400 with a plain message. The online lap download gets the same cap (1.2-f). Export per OD-PL-2 (1.2-g).
 6. **Archives** (1.3-b/c): a byte-counting transform in `zip.extract` that stops at `entry.size`; a sanity cap on `cdSize`. Upload caps for mods and backups (1.3-d) only if a sensible ceiling exists (a laps database can be GBs: cap backups by `MAX_DB` + margin).
 7. **Mod install overwrite** (1.3-g): move replaced files aside first and roll them back on failure.
-8. **Low items:** setup import size check before parsing (1.3-i); Windows device names in mod/setup paths after a runtime test (1.3-f/h); Steam names in diagnostics redaction (1.3-o); restored `settings.json` normalised to known keys and types (1.3-k).
+8. **Low items:** setup import size check before parsing (1.3-i); Windows device names in mod/setup paths after a runtime test (1.3-f/h); Steam names in diagnostics redaction (1.3-o); restored `settings.json` normalised to known keys and types (1.3-k); sensitive GETs (`/api/backup/file`, exports, diagnostics) refuse cross-site requests with a `Sec-Fetch-Site` / `Origin` check like writes already have (`src/server.js:318-330`; 1.1-e).
 9. **Deferred to backlog** (larger): crafted restored databases (1.3-l): analyse whether triggers/views matter; if so, rebuild the restored DB by copying tables.
 
 Tests: one failing regression test per verified finding before its fix, plus the plan's list (provider keys, tokens, passwords, missing/legacy settings, round trips, manifests, bombs, mismatched arrays, duplicates, unsupported versions).

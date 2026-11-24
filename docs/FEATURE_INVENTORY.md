@@ -118,7 +118,7 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 
 ## Platform baseline (PL0, 2026-11-24)
 
-How the platform plan (`.claude/skills/paddock-operator/PLAN.md`, PL1–PL11) maps onto what exists. "Extend" = build on the named phase's code, no parallel implementation.
+How the platform plan PL1–PL11 (a local operator plan, not in the repo; phase scopes are summarised in `docs/platform/BACKLOG.md`) maps onto what exists. "Extend" = build on the named phase's code, no parallel implementation.
 
 | Plan area | Existing base | Status at PL0 |
 | --- | --- | --- |

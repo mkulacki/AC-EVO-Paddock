@@ -2,7 +2,7 @@
 
 _Last updated: 2026-11-24_
 
-**Status:** P0–P10 done; **0.7.0-beta.1 released 2026-11-23**. Platform plan PL0–PL11 (`.claude/skills/paddock-operator/PLAN.md`) started.
+**Status:** P0–P10 done; **0.7.0-beta.1 released 2026-11-23**. Platform plan PL0–PL11 (the local operator plan, not in the repo; phase scopes are summarised in `docs/platform/BACKLOG.md`) started.
 **Current phase:** PL0 (platform baseline) done on `platform/pl0-baseline`, awaiting review. Next: PL1.
 **Branch:** `platform/pl0-baseline` (not pushed, not merged).
 
