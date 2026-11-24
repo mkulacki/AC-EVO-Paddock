@@ -419,3 +419,18 @@
 - **Known limitations:** CI not run on GitHub (no push); the Ubuntu job never ran on Linux; no game, Steam or Cloudflare checks.
 - **Open decisions:** OD-PL-8 (Dependabot), OD-PL-9 (`ACE_DIR` in release step 6).
 - **User approval:** pending. Push/merge not done.
+
+## PL1D: The user's decisions on the PL1 open questions
+
+- **Started / finished:** 2026-11-24 · branch `platform/pl1-decisions` (from `675441f`, the PL2 merge) · report `docs/platform/PL1D-report.md`
+- **Objectives:** apply the user's answers to OD-PL-1 … OD-PL-7.
+- **Changes:**
+  - OD-PL-1 (b): a restore keeps the current leaderboard sign-in (token and identity together) and never takes one from a backup (`src/sensitive.js` `mergeRestoredSettings`).
+  - OD-PL-4: the before-restore safety backup holds no secrets (`src/backup.js` `stageRestore`); undoing a restore with it keeps the install's current key, passwords and sign-in.
+  - OD-PL-5 (b): `/api/settings` returns `fileNotices` and `canSave`; the Settings page names a damaged or unreadable `settings.json` / `race.json` / `setup-meta.json`, the copy kept and how to recover (`src/jsonfile.js` `fileIssues`, `src/settings.js` `fileNotices`, `public/settingspage.js`).
+  - OD-PL-2, -3, -6, -7 confirmed as implemented. DECISIONS, README, ARCHITECTURE, CHANGELOG updated.
+  - Commits: `e119946`, `90020d0`, `cb5ff43`, plus the docs commit.
+- **Tests:** `npm run check` 116/116; `npm test` 215/215 → 218/218 (Node 22.23.4); `npm run test:electron` 218/218 (Node 24.22.2); `npm run test:browser` 6/6 → 7/7.
+- **Known limitations:** the notice was checked through DOM assertions only, not looked at; undoing a restore cannot bring back secrets that were replaced by the restore (by design of OD-PL-4).
+- **Open decisions:** none new; OD-PL-8 and OD-PL-9 stay open.
+- **User approval:** pending. Push/merge not done.
