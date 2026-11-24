@@ -16,7 +16,7 @@
 | `c079f7c` | `test/fixtures/README.md`: provenance of every synthetic fixture (all generated in code, seeds, where used) and the known environment dependences. Browser flows step in CI. |
 | `fd4f53c` | `README.md`: requirement corrected to Node 22.13 (see findings); Contributing documents `npm run verify` and each test command, the CI file and the packaged smoke. `docs/ARCHITECTURE.md`: integration-boundary table rewritten with current line references (PL1 moved most of them) plus a "Sensitive settings" row; runtime and tooling summary updated. `docs/DECISIONS.md`: D-PL2-1 … 4, OD-PL-8, OD-PL-9. |
 | `5568ba7` | `CHANGELOG.md` (Unreleased, PL2), `docs/FEATURE_INVENTORY.md` (engineering rows). |
-| (this commit) | This report, `docs/PHASE_LOG.md`, `docs/DEVELOPMENT_STATE.md`. |
+| `04f30e6` | This report, `docs/PHASE_LOG.md`, `docs/DEVELOPMENT_STATE.md`. |
 
 ## Verified findings / rejected assumptions / unresolved
 
