@@ -45,8 +45,9 @@ test('restore merge: the key comes from the current file when the backup has non
   const cur = { geminiApiKey: 'current', boardToken: 'cur-token', boardSteam: { name: 'Me' } };
   assert.deepEqual(sensitive.mergeRestoredSettings({ driverName: 'b', geminiApiKey: '' }, cur), { driverName: 'b', geminiApiKey: 'current', boardToken: 'cur-token', boardSteam: { name: 'Me' } },
     'a backup without a sign-in keeps the current one');
-  assert.deepEqual(sensitive.mergeRestoredSettings({ geminiApiKey: 'from-backup', boardToken: TOKEN, boardSteam: STEAM }, cur), { geminiApiKey: 'from-backup', boardToken: 'cur-token', boardSteam: { name: 'Me' } },
-    'an old backup that still holds a token never replaces the current sign-in');
+  assert.deepEqual(sensitive.mergeRestoredSettings({ geminiApiKey: 'from-backup', boardToken: TOKEN, boardSteam: STEAM }, cur), { geminiApiKey: 'current', boardToken: 'cur-token', boardSteam: { name: 'Me' } },
+    'current secrets win: the backup key never replaces the current one; an old token never replaces the current sign-in');
+  assert.equal(sensitive.mergeRestoredSettings({ geminiApiKey: 'from-backup' }, { geminiApiKey: '' }).geminiApiKey, 'from-backup', 'an empty key is filled from the backup');
   assert.deepEqual(sensitive.mergeRestoredSettings({ boardToken: TOKEN, boardSteam: STEAM }, {}), { boardToken: '', boardSteam: null },
     'an old backup that still holds a token does not sign a signed-out install in');
   assert.deepEqual(sensitive.mergeRestoredSettings({}, { boardToken: 'half', boardSteam: null }), { boardToken: '', boardSteam: null }, 'half a sign-in is not kept');
@@ -146,7 +147,35 @@ test('undoing a restore with the safety backup keeps the current key, passwords 
   assert.equal(s.boardToken, 'current-token', 'still signed in');
   assert.equal(s.boardSteam.name, 'Current');
   assert.equal(race.servers[0].password, 'after-restore-pw', 'the saved server keeps its current password');
-  assert.equal(race.presets[0].spec.server.password, '', 'a password the install no longer has cannot come back (the safety backup has none)');
+  assert.equal(race.presets[0].spec.server.password, '', 'a preset with no server address gets no password from elsewhere');
+});
+
+test('current secrets win (user decision 2026-11-24): restoring a backup WITH secrets never replaces the current key or passwords', () => {
+  const cur = { geminiApiKey: 'current-key', boardToken: 'current-token', boardSteam: { name: 'Current' } };
+  const curRace = { servers: [{ id: 's1', ip: '1.2.3.4', port: 9600, password: 'current-pw' }, { id: 'only-here', ip: '9.9.9.9', port: 1, password: 'kept-pw' }],
+    presets: [{ id: 'p-here', name: 'Mine', spec: { server: { ip: '9.9.9.9', port: 1, password: 'kept-pw' } } }, { id: 'p-plain', name: 'Plain', spec: {} }] };
+  const { settings: s, race } = applyIn(withKey.name, cur, curRace, { race: true });
+  assert.equal(s.geminiApiKey, 'current-key', 'the key in the backup does not replace the current one');
+  assert.equal(s.boardToken, 'current-token');
+  assert.equal(race.servers.find((x) => x.id === 's1').password, 'current-pw', 'the backup password does not replace the current one');
+  assert.equal(race.servers.find((x) => x.id === 'only-here')?.password, 'kept-pw', 'a server the backup lacks is kept with its password');
+  assert.equal(race.presets.find((p) => p.id === 'p-here')?.spec.server.password, 'kept-pw', 'a preset the backup lacks is kept when it holds a password');
+  assert.ok(!race.presets.some((p) => p.id === 'p-plain'), 'a preset without a password follows the backup');
+  // an install without a key or password gets the backup's
+  const { settings: s2, race: r2 } = applyIn(withKey.name, { geminiApiKey: '' }, { servers: [{ id: 's1', ip: '1.2.3.4', port: 9600, password: '' }] }, { race: true });
+  assert.equal(s2.geminiApiKey, KEY);
+  assert.equal(r2.servers.find((x) => x.id === 's1').password, PW);
+});
+
+test('race merge: servers match by id, else host:port; the restored list is never shortened', async () => {
+  const { mergeRestoredRace } = await import('../src/restore-apply.js');
+  const out = mergeRestoredRace(
+    { servers: [{ id: 'a', ip: '1.1.1.1', port: 1, password: 'old' }, { id: 'b', ip: ' 2.2.2.2 ', port: 2, password: '' }], last: { server: { ip: '1.1.1.1', port: 1, password: '' } } },
+    { servers: [{ id: 'a', ip: '5.5.5.5', port: 5, password: 'new-a' }, { id: 'x', ip: '2.2.2.2', port: 2, password: 'by-host' }] });
+  assert.deepEqual(out.servers.map((x) => [x.id, x.password]), [['a', 'new-a'], ['b', 'by-host']], 'same id wins over the address; same address fills; nothing duplicated');
+  assert.equal(out.last.server.password, '', 'no current password for that address: the backup value (empty) stays');
+  assert.deepEqual(mergeRestoredRace(null, { servers: [{ id: 'z', ip: 'h', port: 3, password: 'p' }] }).servers.map((x) => x.id), ['z'], 'a backup without servers keeps the current ones');
+  assert.deepEqual(mergeRestoredRace({ servers: [{ id: 'q', password: 'from-backup' }] }, {}).servers[0].password, 'from-backup');
 });
 
 test('an older backup that still holds a token restores without it, and keeps the current sign-in', async () => {

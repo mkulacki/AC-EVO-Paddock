@@ -6,7 +6,8 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ### Data safety (platform phase PL1)
 
-- **Backups never hold your leaderboard sign-in** (the Steam login token and who it belongs to), not even with "include secrets". Restoring settings from a backup keeps the sign-in this install has (like your Gemini key when the backup has none), so you stay signed in. An older backup that still holds a sign-in restores without it.
+- **Backups never hold your leaderboard sign-in** (the Steam login token and who it belongs to), not even with "include secrets". Restoring settings from a backup keeps the sign-in this install has, so you stay signed in. An older backup that still holds a sign-in restores without it.
+- **A restore never loses a key or password:** your current Gemini key and server passwords always win over the backup's; the backup only fills in empty ones, and saved servers (and presets with a password) missing from the backup are kept.
 - **The backup made before a restore holds no secrets** (no Gemini key, server passwords or sign-in). Undoing a restore with it keeps the key, passwords and sign-in you have at that moment.
 - **Diagnostics** also take out the leaderboard token and your Steam name.
 - **Settings, Race tab servers and setup notes are saved safely:** written to a temporary file first, so a crash never leaves half a file. A damaged file is no longer silently replaced by defaults: it is kept next to it as `<name>.unreadable-<time>`, and the Settings page says which file it was, where the copy is and how to get its contents back (also when a file could not be read at all and saving it is refused).

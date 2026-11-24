@@ -16,32 +16,54 @@ const MAX_ATTEMPTS = 3;
 
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } };
 
-// secrets a backup may leave out are kept from the current files; the leaderboard sign-in is never restored, also
-// when an older backup still holds one: the current install's sign-in stays (src/sensitive.js, decision OD-PL-1 (b))
+// Current secrets win (decision OD-PL-1/OD-PL-4 refinement, 2026-11-24): a restore never replaces a key or password
+// the install has, it only fills empty ones from the backup; the leaderboard sign-in is never restored (src/sensitive.js).
 const mergeSettings = mergeRestoredSettings;
-// race.json: every {ip, port, password} anywhere (saved servers, presets, the last setup) gets the current password
-// for the same server back when the backup had none
-function mergeRace(restored, current) {
+const isObj = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
+const hostKey = (o) => `${String(o?.ip ?? '').trim()}:${o?.port}`;
+const holdsPassword = (o) => Array.isArray(o) ? o.some(holdsPassword) : isObj(o) && Object.entries(o).some(([k, v]) => (k === 'password' ? !!v : holdsPassword(v)));
+/**
+ * race.json brought back by a restore, merged with the current one, so that no restore loses a password:
+ * - every {password} anywhere (saved servers, presets, the last setup) takes the current password of the same server
+ *   (same id, else same host:port) when the install has one; only an empty one keeps the backup's;
+ * - saved servers the install has and the backup lacks (same id or host:port) are kept, with their passwords;
+ * - presets the install has and the backup lacks (same id) are kept when they hold a password.
+ */
+export function mergeRestoredRace(restored, current) {
+  const out = isObj(restored) ? restored : {};
+  const cur = isObj(current) ? current : {};
   const known = new Map();
   const collect = (o) => {
     if (Array.isArray(o)) o.forEach(collect);
-    else if (o && typeof o === 'object') {
-      if (o.password && o.ip != null) known.set(`${String(o.ip).trim()}:${o.port}`, o.password);
+    else if (isObj(o)) {
+      if (o.password && o.ip != null && !known.has(hostKey(o))) known.set(hostKey(o), o.password);
       if (o.password && o.id != null) known.set(`id:${o.id}`, o.password);
       Object.values(o).forEach(collect);
     }
   };
-  collect(current);
+  collect(cur.servers); collect(cur); // saved servers first: their password is the one in use for that address
   const fill = (o) => {
     if (Array.isArray(o)) o.forEach(fill);
-    else if (o && typeof o === 'object') {
-      if ('password' in o && !o.password) o.password = known.get(`id:${o.id}`) || known.get(`${String(o.ip ?? '').trim()}:${o.port}`) || '';
+    else if (isObj(o)) {
+      if ('password' in o) o.password = known.get(`id:${o.id}`) || known.get(hostKey(o)) || o.password || '';
       Object.values(o).forEach(fill);
     }
   };
-  fill(restored);
-  return restored;
+  fill(out);
+  if (Array.isArray(cur.servers)) {
+    if (!Array.isArray(out.servers)) out.servers = [];
+    const ids = new Set(out.servers.filter(isObj).map((s) => s.id).filter((v) => v != null));
+    const hosts = new Set(out.servers.filter(isObj).map(hostKey));
+    for (const s of cur.servers) if (isObj(s) && !ids.has(s.id) && !hosts.has(hostKey(s))) out.servers.push(s);
+  }
+  if (Array.isArray(cur.presets)) {
+    if (!Array.isArray(out.presets)) out.presets = [];
+    const ids = new Set(out.presets.filter(isObj).map((p) => p.id).filter((v) => v != null));
+    for (const p of cur.presets) if (isObj(p) && p.id != null && !ids.has(p.id) && holdsPassword(p)) out.presets.push(p);
+  }
+  return out;
 }
+const mergeRace = mergeRestoredRace;
 
 function swapDatabase(from, to) {
   const next = `${to}.restoring`;

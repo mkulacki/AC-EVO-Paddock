@@ -120,7 +120,7 @@ async function backupCard(onRestart) {
       const x = b.backups.find((y) => y.name === btn.dataset.restore);
       const what = (x.parts || []).map(partLabel(b)).join(', ') || 'laps, sessions and settings';
       if (!confirm(`Restore the backup of ${when(x.createdAt)}${x.counts ? ` (${plural(x.counts.laps, 'lap')})` : ''}?\n\nIt brings back: ${what}. These are replaced by the ones in the backup; anything else stays as it is. `
-        + ((x.parts || []).includes('settings') ? 'Your leaderboard sign-in stays as it is (backups never hold it), and so do your Gemini key and server passwords when the backup has none. ' : '')
+        + ((x.parts || []).includes('settings') ? 'Your current Gemini key, server passwords and leaderboard sign-in always stay: the backup only fills in a key or password you do not have, and saved servers missing from the backup are kept. ' : '')
         + 'Paddock first makes a backup of your current data (listed as "made before a restore", without your key, passwords or sign-in), then restarts.')) return;
       btn.disabled = true; say('Checking the backup and backing up your current data…');
       try { await post('/api/backup/restore', { name: x.name }); say('Restarting to restore…'); onRestart?.(btn); }

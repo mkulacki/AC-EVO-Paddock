@@ -71,7 +71,8 @@ export function settingsSecrets(s) {
 
 /**
  * settings.json brought back by a restore, merged with the current one:
- * - secrets the backup left out (empty or missing) are kept from the current file;
+ * - current secrets win (user decision 2026-11-24): a secret the install has (Gemini key) is never replaced by the
+ *   backup's; only an empty or missing one is filled from the backup;
  * - the sign-in is never taken from the backup (an older one may still hold a token): the current install's sign-in
  *   is kept as it is, or stays empty when there is none (OD-PL-1 (b)).
  */
@@ -81,7 +82,7 @@ export function mergeRestoredSettings(restored, current) {
   const signedIn = SIGN_IN_FIELDS.every((k) => cur[k]); // only a whole sign-in is kept (token and who it is), never half
   for (const [k, f] of Object.entries(SETTINGS_FIELDS)) {
     if (f.kind === 'sign-in') out[k] = signedIn ? cur[k] : f.empty;
-    else if (!out[k] && cur[k]) out[k] = cur[k];
+    else if (cur[k]) out[k] = cur[k];
   }
   return out;
 }
