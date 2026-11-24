@@ -43,6 +43,7 @@ import * as sensitive from './sensitive.js';
 import * as lapfile from './lapfile.js';
 import { limitBytes } from './zip.js';
 import * as updates from './updates.js';
+import { perf } from './perf.js';
 import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,6 +55,8 @@ let source;
 if (mockIdx >= 0) {
   const { MockSource } = await import('./mock.js');
   source = new MockSource({ speedup: Number(args[mockIdx + 1]) || 1 });
+  // timing measurements (npm run bench): the same 1 ms Windows timer as a real run, so the 60 Hz loop is comparable
+  if (process.env.PADDOCK_HIRES_TIMER) (await import('./shm.js')).enableHighResTimer();
 } else {
   const { ShmSource, enableHighResTimer } = await import('./shm.js');
   enableHighResTimer();
@@ -264,7 +267,9 @@ setInterval(() => {
 }, 2000).unref?.();
 
 let lastPacket = null, lastPacketChange = Date.now(), stale = false;
+perf.start(); // bounded timing of this loop and of the event loop (src/perf.js, Settings → Diagnostics)
 setInterval(() => {
+  const t0 = perf.tickStart();
   try {
     source.tick?.();
     const f = source.read();
@@ -283,6 +288,7 @@ setInterval(() => {
     marker.onFrame(f);
     spotter.tick(hud.nextBrake());
   } catch (e) { console.error('telemetry error', e); }
+  finally { perf.tickEnd(t0); }
 }, 1000 / 60);
 
 // ---------------------------------------------------------------- status for the header bar
@@ -663,9 +669,11 @@ async function route(req, res) {
     res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="paddock-${laps ? 'laps' : 'sessions'}-${day}.csv"` });
     return res.end(body);
   }
+  // recording timing only (numbers, no private data); a private GET like the full report (PRIVATE_GET)
+  if (p === '/api/diagnostics/perf') return send(res, 200, perf.summary());
   if (p === '/api/diagnostics') {
     const d = diagnostics.build({
-      version: VERSION, source: source.name, recorder: recorder.state,
+      version: VERSION, source: source.name, recorder: recorder.state, performance: perf.summary(),
       game: (() => { try { const g = game.status(); return { running: g.running, version: g.version ?? g.gameVersion ?? null, hudVersion: g.hudVersion ?? null }; } catch (e) { return { error: e.message }; } })(),
       loader: (() => { try { return loaderInstall.status(); } catch (e) { return { error: e.message }; } })(),
       hud: (() => { try { return hudInstall.status(); } catch (e) { return { error: e.message }; } })(),
@@ -1006,7 +1014,10 @@ async function route(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  route(req, res).catch((e) => { console.error(e.message); if (!res.headersSent) send(res, 500, { error: e.message }); });
+  const t0 = performance.now();
+  const done = route(req, res);
+  perf.request(req.url?.split('?')[0], performance.now() - t0); // the part that ran before its first await: it holds up the telemetry loop
+  done.catch((e) => { console.error(e.message); if (!res.headersSent) send(res, 500, { error: e.message }); });
 });
 const port = Number(process.env.PORT) || settings.get().port || 8080;
 // resolves with the port once listening; the desktop app (desktop/main.cjs) waits on it

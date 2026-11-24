@@ -22,6 +22,7 @@
     "test:browser": "node --no-warnings --test test/browser.flows.js",
     "verify": "npm run check && npm test && npm run test:electron && npm run test:browser",
     "smoke:packaged": "node test/packaged-smoke.js",
+    "bench": "node --no-warnings test/perf.bench.js",
     "board": "node --no-warnings leaderboard/local.mjs",
     "wrangler": "cd leaderboard && npx --yes wrangler@4.160.1",
     "board:schema": "cd leaderboard && npx --yes wrangler@4.160.1 d1 execute acevo-paddock-leaderboard --remote --file schema.sql",

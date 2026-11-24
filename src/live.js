@@ -7,6 +7,7 @@ import { STATUS } from './shm.js';
 import * as cars from './cars.js';
 import * as settings from './settings.js';
 import * as marks from './brakemarks.js';
+import { perf } from './perf.js';
 
 const MODES = ['best', 'ideal', 'session'];
 const LABELS = { best: 'All-time best', ideal: 'Ideal lap', session: 'Session best' };
@@ -68,6 +69,7 @@ export class LiveHud {
     this.refsKey = key;
     this.refs = null;
     if (!s) return null;
+    const t0 = performance.now();
     try {
       const info = svc.comboInfo(s);
       const refs = { corners: info.corners, best: null, ideal: null, session: null };
@@ -85,6 +87,7 @@ export class LiveHud {
       refs.sectors = refs.best ? sectorInfo(s, refs.best.R) : null;
       this.refs = refs;
     } catch (e) { console.error('[hud] reference load failed:', e.message); }
+    perf.record('hudRefs', performance.now() - t0);
     return this.refs;
   }
 
