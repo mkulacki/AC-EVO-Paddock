@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   windows:
-    # the app ships for Windows only: the whole suite, on Node 22 and on Electron's own Node (the packaged runtime)
+    # the app ships for Windows only: the whole suite on Node 22 and on Electron's own Node (the packaged runtime), and the browser flows
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -33,6 +33,8 @@ jobs:
       - run: npm test
       - name: Tests on Electron's Node
         run: npm run test:electron
+      - name: Browser flows (headless Edge, preinstalled on windows-latest)
+        run: npm run test:browser
 
   ubuntu:
     # Only the platform-neutral test files. Excluded, because they depend on Windows:
