@@ -202,6 +202,9 @@ export async function stageRestore(name, { appVersion = null, stillIdle = () => 
       try {
         const tables = new Set(t.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name));
         if (!tables.has('laps') || !tables.has('sessions')) throw err('The database in this backup is not a Paddock laps database');
+        // Paddock never makes triggers, views or virtual tables: one in a backup would run code on Paddock's own queries
+        const odd = t.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view') OR (type = 'table' AND sql LIKE 'CREATE VIRTUAL%') LIMIT 1").get();
+        if (odd) throw err(`The database in this backup contains a ${odd.type === 'table' ? 'virtual table' : odd.type} Paddock never makes (${String(odd.name).slice(0, 40)}): not restored`);
         if (t.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw err('The database in this backup is damaged');
         if (t.prepare('PRAGMA user_version').get().user_version > db.counts().schema) throw err('This backup was made by a newer Paddock: update Paddock first');
       } finally { t.close(); }

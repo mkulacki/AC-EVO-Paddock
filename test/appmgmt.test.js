@@ -93,6 +93,16 @@ test('restore: staged with a safety backup first; refused for a damaged database
   await zip.writeZip(bad, [{ name: 'manifest.json', data: JSON.stringify({ format: backup.FORMAT, version: 1, files: ['telemetry.db'] }) }, { name: 'telemetry.db', file: junk }]);
   await assert.rejects(backup.stageRestore('paddock-backup-bad.zip'), /not a Paddock laps database/);
   assert.ok(!backup.pending(), 'nothing left staged after a refusal');
+  // PL1 (PL0 1.3-l): a database with a trigger or view (Paddock never makes one) is refused
+  for (const [n, sql] of [['trig', "CREATE TRIGGER t AFTER INSERT ON laps BEGIN DELETE FROM sessions; END"], ['view', 'CREATE VIEW v AS SELECT * FROM laps']]) {
+    const f = path.join(dir, `${n}.db`); const t = new DatabaseSync(f);
+    t.exec(`CREATE TABLE laps (id); CREATE TABLE sessions (id); ${sql}`); t.close();
+    const z = `paddock-backup-${n}.zip`;
+    await zip.writeZip(path.join(backup.BACKUP_DIR, z), [{ name: 'manifest.json', data: JSON.stringify({ format: backup.FORMAT, version: 1, files: ['telemetry.db'] }) }, { name: 'telemetry.db', file: f }]);
+    await assert.rejects(backup.stageRestore(z), new RegExp(`contains a ${n === 'trig' ? 'trigger' : 'view'} Paddock never makes`));
+    assert.ok(!backup.pending());
+    backup.remove(z);
+  }
 });
 
 test('restore at start: files swapped before the database opens; key and passwords kept from the current files', async () => {
