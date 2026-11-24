@@ -16,7 +16,8 @@ import { isolate, ROOT } from './helpers.js';
 
 const env = isolate('smoke');
 const childEnv = { ...process.env, ...env, PADDOCK_TEST_SEED: '7' };
-delete childEnv.ELECTRON_RUN_AS_NODE;
+// the children run on this same runtime: under Electron (npm run test:electron) they need ELECTRON_RUN_AS_NODE to stay Node
+if (!process.versions.electron) delete childEnv.ELECTRON_RUN_AS_NODE;
 const node = (...args) => ['--no-warnings', '--import', pathToFileURL(path.join(ROOT, 'test/preload-seed.js')).href, ...args];
 const FAKE_KEY = 'test-only-not-a-real-gemini-key-0123456789'; // must not match the release secret scan (CLAUDE.md step 3)
 
