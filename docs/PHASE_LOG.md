@@ -436,3 +436,18 @@
 - **Round 3 (user-approved, the last):** restore reads current files through `loadJson` (BOM fine, damaged kept aside, locked not replaced); presets matched by id, else name; confirm text per part (`settings` vs `race`); Check now after leaving Settings; dismissals cached and not a settings-file issue; CLAUDE.md step 6 skip warning. Commits `19f381b`, `e36b256`, `205af33`, `fd04d11` + docs. Tests: check 116/116, test 226/226, test:electron 226/226, test:browser 13/13 ×5.
 - **Open decisions:** none open from PL0–PL2.
 - **User approval:** pending. Push/merge not done.
+
+## PL3: Recording reliability and performance
+
+- **Started / finished:** 2026-11-24 · branch `platform/pl3-recording-perf` (from `e8a6528`) · scope in `docs/platform/BACKLOG.md` (PL3); report `docs/platform/PL3-report.md`; numbers in `docs/platform/PERFORMANCE.md`
+- **Objectives:** measure the 60 Hz loop and the bigger jobs on the mock source with seeded large histories; bounded diagnostics; fix only demonstrated bottlenecks.
+- **Changes:**
+  - `src/perf.js` (fixed histograms, counters, rings; `monitorEventLoopDelay`), wired into the tick, lap save and HTTP; `/api/diagnostics/perf` behind the origin guard and a `performance` section in Diagnostics.
+  - `npm run bench` (`test/perf.bench.js`: lap save, tick with 0–600 laps of history, 1,000/5,000-lap routes and jobs, 75 s live server).
+  - Long-history work in ~8 ms slices (`src/service.js` `comboInfoAsync`, `runInSlices`), per-lap corner/sector times kept in memory, LRU lap cache; HUD references prepared in the background (`src/live.js`); Laps/Home/report routes and the automatic report warm first (`src/server.js` `warmFor`); report and progress use the kept corner times.
+  - Commits: `6871189`, `510ab6e`, `1aa4251`, plus the docs commit.
+- **Findings:** the stalls came from reading the lap history synchronously (HUD references 7.4 s at 612 laps, 5 s at every lap end past 300 laps from cache thrash, Laps page 36 s at 5,000 laps, Home 6.7 s), not from the backlog suspects (lap gzip 20 ms, `listLaps` 21 ms, report JSON). After: longest hold 25–58 ms; live run 44 s → 0.58 s longest gap, 3,076 → 133 missed frames.
+- **Tests:** `npm run check` 116/116 → 119/119; `npm test` 226/226 → 236/236 (Node 22.23.4); `npm run test:electron` 236/236 (Node 24.22.2); `npm run test:browser` 13/13.
+- **Known limitations:** real shared-memory timing and in-game behaviour unverified; one PC; Consistency page and coach context still read all laps at once; no DB change.
+- **Open decisions:** OD-PL-10 (lap compression level), OD-PL-11 (first open of Laps/Home with a long history).
+- **User approval:** pending. Push/merge not done.

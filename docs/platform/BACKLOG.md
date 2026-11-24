@@ -62,6 +62,7 @@ Tests: one failing regression test per verified finding before its fix, plus the
 - Bounded diagnostics in the 60 Hz loop (`src/server.js:265-284`): interval jitter histogram, late/dropped frames, `monitorEventLoopDelay`, DB insert latency, post-lap work time.
 - Scenarios on `--mock` with seeded large histories; method in `docs/platform/PERFORMANCE.md`; real shared-memory timing stays unverified.
 - Known suspects to measure first (not to fix blind): synchronous `VACUUM INTO` backups (already refused on track), `zlib.gzipSync` of a lap on save, `listLaps()` full scans on report/goal paths, `JSON.parse` of report blobs.
+- **Done 2026-11-24** (`docs/platform/PL3-report.md`, numbers in `docs/platform/PERFORMANCE.md`). The real bottleneck was none of the suspects but reading the lap history synchronously (HUD references, Laps/Home pages, session report, progress). Follow-ups left: the Consistency page and the AI coach still read every lap of a car and track in one go (full traces needed); lap save stays in the tick (OD-PL-10); first open of the Laps/Home pages with a long history (OD-PL-11); one-off catalogue read (~0.5 s) if a session starts in the first 3 s after Paddock starts.
 
 ## PL4: Compatibility and provenance (P1)
 
