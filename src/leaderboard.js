@@ -114,7 +114,17 @@ export function payload(lap, { tel = true } = {}) {
 }
 
 export function createLeaderboard({ recorder, launchInfo = () => null, gameVersion = () => null, appVersion = null,
-  fetchImpl = (...a) => fetch(...a), notify = () => {} }) {
+  fetchImpl = (...a) => fetch(...a), notify = () => {}, background = true }) {
+  // Background work (the periodic sync, the check at start, the sync after a lap or a sign-in, the places after a
+  // send) runs on timers kept here, so stop() ends all of it. background: false = none at all: tests call sync() and
+  // checkRanks() themselves (a timer left over from one instance would otherwise race the next one on the shared DB).
+  const timers = new Set();
+  const later = (fn, ms) => {
+    if (!background) return;
+    const t = setTimeout(() => { timers.delete(t); fn(); }, ms);
+    t.unref?.();
+    timers.add(t);
+  };
   let acc = null; // temperatures of the lap being driven
   const state = { syncing: false, lastSync: null, lastError: null, ranksAt: 0 };
   let profile = null;  // the driver's own profile, as last read (Leaderboards tab)
@@ -171,7 +181,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     reset();
     try { db.setLapCond(l.id, c); } catch (e) { console.log(`[board] conditions not saved: ${e.message}`); return; }
     if (l.valid && tgt.key === comboKey(l) && (tgt.myBest == null || l.lapTimeMs < tgt.myBest)) tgt.myBest = l.lapTimeMs;
-    if (cfg().share && cfg().auto && l.valid) setTimeout(() => sync().catch(() => {}), 1500);
+    if (cfg().share && cfg().auto && l.valid) later(() => sync().catch(() => {}), 1500);
   }
 
   /** Sends every best lap not sent yet (or that failed for a reason worth retrying). Without automatic sending,
@@ -212,7 +222,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
       }
       if (!failed) state.lastError = null;
       state.lastSync = Date.now();
-      if (sent) { tgt.at = 0; setTimeout(() => checkRanks().catch(() => {}), 500); }
+      if (sent) { tgt.at = 0; later(() => checkRanks().catch(() => {}), 500); }
       return { sent, failed };
     } finally { state.syncing = false; }
   }
@@ -364,12 +374,12 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     recorder.on('session', (s) => { reset(); if (s && cfg().target !== 'off') loadTarget(s).catch(() => {}); });
     recorder.on('discarded', reset);
   }
-  const timer = setInterval(() => {
+  const timer = background ? setInterval(() => {
     sync().catch(() => {});
     if (Date.now() - state.ranksAt > RANKS_EVERY_MS) checkRanks().catch(() => {});
-  }, SYNC_EVERY_MS);
-  timer.unref?.();
-  const first = setTimeout(async () => {
+  }, SYNC_EVERY_MS) : null;
+  timer?.unref?.();
+  later(async () => {
     // at start: is the login still good (and an admin?), then the places
     const c = cfg();
     if (!c.token) return;
@@ -378,7 +388,6 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     if (me.body?.ok) settings.update({ boardSteam: { ...c.steam, name: me.body.name, admin: !!me.body.admin } });
     await checkRanks();
   }, 5000);
-  first.unref?.();
 
   return {
     onFrame, onLap, sync, call, checkRanks, target, boardWindow, loadTarget, fetchOnline,
@@ -424,8 +433,8 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
       state.lastError = null;
       console.log(`[board] signed in with Steam as ${r.body.name}`);
       // laps that waited for the sign-in go now; then the places
-      if (cfg().share && cfg().auto) setTimeout(() => sync().catch(() => {}), 500);
-      setTimeout(() => checkRanks().catch(() => {}), 3000);
+      if (cfg().share && cfg().auto) later(() => sync().catch(() => {}), 500);
+      later(() => checkRanks().catch(() => {}), 3000);
       return { ok: true, name: r.body.name };
     },
     async logout() {
@@ -435,5 +444,11 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
       console.log('[board] signed out');
     },
     profile: () => profile,
+    /** Ends the background work: the periodic sync and every deferred sync or check still pending. */
+    stop() {
+      if (timer) clearInterval(timer);
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
+    },
   };
 }
