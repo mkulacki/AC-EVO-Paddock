@@ -106,16 +106,50 @@ const KEPT = /^(settings|race|setup-meta)\.json\.unreadable-(\d{1,15})$/;
  * or 'earlier' (a damaged copy from an earlier run is still in data\). Names only: no folder, nothing from the file.
  */
 export function fileNotices() {
-  const now = fileIssues(DATA_DIR).filter((x) => OWN_FILES.includes(x.file))
-    .map((x) => ({ file: x.file, state: x.state, damaged: x.damaged, keptAs: x.keptAs, at: x.at, savesRefused: x.state === 'failed' }));
-  const shown = new Set(now.map((x) => x.keptAs).filter(Boolean));
   let names = [];
   try { names = fs.readdirSync(DATA_DIR); } catch { /* no data folder yet */ }
-  const earlier = names.filter((n) => KEPT.test(n) && !shown.has(n)).map((n) => {
+  const onDisk = new Set(names.filter((n) => KEPT.test(n)));
+  const hidden = dismissed();
+  // a copy the driver deleted or dismissed is not shown again; a notice without a copy (could not be read) always is
+  const now = fileIssues(DATA_DIR).filter((x) => OWN_FILES.includes(x.file) && (!x.keptAs || (onDisk.has(x.keptAs) && !hidden.has(x.keptAs))))
+    .map((x) => ({ file: x.file, state: x.state, damaged: x.damaged, keptAs: x.keptAs, at: x.at, savesRefused: x.state === 'failed' }));
+  const shown = new Set(now.map((x) => x.keptAs).filter(Boolean));
+  const earlier = [...onDisk].filter((n) => !shown.has(n) && !hidden.has(n)).map((n) => {
     const m = KEPT.exec(n);
     return { file: `${m[1]}.json`, state: 'earlier', damaged: true, keptAs: n, at: Number(m[2]), savesRefused: false };
   });
   return [...now, ...earlier.sort((a, b) => b.at - a.at)].slice(0, 10);
+}
+
+// Dismissed notices (user decision B, 2026-11-24): the names of kept copies the driver chose not to be told about
+// again, in data\notices-dismissed.json (names only, no secret). A new damaged copy has a new name, so it is shown.
+const DISMISSED_FILE = path.join(DATA_DIR, 'notices-dismissed.json');
+function dismissed() {
+  const v = loadJson(DISMISSED_FILE, { copies: [] }).value;
+  return new Set(Array.isArray(v.copies) ? v.copies.filter((n) => typeof n === 'string' && KEPT.test(n)) : []);
+}
+/** A kept copy named by the page: only `<own file>.unreadable-<time>` directly in data\, and it must exist as a file. */
+function keptCopy(name) {
+  if (typeof name !== 'string' || !KEPT.test(name) || path.basename(name) !== name) throw Object.assign(new Error('Not a damaged copy Paddock kept'), { code: 400 });
+  const file = path.join(DATA_DIR, name);
+  let st; try { st = fs.lstatSync(file); } catch { throw Object.assign(new Error('That copy is no longer there'), { code: 404 }); }
+  if (!st.isFile()) throw Object.assign(new Error('Not a damaged copy Paddock kept'), { code: 400 });
+  return file;
+}
+function saveDismissed(set) {
+  let names = [];
+  try { names = fs.readdirSync(DATA_DIR); } catch { /* none */ }
+  writeJsonAtomic(DISMISSED_FILE, { copies: [...set].filter((n) => names.includes(n)) }); // copies that are gone drop out
+}
+/** Hide the notice about one kept copy for good. */
+export function dismissNotice(name) {
+  keptCopy(name);
+  const set = dismissed(); set.add(name); saveDismissed(set);
+}
+/** Delete one kept copy (never a live settings.json / race.json / setup-meta.json: the name must be a kept copy's). */
+export function deleteKeptCopy(name) {
+  fs.rmSync(keptCopy(name));
+  const set = dismissed(); if (set.delete(name)) saveDismissed(set);
 }
 
 // settings safe to send to the browser

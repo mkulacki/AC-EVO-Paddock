@@ -167,3 +167,40 @@ test('fileNotices: a damaged copy from an earlier run is listed until it is dele
   assert.ok(!settings.fileNotices().some((x) => x.state === 'earlier'));
   for (const f of ['telemetry.db.unreadable-1700000000000', 'settings.json.unreadable-abc']) fs.rmSync(path.join(ACEVO_DATA, f));
 });
+
+// ---------------------------------------------------------------- PL1D: Dismiss and Delete copy (user decision B)
+test('dismiss: hidden for that copy only, kept across a reload of the list; a new copy is shown again', () => {
+  const a = 'race.json.unreadable-1700000000001', b = 'race.json.unreadable-1700000000002';
+  fs.writeFileSync(path.join(ACEVO_DATA, a), '{');
+  settings.dismissNotice(a);
+  assert.ok(!settings.fileNotices().some((n) => n.keptAs === a));
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(ACEVO_DATA, 'notices-dismissed.json'), 'utf8')), { copies: [a] }, 'names only');
+  fs.writeFileSync(path.join(ACEVO_DATA, b), '{');
+  assert.ok(settings.fileNotices().some((n) => n.keptAs === b), 'a new damaged copy is shown');
+  // the copy of this run (state aside) can be dismissed too
+  const thisRun = settings.fileNotices().find((n) => n.file === 'settings.json' && n.state === 'aside').keptAs;
+  settings.dismissNotice(thisRun);
+  assert.ok(!settings.fileNotices().some((n) => n.keptAs === thisRun));
+  for (const f of [a, b]) fs.rmSync(path.join(ACEVO_DATA, f));
+});
+
+test('delete copy: only a kept copy in data\\ goes; live files, other names, folders and paths are refused', () => {
+  const c = 'setup-meta.json.unreadable-1700000000003';
+  fs.writeFileSync(path.join(ACEVO_DATA, c), '{');
+  settings.dismissNotice(c);
+  settings.deleteKeptCopy(c);
+  assert.ok(!fs.existsSync(path.join(ACEVO_DATA, c)));
+  assert.ok(!JSON.parse(fs.readFileSync(path.join(ACEVO_DATA, 'notices-dismissed.json'), 'utf8')).copies.includes(c), 'its dismissal goes with it');
+  assert.throws(() => settings.deleteKeptCopy(c), (e) => e.code === 404);
+  const live = fs.readFileSync(path.join(ACEVO_DATA, 'settings.json'), 'utf8');
+  fs.writeFileSync(path.join(dir, 'outside.json.unreadable-1'), 'x');
+  fs.mkdirSync(path.join(ACEVO_DATA, 'race.json.unreadable-1700000000004'));
+  for (const bad of ['settings.json', 'race.json', 'setup-meta.json', '../settings.json', '..\\settings.json', 'settings.json.unreadable-1/../../settings.json',
+    path.join(ACEVO_DATA, 'settings.json.unreadable-1'), '..\\race.json.unreadable-1', '../outside.json.unreadable-1', 'notices-dismissed.json', 'telemetry.db', 'race.json.unreadable-1700000000004', '', null, 5, ['x']]) {
+    assert.throws(() => settings.deleteKeptCopy(bad), (e) => e.code === 400 || e.code === 404, String(bad));
+    assert.throws(() => settings.dismissNotice(bad), (e) => e.code === 400 || e.code === 404, String(bad));
+  }
+  assert.equal(fs.readFileSync(path.join(ACEVO_DATA, 'settings.json'), 'utf8'), live, 'the live file is untouched');
+  assert.ok(fs.existsSync(path.join(dir, 'outside.json.unreadable-1')) && fs.statSync(path.join(ACEVO_DATA, 'race.json.unreadable-1700000000004')).isDirectory());
+  fs.rmdirSync(path.join(ACEVO_DATA, 'race.json.unreadable-1700000000004'));
+});

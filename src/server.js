@@ -868,6 +868,16 @@ async function route(req, res) {
   if (p === '/api/board/combos') { const r = await board.call('/v1/combos'); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/board/versions') { const r = await board.call(`/v1/versions?${url.searchParams}`); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/board/table') { const r = await board.table(Object.fromEntries(url.searchParams)); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
+  // the damaged-file notice in Settings: hide it for one kept copy, or delete that copy (names checked in src/settings.js)
+  if (p === '/api/settings/notice' && m === 'POST') {
+    const { action, keptAs } = await readJson(req);
+    try {
+      if (action === 'dismiss') settings.dismissNotice(keptAs);
+      else if (action === 'delete') { settings.deleteKeptCopy(keptAs); console.log(`[data] deleted the damaged copy ${keptAs}`); }
+      else return send(res, 400, { error: 'Unknown action' });
+    } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
+    return send(res, 200, { fileNotices: settings.fileNotices() });
+  }
   if (p === '/api/settings') {
     if (m === 'POST') {
       const body = await readJson(req);
