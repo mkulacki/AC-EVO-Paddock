@@ -17,9 +17,34 @@ const HUD_GROUPS = [
 // what the preview is drawn over, to judge the HUD against bright and dark scenes
 const HUD_PREVIEW_BG = [['dark', 'Dark'], ['light', 'Light'], ['track', 'Track']];
 const THEMES = [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']];
+
+// Damaged or unreadable files of the driver's (decision OD-PL-5; /api/settings fileNotices, src/settings.js): which file,
+// where the damaged copy is kept, and how to get its contents back. Names only, the folder is always data\.
+const OWN_FILES = {
+  'settings.json': ['your settings (driver name, Gemini key, HUD and the other choices on this page)', 'enter your settings again on this page'],
+  'race.json': ['your Race tab presets and saved servers', 'add them again on the <a href="#/race">Race</a> tab'],
+  'setup-meta.json': ['your notes on setup files', 'write the notes again on the <a href="#/setups">Setups</a> tab'],
+};
+function fileNoticeHtml(n) {
+  const [what, redo] = OWN_FILES[n.file] || ['what it holds', 'enter it again'];
+  const f = `<code>${esc(n.file)}</code>`, kept = n.keptAs ? `<code>data/${esc(n.keptAs)}</code>` : '';
+  if (n.state === 'earlier') return `A damaged copy of ${f} from ${esc(new Date(n.at).toLocaleString())} is still kept as ${kept}.
+    If you no longer need what was in it, delete that file and this notice goes away.`;
+  if (n.state === 'aside') return `<b>${f} was damaged</b> when Paddock started, so ${what} started from defaults.
+    What was in it is kept as ${kept}. To get it back, quit Paddock, then repair that file (it is plain JSON text) or rename it back to ${f}
+    (replacing the new one), and start Paddock again. Or ${redo}.`;
+  const refused = n.file === 'settings.json' ? 'Saving on this page is refused' : 'Saving it is refused';
+  if (n.damaged) return `<b>${f} is damaged</b> and could not be moved aside, so ${what} use defaults. ${refused}, so nothing in it is overwritten.
+    Quit Paddock, repair or remove <code>data/${esc(n.file)}</code>, and start Paddock again.`;
+  return `<b>${f} could not be read</b> (another program, for example antivirus or OneDrive, may be holding it), so ${what} use defaults for now.
+    ${refused} until it can be read, so nothing in it is lost. Close the program holding it and restart Paddock.`;
+}
+const fileNoticesHtml = (list) => (list?.length ? `<div class="note-warn" id="fileNotices" role="status" style="margin:0 0 12px">
+  <h2 style="margin:0 0 6px;font-size:var(--fs-md, 15px)">${list.some((n) => n.state !== 'earlier') ? 'A data file could not be read' : 'Damaged data files kept'}</h2>
+  <ul style="margin:0;padding-left:18px">${list.map((n) => `<li data-file="${esc(n.file)}" data-state="${esc(n.state)}" style="margin:0 0 6px">${fileNoticeHtml(n)}</li>`).join('')}</ul></div>` : '');
 export async function viewSettings(view, cleanup, { restartPaddock, setStatus }) {
   const s = await api('/api/settings');
-  view.innerHTML = `<div class="card"><h1>Settings</h1><p class="muted">Stored locally in <code>data/settings.json</code>.</p>
+  view.innerHTML = `<div class="card"><h1>Settings</h1><p class="muted">Stored locally in <code>data/settings.json</code>.</p>${fileNoticesHtml(s.fileNotices)}
     <div class="form">
       <label>Theme</label><div class="row"><span class="seg" id="theme">${THEMES.map(([k, label]) => `<button class="small" data-theme="${k}">${label}</button>`).join('')}</span></div>
       <div class="hint">Saved on this computer straight away. "System" follows the Windows light / dark setting.</div>

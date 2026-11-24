@@ -17,6 +17,8 @@ test('unreadable at start: defaults in memory, saves refused, nothing written', 
   assert.throws(() => settings.update({ driverName: 'X' }), (e) => e.code === 503 && /not saved over/.test(e.message));
   assert.ok(fs.statSync(FILE).isDirectory());
   assert.equal(settings.get().driverName, '');
+  // PL1D (OD-PL-5): the Settings page is told, without the folder
+  assert.deepEqual(settings.fileNotices().map((n) => ({ ...n, at: 0 })), [{ file: 'settings.json', state: 'failed', damaged: false, keptAs: null, at: 0, savesRefused: true }]);
 });
 
 test('readable again: the next save loads it first and keeps the key', () => {
@@ -28,4 +30,5 @@ test('readable again: the next save loads it first and keeps the key', () => {
   assert.equal(saved.driverName, 'Jan');
   assert.equal(saved.language, 'Polski');
   assert.equal(settings.saveable(), true);
+  assert.deepEqual(settings.fileNotices(), [], 'the notice goes once the file could be read');
 });

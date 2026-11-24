@@ -1,7 +1,8 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './db.js';
 import { pageView } from './sensitive.js';
-import { loadJson, writeJsonAtomic, notSaved } from './jsonfile.js';
+import { loadJson, writeJsonAtomic, notSaved, fileIssues } from './jsonfile.js';
 
 const FILE = path.join(DATA_DIR, 'settings.json');
 const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName: '', language: 'English', port: 8080,
@@ -95,5 +96,27 @@ export function update(patch) {
 }
 /** false while settings.json could not be read and is protected from being saved over. */
 export const saveable = () => canSave;
+// The driver's own files in data\ that Paddock keeps aside when damaged (src/jsonfile.js; read by src/settings.js,
+// src/race.js, src/setups.js).
+export const OWN_FILES = ['settings.json', 'race.json', 'setup-meta.json'];
+const KEPT = /^(settings|race|setup-meta)\.json\.unreadable-(\d{1,15})$/;
+/**
+ * For the Settings page (decision OD-PL-5): the driver's files that were damaged or could not be read. -> [{file, state,
+ * damaged, keptAs, at, savesRefused}], newest first, at most 10. state: 'aside' / 'failed' (this run, src/jsonfile.js)
+ * or 'earlier' (a damaged copy from an earlier run is still in data\). Names only: no folder, nothing from the file.
+ */
+export function fileNotices() {
+  const now = fileIssues(DATA_DIR).filter((x) => OWN_FILES.includes(x.file))
+    .map((x) => ({ file: x.file, state: x.state, damaged: x.damaged, keptAs: x.keptAs, at: x.at, savesRefused: x.state === 'failed' }));
+  const shown = new Set(now.map((x) => x.keptAs).filter(Boolean));
+  let names = [];
+  try { names = fs.readdirSync(DATA_DIR); } catch { /* no data folder yet */ }
+  const earlier = names.filter((n) => KEPT.test(n) && !shown.has(n)).map((n) => {
+    const m = KEPT.exec(n);
+    return { file: `${m[1]}.json`, state: 'earlier', damaged: true, keptAs: n, at: Number(m[2]), savesRefused: false };
+  });
+  return [...now, ...earlier.sort((a, b) => b.at - a.at)].slice(0, 10);
+}
+
 // settings safe to send to the browser
 export const publicView = () => ({ ...pageView(current), hud, spotter, hasKey: !!current.geminiApiKey });

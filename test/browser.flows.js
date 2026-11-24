@@ -1,7 +1,8 @@
 // Browser flows (PL2): the real pages in headless Edge (or Chrome), driven over the DevTools protocol with Node's own
 // WebSocket, against a mock server on scratch data. `npm run test:browser` (also part of `npm run verify`).
 // Covers: open a session, compare two laps, import a valid / duplicate / broken lap file, change a setting, keyboard
-// navigation (Alt+digit, Ctrl+K palette, ?, Esc). Every page must load without a JavaScript error.
+// navigation (Alt+digit, Ctrl+K palette, ?, Esc), the damaged-file notice in Settings (PL1D, OD-PL-5). Every page must
+// load without a JavaScript error.
 // Skipped when no Edge/Chrome is found (set PADDOCK_BROWSER to the browser's .exe to choose one).
 // No game, no network, no AI key: the server runs with --mock on a free port, the browser has a scratch profile.
 import { test, before, after } from 'node:test';
@@ -75,6 +76,8 @@ before(async () => {
   if (skip) return;
   // demo laps on scratch data, then the server on a free port (as test/smoke.test.js does)
   execFileSync(process.execPath, node(path.join(ROOT, 'src/mock.js'), '--seed', '6'), { env: childEnv, cwd: ROOT, stdio: 'ignore' });
+  // a damaged setup-meta.json: the server keeps it aside at start and the Settings page must say so (OD-PL-5)
+  fs.writeFileSync(path.join(env.ACEVO_DATA, 'setup-meta.json'), '{"files": {"x": {"notes": "half');
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   server = spawn(process.execPath, node(path.join(ROOT, 'src/server.js'), '--mock', '1'), { env: { ...childEnv, PORT: String(port) }, cwd: ROOT });
@@ -211,6 +214,23 @@ test('settings: a changed driver name is saved; the Gemini key field never holds
   await go('#/settings', "document.querySelector('#driverName')");
   assert.equal(await js("document.querySelector('#driverName').value"), 'Browser Test', 'kept after leaving the page');
   assert.equal(await js("document.querySelector('#geminiApiKey').value"), '', 'no key set, none shown');
+  assert.deepEqual(errors, []);
+});
+
+test('settings: a damaged data file is named, with the copy kept and how to recover (OD-PL-5)', { skip }, async () => {
+  const kept = fs.readdirSync(env.ACEVO_DATA).find((n) => n.startsWith('setup-meta.json.unreadable-'));
+  assert.ok(kept, 'kept aside by the server');
+  const n = (await api('/api/settings')).body.fileNotices;
+  assert.deepEqual(n.map((x) => [x.file, x.state, x.keptAs, x.savesRefused]), [['setup-meta.json', 'aside', kept, false]]);
+  assert.equal((await api('/api/settings')).body.canSave, true);
+  await go('#/settings', "document.querySelector('#fileNotices')");
+  assert.equal(await js("document.querySelector('#fileNotices').getAttribute('role')"), 'status');
+  const text = await js("document.querySelector('#fileNotices').textContent");
+  assert.match(text, /setup-meta\.json was damaged/);
+  assert.ok(text.includes(`data/${kept}`), 'where the copy is');
+  assert.match(text, /rename it back/);
+  assert.ok(!text.includes(env.ACEVO_DATA), 'no full folder path');
+  assert.equal(await js("document.querySelector('#fileNotices a[href=\"#/setups\"]') !== null"), true, 'a link to where the notes are');
   assert.deepEqual(errors, []);
 });
 

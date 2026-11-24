@@ -14,7 +14,7 @@ fs.writeFileSync(path.join(ACEVO_DATA, 'race.json'), '[1,2');
 // temp files of a write that crashed (another process id) hold the key: removed when the file loads
 const STALE = 'settings.json.999999.1.tmp';
 fs.writeFileSync(path.join(ACEVO_DATA, STALE), '{"geminiApiKey":"test-only-key-0123456789"}');
-const { writeFileAtomic, readJsonSafe, loadJson } = await import('../src/jsonfile.js');
+const { writeFileAtomic, readJsonSafe, loadJson, fileIssues } = await import('../src/jsonfile.js');
 const settings = await import('../src/settings.js');
 const race = await import('../src/race.js');
 
@@ -138,4 +138,32 @@ test('race: presets and the last setup reach the page without passwords; the ser
   assert.equal(p.spec.serverId, 'x', 'an online start still names its saved server');
   assert.equal(race.presetById(p.id).spec.server.password, 'secret-pw');
   assert.equal(l.last, null);
+});
+
+// ---------------------------------------------------------------- PL1D: the Settings page names damaged files (OD-PL-5)
+test('fileNotices: damaged settings.json and race.json are named with the copy kept, nothing else of them', () => {
+  const n = settings.fileNotices();
+  const s = n.find((x) => x.file === 'settings.json'), r = n.find((x) => x.file === 'race.json');
+  assert.deepEqual({ ...s, at: 0 }, { file: 'settings.json', state: 'aside', damaged: true, keptAs: asideOf('settings.json')[0], at: 0, savesRefused: false });
+  assert.equal(r.state, 'aside');
+  assert.equal(r.keptAs, asideOf('race.json')[0]);
+  assert.equal(n.filter((x) => x.file === 'settings.json').length, 1, 'the copy of this run is not listed again as an earlier one');
+  const text = JSON.stringify(n);
+  assert.ok(!text.includes(ACEVO_DATA) && !text.includes(dir) && !text.includes(path.sep + path.sep), 'no folder, only names');
+  assert.ok(!text.includes('test-only-key') && !text.includes('Jan'), 'nothing from inside the file');
+  // other folders (the loadJson tests above use scratch files) are not this install's data
+  assert.ok(!n.some((x) => /^(arr|stuck|locked)\.json$/.test(x.file)));
+  assert.ok(fileIssues().some((x) => x.file === 'stuck.json' && x.state === 'failed' && x.damaged), 'jsonfile itself records every file');
+});
+
+test('fileNotices: a damaged copy from an earlier run is listed until it is deleted; other files are not', () => {
+  const old = 'setup-meta.json.unreadable-1700000000000';
+  fs.writeFileSync(path.join(ACEVO_DATA, old), '{');
+  fs.writeFileSync(path.join(ACEVO_DATA, 'telemetry.db.unreadable-1700000000000'), 'x');
+  fs.writeFileSync(path.join(ACEVO_DATA, 'settings.json.unreadable-abc'), 'x');
+  const e = settings.fileNotices().filter((x) => x.state === 'earlier');
+  assert.deepEqual(e, [{ file: 'setup-meta.json', state: 'earlier', damaged: true, keptAs: old, at: 1700000000000, savesRefused: false }]);
+  fs.rmSync(path.join(ACEVO_DATA, old));
+  assert.ok(!settings.fileNotices().some((x) => x.state === 'earlier'));
+  for (const f of ['telemetry.db.unreadable-1700000000000', 'settings.json.unreadable-abc']) fs.rmSync(path.join(ACEVO_DATA, f));
 });

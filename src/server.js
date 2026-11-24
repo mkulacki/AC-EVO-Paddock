@@ -880,8 +880,10 @@ async function route(req, res) {
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
       if (settings.get().markKey !== oldKey) bindMarkKey();
     }
-    // the game files folder in use (read at start) and the one Windows reports, for the Settings page
-    return send(res, 200, { ...settings.publicView(), aceInUse: ACE, aceAuto: ACE_AUTO, aceExists: fs.existsSync(ACE), markKeyState });
+    // the game files folder in use (read at start) and the one Windows reports, for the Settings page; damaged or
+    // unreadable files of the driver's (OD-PL-5) and whether settings can be saved
+    return send(res, 200, { ...settings.publicView(), aceInUse: ACE, aceAuto: ACE_AUTO, aceExists: fs.existsSync(ACE), markKeyState,
+      fileNotices: settings.fileNotices(), canSave: settings.saveable() });
   }
   if (p === '/api/ai/models') return send(res, 200, await ai.listModels());
   if (p === '/api/ai/analyze' && m === 'POST') {
