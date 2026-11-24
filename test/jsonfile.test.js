@@ -204,3 +204,15 @@ test('delete copy: only a kept copy in data\\ goes; live files, other names, fol
   assert.ok(fs.existsSync(path.join(dir, 'outside.json.unreadable-1')) && fs.statSync(path.join(ACEVO_DATA, 'race.json.unreadable-1700000000004')).isDirectory());
   fs.rmdirSync(path.join(ACEVO_DATA, 'race.json.unreadable-1700000000004'));
 });
+
+test('dismissals are read once and kept in memory; never recorded as a damaged settings file (round 3)', () => {
+  const real = fs.readFileSync; let reads = 0;
+  fs.readFileSync = (f, ...a) => { if (String(f).endsWith('notices-dismissed.json')) reads++; return real(f, ...a); };
+  try { for (let k = 0; k < 3; k++) settings.fileNotices(); } finally { fs.readFileSync = real; }
+  assert.equal(reads, 0, 'served from memory after the first read / write');
+  fs.writeFileSync(path.join(ACEVO_DATA, 'notices-dismissed.json'), '{broken');
+  settings.fileNotices();
+  assert.ok(!fileIssues().some((x) => x.file === 'notices-dismissed.json'), 'not a file issue');
+  assert.ok(!settings.fileNotices().some((n) => n.file === 'notices-dismissed.json'));
+  assert.ok(fs.existsSync(path.join(ACEVO_DATA, 'notices-dismissed.json')), 'not moved aside either');
+});

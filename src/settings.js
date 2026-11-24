@@ -124,9 +124,19 @@ export function fileNotices() {
 // Dismissed notices (user decision B, 2026-11-24): the names of kept copies the driver chose not to be told about
 // again, in data\notices-dismissed.json (names only, no secret). A new damaged copy has a new name, so it is shown.
 const DISMISSED_FILE = path.join(DATA_DIR, 'notices-dismissed.json');
+// Read once and kept in memory (GET /api/settings asks every time the page opens), refreshed on every write. Read
+// directly, not through loadJson: it is not one of the driver's files, so an unreadable one is not a Settings notice;
+// it only means nothing is dismissed (logged once).
+let dismissedCache = null;
 function dismissed() {
-  const v = loadJson(DISMISSED_FILE, { copies: [] }).value;
-  return new Set(Array.isArray(v.copies) ? v.copies.filter((n) => typeof n === 'string' && KEPT.test(n)) : []);
+  if (!dismissedCache) {
+    let v = null;
+    try { v = JSON.parse(fs.readFileSync(DISMISSED_FILE, 'utf8').replace(/^\uFEFF/, '')); } catch (e) {
+      if (e.code !== 'ENOENT') console.error(`[data] ${path.basename(DISMISSED_FILE)} cannot be read (${e.code || 'damaged'}): no notice is dismissed`);
+    }
+    dismissedCache = new Set(Array.isArray(v?.copies) ? v.copies.filter((n) => typeof n === 'string' && KEPT.test(n)) : []);
+  }
+  return new Set(dismissedCache);
 }
 /** A kept copy named by the page: only `<own file>.unreadable-<time>` directly in data\, and it must exist as a file. */
 function keptCopy(name) {
@@ -136,10 +146,13 @@ function keptCopy(name) {
   if (!st.isFile()) throw Object.assign(new Error('Not a damaged copy Paddock kept'), { code: 400 });
   return file;
 }
+// Saved whatever canSave says: canSave guards settings.json, and this is a separate file with names only.
 function saveDismissed(set) {
   let names = [];
   try { names = fs.readdirSync(DATA_DIR); } catch { /* none */ }
-  writeJsonAtomic(DISMISSED_FILE, { copies: [...set].filter((n) => names.includes(n)) }); // copies that are gone drop out
+  const copies = [...set].filter((n) => names.includes(n)); // copies that are gone drop out
+  writeJsonAtomic(DISMISSED_FILE, { copies });
+  dismissedCache = new Set(copies);
 }
 /** Hide the notice about one kept copy for good. */
 export function dismissNotice(name) {
