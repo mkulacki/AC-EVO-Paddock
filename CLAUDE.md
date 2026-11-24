@@ -30,7 +30,7 @@ Ask the user before pushing, tagging or publishing. Each of those is public.
 4. **Commit** (end with the Co-Authored-By line from the session's attribution instructions) and push `main`.
 5. **Build:** `rm -rf dist && npx electron-builder --win dir`, which gives `dist/win-unpacked/AC EVO Paddock.exe`. Use the build only, not `npm run dist`, which also deploys locally.
 6. **Smoke test** with a throwaway data dir, so nothing is written into the build:
-   - Easiest: `npm run smoke:packaged`, which does all of this with scratch `ACEVO_DATA` and `ACE_DIR`.
+   - Easiest: `npm run smoke:packaged`, which does all of this with scratch `ACEVO_DATA` and `ACE_DIR`. When port 8080 is busy it prints `SKIPPED (NOT TESTED)` and tests nothing, so quit the app first and check that the output did not say it skipped.
    - By hand in PowerShell: `Remove-Item Env:ELECTRON_RUN_AS_NODE`; set `$env:ACEVO_DATA` to a scratch folder **and** `$env:ACE_DIR` to a scratch folder (e.g. `<scratch>\ACE`; the app installs the loader and HUD there at start, so without it the run writes into the real `Saved Games\ACE`); start the exe; `Invoke-WebRequest http://127.0.0.1:8080/ -UseBasicParsing` should give 200 (not `localhost`: Windows PowerShell tries IPv6 first and can time out, while the server listens on 127.0.0.1 only) with title "AC EVO Paddock"; check `<scratch>\logs\paddock.log`; then `Stop-Process -Name "AC EVO Paddock"`.
    - Port 8080 must be free, so quit the user's running app first.
    - The Claude session has `ELECTRON_RUN_AS_NODE=1` set, so it must be cleared or Electron runs as plain Node.
