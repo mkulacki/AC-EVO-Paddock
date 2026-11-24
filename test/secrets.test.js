@@ -92,17 +92,25 @@ test('"include secrets" backup: key and passwords in, the token still out (OD-PL
   assert.equal(withKey.includesSecrets, true);
 });
 
-test('before-restore safety backup keeps key and passwords but not the token (OD-PL-4)', async () => {
-  const r = await backup.stageRestore(plain.name);
+let safety;
+test('before-restore safety backup holds no secrets at all: no key, passwords, token or Steam identity (OD-PL-4)', async () => {
+  const r = await backup.stageRestore(withKey.name);
+  safety = r.before;
   const s = JSON.parse(entryText(r.before, 'settings.json'));
-  assert.equal(s.geminiApiKey, KEY);
+  assert.equal(s.geminiApiKey, '');
   assert.equal(s.boardToken, '');
-  assert.ok(!rawZip(r.before).includes(TOKEN) && !entryText(r.before, 'settings.json').includes(TOKEN));
+  assert.equal(s.boardSteam, null);
+  assert.equal(s.driverName, 'Jan Kowalski', 'preferences are kept');
+  const raw = rawZip(r.before) + entryText(r.before, 'settings.json') + entryText(r.before, 'race.json');
+  for (const secret of [KEY, TOKEN, PW, STEAM.steamId]) assert.ok(!raw.includes(secret), `${secret} must not be in the safety backup`);
+  const d = backup.listBackups().find((b) => b.name === r.before);
+  assert.equal(d.includesSecrets, false, 'listed without the "with key" badge');
+  assert.equal(JSON.parse(entryText(r.before, 'manifest.json')).includesSecrets, false);
   backup.cancelRestore();
 });
 
 // ---------------------------------------------------------------- restore
-function applyIn(name, current) {
+function applyIn(name, current, currentRace = null, { race = false } = {}) {
   const other = fs.mkdtempSync(path.join(dir, 'restore-'));
   fs.mkdirSync(path.join(other, PENDING));
   const f = backup.fileOf(name);
@@ -110,9 +118,11 @@ function applyIn(name, current) {
   for (const e of zip.list(f)) if (['settings.json', 'race.json'].includes(e.name)) { fs.writeFileSync(path.join(other, PENDING, e.name), zip.readEntry(f, e.name)); files.push(e.name); }
   fs.writeFileSync(path.join(other, PENDING, 'manifest.json'), JSON.stringify({ files }));
   fs.writeFileSync(path.join(other, 'settings.json'), JSON.stringify(current));
+  if (currentRace) fs.writeFileSync(path.join(other, 'race.json'), JSON.stringify(currentRace));
   const r = applyPendingRestore(other);
   assert.equal(r.ok, true, r.error);
-  return JSON.parse(fs.readFileSync(path.join(other, 'settings.json'), 'utf8'));
+  const s = JSON.parse(fs.readFileSync(path.join(other, 'settings.json'), 'utf8'));
+  return race ? { settings: s, race: JSON.parse(fs.readFileSync(path.join(other, 'race.json'), 'utf8')) } : s;
 }
 
 test('restoring a secret-free backup: current sign-in and key kept, preferences restored (OD-PL-1 b)', () => {
@@ -124,6 +134,19 @@ test('restoring a secret-free backup: current sign-in and key kept, preferences 
   const out = applyIn(plain.name, { geminiApiKey: '' });
   assert.equal(out.boardToken, '', 'a signed-out install stays signed out');
   assert.equal(out.boardSteam, null);
+});
+
+test('undoing a restore with the safety backup keeps the current key, passwords and sign-in (OD-PL-4 with OD-PL-1 b)', () => {
+  // the install after a restore: other key, a new password for the same server, signed in
+  const cur = { geminiApiKey: 'after-restore-key', driverName: 'Restored', boardToken: 'current-token', boardSteam: { steamId: '1', name: 'Current' } };
+  const curRace = { servers: [{ id: 's1', ip: '1.2.3.4', port: 9600, password: 'after-restore-pw' }], presets: [] };
+  const { settings: s, race } = applyIn(safety, cur, curRace, { race: true });
+  assert.equal(s.driverName, 'Jan Kowalski', 'the settings from before the restore come back');
+  assert.equal(s.geminiApiKey, 'after-restore-key', 'the key the install has now is kept');
+  assert.equal(s.boardToken, 'current-token', 'still signed in');
+  assert.equal(s.boardSteam.name, 'Current');
+  assert.equal(race.servers[0].password, 'after-restore-pw', 'the saved server keeps its current password');
+  assert.equal(race.presets[0].spec.server.password, '', 'a password the install no longer has cannot come back (the safety backup has none)');
 });
 
 test('an older backup that still holds a token restores without it, and keeps the current sign-in', async () => {

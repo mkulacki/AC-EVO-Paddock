@@ -264,7 +264,7 @@ A voice or beeps count down to each braking point while you drive: "three, two, 
 ## Backup, export, diagnostics and updates (Settings)
 
 - **Backup and restore:** *Back up now* writes one zip to `data\backups`: laps, sessions, reports, brake points, saved AI answers, Race tab presets and settings. Track and car caches (Paddock rebuilds them), logs and disabled mods are left out. Your Gemini key and saved server passwords are left out too, unless you tick *Include my Gemini key and server passwords*. *Save as…* copies a backup elsewhere, and *Add a backup file…* brings one in from another PC.
-  - *Restore* checks the backup, first makes a backup of your current data (listed as *made before a restore*), then restarts Paddock and swaps the files before the database is opened. If the backup has no key or passwords, your current ones are kept, and your leaderboard sign-in always stays as it is (backups never hold it).
+  - *Restore* checks the backup, first makes a backup of your current data (listed as *made before a restore*; it never holds your key, passwords or sign-in), then restarts Paddock and swaps the files before the database is opened. If the backup has no key or passwords, your current ones are kept, and your leaderboard sign-in always stays as it is (backups never hold it).
   - Backing up and restoring are refused while you are on track, because they would stall the lap recording.
 - **Export:** laps and sessions as CSV files for a spreadsheet.
 - **Diagnostics:** *Copy for a bug report* gives the version, the data and game folders, HUD and loader state, which readings are checked, and the end of the log. Your Gemini key, server passwords, driver name and Windows user folder are taken out.

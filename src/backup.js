@@ -7,7 +7,9 @@
 // logs and the backups themselves. The Gemini key and saved server passwords are left out unless asked for; the
 // leaderboard sign-in (token and Steam identity) is never in a backup (src/sensitive.js, decision OD-PL-1).
 // Restore: the backup is checked and unpacked to data\restore-pending, a backup of the current data is made first,
-// and the files are swapped at the next start (src/restore-apply.js), before the database is opened.
+// and the files are swapped at the next start (src/restore-apply.js), before the database is opened. That safety
+// backup holds no secrets at all (decision OD-PL-4): undoing a restore with it keeps the key, passwords and sign-in
+// the install has then, because a restore keeps every secret a backup leaves out (src/sensitive.js).
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -210,7 +212,8 @@ export async function stageRestore(name, { appVersion = null, stillIdle = () => 
       } finally { t.close(); }
     }
     if (!files.length) throw err('This backup holds nothing Paddock can restore');
-    const before = await create({ includeSecrets: true, reason: 'before-restore', appVersion });
+    // no secrets in it (OD-PL-4): restoring it later keeps the install's own key, passwords and sign-in
+    const before = await create({ includeSecrets: false, reason: 'before-restore', appVersion });
     if (!stillIdle()) throw err('You went on track meanwhile: restore when you are in the menus or AC EVO is closed.', 409);
     // written last: its presence is what makes the next start apply the restore
     fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ ...manifest, files, from: name, stagedAt: Date.now(), before: before.name, attempts: 0 }, null, 2));
