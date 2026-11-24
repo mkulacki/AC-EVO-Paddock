@@ -29,7 +29,11 @@ const metaFor = (rel) => (meta.files[rel] ||= {});
 const norm = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const idOf = (rel) => crypto.createHash('sha1').update(rel.toLowerCase()).digest('hex').slice(0, 12);
 const relOf = (car, track, name) => `${car}/${track}/${name}${EXT}`;
-const SAFE = (s) => String(s ?? '').replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '').slice(0, 80);
+// Windows device names (CON, aux …) get an underscore: they are not ordinary file or folder names on Windows (PL1)
+const SAFE = (s) => String(s ?? '').replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '').slice(0, 80)
+  .replace(/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?=\.|$)/i, '$1_');
+export const safeName = SAFE;
+export const MAX_SETUP_BYTES = 64 * 1024;
 
 export const filePreset = cs.presetOf;
 function carOfFile(carFolder, preset) {
@@ -214,8 +218,10 @@ export function exportFile(id) {
 }
 /** A .carsetup from a friend: its car comes from the file; the track from the file name "<car> - <track> - <name>" or the picked one. */
 export function importFile(buf, { filename = '', trackId = null } = {}) {
+  // size first: the file is not parsed at all when it is far bigger than any setup (PL0 1.3-i)
+  if (!buf?.length || buf.length > MAX_SETUP_BYTES) throw new Error('Not an AC EVO setup file (.carsetup)');
   const preset = filePreset(buf);
-  if (!preset || buf.length > 64 * 1024) throw new Error('Not an AC EVO setup file (.carsetup)');
+  if (!preset) throw new Error('Not an AC EVO setup file (.carsetup)');
   const car = carOfFile('', preset);
   if (!car) throw new Error(`This setup is for a car that is not installed (${preset.split('_preset')[0]})`);
   const parts = String(filename).replace(/\.carsetup$/i, '').split(' - ');
