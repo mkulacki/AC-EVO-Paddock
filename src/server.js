@@ -317,11 +317,19 @@ const safeName = (s) => String(s).replace(/[^a-z0-9_.-]+/gi, '_');
 // Only Paddock's own pages may use the API. The server listens on 127.0.0.1 only, but a web page open in the
 // browser could still send requests to it (cross-site requests, DNS rebinding): those are refused here.
 const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
-function foreignRequest(req) {
+// GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
+// site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
+// from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export)/;
+function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
   if (!OWN_HOSTS.has(name)) return 'unknown host';
-  if (req.method === 'GET' || req.method === 'HEAD') return null;
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    if (!PRIVATE_GET.test(p)) return null;
+    const site = req.headers['sec-fetch-site'];
+    if (site === 'cross-site' || site === 'same-site') return `${site} request for private data`;
+  }
   if (req.headers['sec-fetch-site'] === 'cross-site') return 'cross-site request';
   const origin = req.headers.origin;
   if (origin && origin !== 'null') {
@@ -335,7 +343,7 @@ async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const m = req.method;
-  const foreign = foreignRequest(req);
+  const foreign = foreignRequest(req, p);
   if (foreign) { console.warn(`[http] refused ${m} ${p}: ${foreign} (host ${req.headers.host}, origin ${req.headers.origin ?? '-'})`); return send(res, 403, { error: 'Forbidden' }); }
 
   if (p === '/api/events') {
@@ -483,7 +491,9 @@ async function route(req, res) {
         return res.end(buf);
       }
       if (p === '/api/setups/import' && m === 'POST') {
-        const buf = await readBody(req);
+        // a setup file is a few kB: a body over the limit is not read whole (413)
+        let buf;
+        try { buf = await readBody(req, setups.MAX_SETUP_BYTES + 1); } catch (e) { return send(res, e.code === 413 ? 413 : 400, { error: e.code === 413 ? 'Not an AC EVO setup file (.carsetup): far too big' : e.message }); }
         try { return send(res, 200, setups.importFile(buf, { filename: q.get('filename') || '', trackId: q.get('track') || null })); }
         catch (e) { if (e.needsTrack) return send(res, 409, { error: e.message, needsTrack: true, car: e.car }); throw e; }
       }
