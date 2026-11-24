@@ -20,6 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './db.js';
+import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
 import * as trackdata from './trackdata.js';
 import * as svc from './service.js';
 import * as carsDb from './cars.js';
@@ -30,11 +31,11 @@ const APPLIED_FILE = path.join(DATA_DIR, 'game-applied.json');
 const MAX_ORDER_BYTES = 11000; // the order rides inside a 16 KB live slot next to the HUD data
 
 const readJson = (f, dflt) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return dflt; } };
-let store = { presets: [], servers: [], last: null, ...readJson(FILE, {}) };
+let store = { presets: [], servers: [], last: null, ...readJsonSafe(FILE, {}) }; // a damaged file is kept aside, not overwritten
 let scan = readJson(SCAN_FILE, null); // { at, parts: { name: value } }
 if (scan && !scan.parts) scan = null;
 let derived = null;
-const saveStore = () => fs.writeFileSync(FILE, JSON.stringify(store, null, 2));
+const saveStore = () => writeJsonAtomic(FILE, store);
 let scanSaveT = null;
 const saveScan = () => { clearTimeout(scanSaveT); scanSaveT = setTimeout(() => fs.writeFileSync(SCAN_FILE, JSON.stringify(scan)), 500); };
 

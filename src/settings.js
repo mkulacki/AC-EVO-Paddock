@@ -1,7 +1,7 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './db.js';
 import { pageView } from './sensitive.js';
+import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
 
 const FILE = path.join(DATA_DIR, 'settings.json');
 const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName: '', language: 'English', port: 8080,
@@ -49,8 +49,22 @@ function normSpotter(p) {
     points: pick(p?.points, ['best', 'mine'], D.points) };
 }
 
-let current = { ...DEFAULTS };
-try { current = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; } catch { /* first run */ }
+// A file from disk (or brought back by a restore) is trusted only as far as the types go: each known setting with a
+// value of the wrong kind gets its default; unknown keys are kept as they are (a newer Paddock may have written them).
+export function normalize(raw) {
+  const out = { ...DEFAULTS, ...raw };
+  for (const [k, d] of Object.entries(DEFAULTS)) {
+    const v = out[k];
+    if (typeof d === 'string') { if (typeof v !== 'string') out[k] = d; }
+    else if (typeof d === 'boolean') { if (typeof v !== 'boolean') out[k] = d; }
+    else if (typeof d === 'number') out[k] = v !== null && v !== '' && Number.isFinite(+v) ? +v : d;
+    else if (d === null && v !== null && (typeof v !== 'object' || Array.isArray(v))) out[k] = null;
+  }
+  return out;
+}
+
+// missing = first run; damaged = kept aside as settings.json.unreadable-<time> (never overwritten), defaults used
+let current = normalize(readJsonSafe(FILE, {}));
 let hud = normHud(current.hud); // cached: sent to the HUD 20 times a second
 let spotter = normSpotter(current.spotter); // cached: read 60 times a second
 
@@ -61,7 +75,7 @@ export function update(patch) {
   for (const k of Object.keys(DEFAULTS)) if (patch[k] !== undefined) current[k] = patch[k];
   if (patch.hud !== undefined) current.hud = hud = normHud(patch.hud);
   if (patch.spotter !== undefined) current.spotter = spotter = normSpotter({ ...spotter, ...patch.spotter });
-  fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
+  writeJsonAtomic(FILE, current); // temp file + rename: a crash never leaves half a file
   return current;
 }
 // settings safe to send to the browser
