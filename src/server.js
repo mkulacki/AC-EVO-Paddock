@@ -234,10 +234,11 @@ recorder.on('sessionEnd', (s) => {
   try { if (db.lapsOfSession(s.id).length) drivenSession = s.id; } catch { /* not opened on game exit */ }
   setTimeout(() => checkGoals(s), 400); // the session is no longer "being driven" by then
   try { const c = setupTracker.conditions(); if (c) db.setSessionConditions(s.id, c); } catch (e) { console.log(`[report] conditions not saved: ${e.message}`); }
-  setTimeout(() => {
+  setTimeout(async () => {
     try {
       const laps = db.lapsOfSession(s.id);
       if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return;
+      await warmSession(s.id); // the car and track's history read in slices (PL3), then the report at once
       const r = report.make(s.id);
       const text = report.headline(r);
       console.log(`[report] session ${s.id}: ${text}`);
@@ -345,12 +346,32 @@ function foreignRequest(req, p = '') {
   return null;
 }
 
+// PL3: the cars and tracks a page works out (best lap, corners, ideal lap) are read in slices first, so a long lap
+// history does not hold up the 60 Hz telemetry loop for seconds (the page waits instead; the result is the same).
+async function warmSession(sid) {
+  const s = db.getSession(sid);
+  if (!s) return;
+  await svc.warmCombos([s]);
+  await svc.warmLaps(db.lapsOfSession(sid).map((l) => l.id)); // the session's own laps are read in full
+}
+async function warmFor(p, q) {
+  try {
+    if (p === '/api/overview' || p === '/api/dashboard') return await svc.warmCombos();
+    if (!p.startsWith('/api/')) return;
+    const combo = q.get('track') && q.get('layout') != null && q.get('car') ? { track: q.get('track'), layout: q.get('layout'), car: q.get('car') } : null;
+    if (combo) return await svc.warmCombos([combo]);
+    const sid = Number(q.get('session'));
+    if (sid > 0 && /^\/api\/(report|carreport)$/.test(p)) await warmSession(sid);
+  } catch { /* the route itself reports unreadable data */ }
+}
+
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const m = req.method;
   const foreign = foreignRequest(req, p);
   if (foreign) { console.warn(`[http] refused ${m} ${p}: ${foreign} (host ${req.headers.host}, origin ${req.headers.origin ?? '-'})`); return send(res, 403, { error: 'Forbidden' }); }
+  if (m === 'GET') await warmFor(p, url.searchParams);
 
   if (p === '/api/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -1015,9 +1036,8 @@ async function route(req, res) {
 
 const server = http.createServer((req, res) => {
   const t0 = performance.now();
-  const done = route(req, res);
-  perf.request(req.url?.split('?')[0], performance.now() - t0); // the part that ran before its first await: it holds up the telemetry loop
-  done.catch((e) => { console.error(e.message); if (!res.headersSent) send(res, 500, { error: e.message }); });
+  res.once('finish', () => perf.request(req.method, req.url?.split('?')[0], performance.now() - t0)); // slow pages (Diagnostics)
+  route(req, res).catch((e) => { console.error(e.message); if (!res.headersSent) send(res, 500, { error: e.message }); });
 });
 const port = Number(process.env.PORT) || settings.get().port || 8080;
 // resolves with the port once listening; the desktop app (desktop/main.cjs) waits on it
@@ -1026,6 +1046,8 @@ export const ready = new Promise((resolve, reject) => {
   server.listen(port, '127.0.0.1', () => {
     console.log(`AC EVO Paddock running: http://localhost:${port}   (source: ${source.name})`);
     setTimeout(() => cars.warmThumbnails().catch(() => {}), 3000); // car pictures for the Race tab, in a worker
+    // the game's track list (~0.5 s, once): read now rather than in the first session (PL3)
+    setTimeout(() => { try { trackdata.catalog(); } catch { /* no game files */ } }, 3500);
     resolve(port);
   });
 });

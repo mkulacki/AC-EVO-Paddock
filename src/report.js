@@ -194,13 +194,14 @@ export function build(sessionId, { withPrevTargets = true } = {}) {
   const ref = svc.getResampled(info.best.id).R;
   const turns = corners.map((c) => turnSign(ref, c.apexIdx));
   const upTo = all.filter((l) => l.valid && l.recorded_at <= endAt);
-  const times = (R) => corners.map((c) => R.t[c.b] - R.t[c.a]);
   const bestEver = corners.map(() => ({ ms: Infinity, lapId: null }));
-  const lapTimes = new Map(); // lapId -> corner times
+  // lapId -> corner times; R (the whole trace) is read only for the laps that need it (PL3: the corner times of
+  // every lap are kept by src/service.js, so a long history is not read again for each report)
+  const lapTimes = new Map();
   for (const l of upTo) {
-    const R = svc.getResampled(l.id)?.R;
-    if (!R || R.n !== ref.n) continue;
-    const t = times(R); lapTimes.set(l.id, { R, t });
+    const ct = svc.lapCornerTimes(info, l.id);
+    if (!ct || ct.n !== ref.n) continue;
+    const t = ct.dts; lapTimes.set(l.id, { t, get R() { return svc.getResampled(l.id).R; } });
     t.forEach((ms, k) => { if (ms < bestEver[k].ms) bestEver[k] = { ms, lapId: l.id }; });
   }
   const sess = S.valid.filter((l) => lapTimes.has(l.id));

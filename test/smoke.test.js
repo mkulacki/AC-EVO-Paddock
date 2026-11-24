@@ -198,6 +198,12 @@ test('application management routes: export, diagnostics without private data, u
   const diag = await json('/api/diagnostics?format=text');
   assert.ok(!diag.text.includes(FAKE_KEY) && !diag.text.includes('Test Driver'), 'diagnostics leak private data');
   assert.equal((await json('/api/diagnostics')).settings.geminiKey, 'set');
+  // recording timing (PL3): numbers only, also part of the full report
+  const perfText = await get('/api/diagnostics/perf');
+  const perf = JSON.parse(perfText);
+  assert.ok(perf.tickInterval.n > 0 && perf.tickWork.n > 0, 'the telemetry loop is timed');
+  assert.ok(!perfText.includes(FAKE_KEY) && !perfText.includes('Test Driver') && !perfText.includes('?'), 'no private data or query strings');
+  assert.ok((await json('/api/diagnostics')).performance.tickInterval, 'in the full report');
   const u = await json('/api/updates');
   assert.equal(typeof u.current, 'string');
   const c = await (await fetch(base + '/api/updates/check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
@@ -255,7 +261,7 @@ test('only Paddock pages may use the API: foreign origins, cross-site requests a
   assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/diagnostics'), 403, 'DNS rebinding');
   assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/backup/file?name=x.zip'), 403);
   // PL1 (PL0 1.1-e): GETs of private data refuse other sites too; ordinary GETs and typed/opened URLs stay allowed
-  for (const p of ['/api/diagnostics', '/api/backup/file?name=x.zip', '/api/export/laps.csv', '/api/laps/1/export', '/api/setups/export?id=x']) {
+  for (const p of ['/api/diagnostics', '/api/diagnostics/perf', '/api/backup/file?name=x.zip', '/api/export/laps.csv', '/api/laps/1/export', '/api/setups/export?id=x']) {
     assert.equal(await send({ 'sec-fetch-site': 'cross-site' }, 'GET', p), 403, `${p} cross-site`);
     assert.equal(await send({ 'sec-fetch-site': 'same-site' }, 'GET', p), 403, `${p} from another local port`);
     assert.equal(await send({ origin: 'https://evil.example' }, 'GET', p), 403, `${p} with a foreign origin`);

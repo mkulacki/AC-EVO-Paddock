@@ -74,29 +74,38 @@ if (want('lapsave')) {
 }
 
 // ---------------------------------------------------------------- 2. telemetry tick with history on the same combo
-/** Drive laps of the mock car through a Recorder + LiveHud; per-frame time of what the 60 Hz tick does for them. */
-function driveTick(laps) {
+/**
+ * Drive laps of the mock car through a Recorder + LiveHud, frame after frame as fast as possible, giving the event loop
+ * a turn between frames (as the 60 Hz timer does). hold = how long the loop was busy before a frame could run (its own
+ * work plus any background work in between): what a 60 Hz tick would have waited.
+ */
+async function driveTick(laps) {
   const rec = new Recorder(() => 'Mock Driver');
   const hud = new LiveHud(rec);
   const src = new MockSource();
-  const all = new Hist(); const ends = [];
-  let first = null, saved = 0, after = -1, worst = 0;
+  const work = new Hist(), hold = new Hist(); const ends = [];
+  let saved = 0, after = -1, worst = 0, startAt = null, refsAt = null, prevEnd = null;
   rec.on('lap', () => { saved++; });
   while (saved < laps) {
     src.step();
     const f = src.frame();
     const before = saved;
+    await new Promise((r) => setImmediate(r));
     const t = now();
     rec.onFrame(f); hud.onFrame(f); hud.snapshot();
-    const ms = now() - t;
-    all.add(ms);
-    if (first == null && hud.refs) first = ms; // the first frame with references: a cold start of the session
-    if (saved !== before) { after = 3; worst = 0; }
-    if (after >= 0) { worst = Math.max(worst, ms); if (after-- === 0) ends.push(worst); }
+    const end = now();
+    work.add(end - t);
+    const h = prevEnd == null ? end - t : end - prevEnd; // busy time since the last frame finished
+    hold.add(h);
+    prevEnd = end;
+    if (startAt == null && rec.session) startAt = t;
+    if (refsAt == null && hud.refs) refsAt = end;
+    if (saved !== before) { after = 30; worst = 0; }
+    if (after >= 0) { worst = Math.max(worst, h); if (after-- === 0) ends.push(worst); }
   }
-  // lapEnd: the worst of the frame that saved a lap and the 3 after it (the HUD reloads its references on the next one)
+  // lapEnd: the longest hold over the frame that saved a lap and the 30 after it (the HUD reloads its references)
   rec.endSession();
-  return { frames: all.summary(), firstRefsFrameMs: first == null ? null : r2(first), lapEndFrameMs: stats(ends) };
+  return { work: work.summary(), hold: hold.summary(), refsReadyAfterMs: refsAt == null ? null : Math.round(refsAt - startAt), lapEndHoldMs: stats(ends) };
 }
 if (want('tick')) {
   const out = {};
@@ -105,7 +114,7 @@ if (want('tick')) {
     if (H > have) { cloneLaps(H - have); have = H; }
     svc.invalidate();
     const t = now();
-    const res = driveTick(QUICK ? 2 : 3);
+    const res = await driveTick(QUICK ? 2 : 3);
     out[`history ${H}`] = { ...res, wallMs: Math.round(now() - t) };
     have = db.lapsForCombo('mock_ring', 'gp', 'mock_gt3').length;
   }
@@ -113,6 +122,17 @@ if (want('tick')) {
 }
 
 // ---------------------------------------------------------------- 3. large history: routes and jobs
+/** Runs fn while a 1 ms probe timer measures the longest the event loop was busy. */
+async function sliced(fn) {
+  let last = now(), maxHold = 0;
+  const probe = setInterval(() => { const t = now(); maxHold = Math.max(maxHold, t - last); last = t; }, 1);
+  const t0 = now();
+  await fn();
+  const wallMs = now() - t0;
+  maxHold = Math.max(maxHold, now() - last);
+  clearInterval(probe);
+  return { wallMs: Math.round(wallMs), maxHoldMs: r2(maxHold) };
+}
 if (want('history')) {
   const out = {};
   const report = await import('../src/report.js');
@@ -132,8 +152,16 @@ if (want('history')) {
     const combo = { track: 'bench_track_0', layout: 'gp', car: 'bench_car_0' };
     const lapId = db.lapsForCombo(combo.track, combo.layout, combo.car)[0].id;
     const exp = lapfile.exportLapFile(db.getLap(lapId));
+    // cold (first in this process for these cars and tracks), the way the server does it since PL3: read in slices
+    // (svc.warmCombos), then the page at once. wallMs = until the page is ready, maxHoldMs = the longest the event loop
+    // was busy meanwhile (what the 60 Hz telemetry tick would have waited).
+    const coldOverview = await sliced(async () => { await svc.warmCombos(); svc.overview(); });
+    const coldReport = await sliced(async () => { await svc.warmCombos([db.getSession(sid)]); report.build(sid); });
+    svc.invalidate(); // a lap deleted or imported: everything is worked out again (lap data itself is unchanged)
+    const t0 = now(); svc.overview(); const afterInvalidate = r2(now() - t0);
     out[`${db.counts().laps} laps`] = {
       dbMb: r2(fs.statSync(path.join(env.ACEVO_DATA, 'telemetry.db')).size / 1048576),
+      overviewColdSliced: coldOverview, reportColdSliced: coldReport, overviewAfterInvalidateMs: afterInvalidate,
       listLapsMs: timeIt(() => db.listLaps()),
       overviewMs: timeIt(() => svc.overview()),
       dashboardMs: timeIt(() => svc.dashboard()),

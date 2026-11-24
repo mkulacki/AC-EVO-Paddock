@@ -1,21 +1,28 @@
 import * as db from './db.js';
 import { cornersOnGrid } from './track.js';
 import * as trackdata from './trackdata.js';
-import { resample, detectCorners, cornerMetrics, lapStats, deltaSeries, buildIdeal, gridStep, CHANNELS,
+import { resample, detectCorners, cornerMetrics, lapStats, deltaSeries, buildIdeal, pickIdealCorners, gridStep, CHANNELS,
   lateralOffsets, turnSign, envelope, performanceScore, SCORE_FORMULA, TECHNIQUE } from './analysis.js';
 
 const comboKey = (m) => `${m.track}|${m.layout}|${m.car}`;
 export const parseCombo = (key) => { const [track, layout, car] = key.split('|'); return { track, layout, car }; };
 
 // --- caches -------------------------------------------------------------
-const resampleCache = new Map(); // lapId -> {R, meta}
+const resampleCache = new Map(); // lapId -> {R, meta}, least recently used first
+const RESAMPLE_MAX = 300;        // a resampled lap is ~250 kB: this bounds the cache to ~75 MB
 const comboCache = new Map();    // comboKey -> {version, best, corners, ideal}
+const comboGen = new Map();      // comboKey -> count of invalidations (a result worked out meanwhile is not kept)
 const modelCache = new Map();    // 'track|layout' -> track model data | null
 let version = 0;
 const progressCache = new Map(); // comboKey -> {version, value}
+// A few numbers per lap taken from its resampled trace (PL3): the time through each corner (the ideal lap) and at
+// the sector lines (the HUD). Small, so every lap of a long history fits, and a new lap does not read them all again.
+// Key: lap id + sig (what was measured, on which grid). Lap data never changes once saved.
+const points = new Map();        // `${lapId}|${sig}` -> value
+const POINTS_MAX = 100000;
 /** Laps changed. With a combo (a new lap): only that track + car is worked out again; without: everything. */
 export const invalidate = (combo = null) => {
-  if (combo) { const k = comboKey(combo); comboCache.delete(k); progressCache.delete(k); return; }
+  if (combo) { const k = comboKey(combo); comboCache.delete(k); progressCache.delete(k); comboGen.set(k, (comboGen.get(k) || 0) + 1); return; }
   version++; comboCache.clear(); modelCache.clear(); progressCache.clear();
 };
 
@@ -38,7 +45,8 @@ function comboLength(meta) {
 }
 
 export function getResampled(id) {
-  if (resampleCache.has(id)) return resampleCache.get(id);
+  const hit = resampleCache.get(id);
+  if (hit) { resampleCache.delete(id); resampleCache.set(id, hit); return hit; } // most recently used last
   const lap = db.getLap(id);
   if (!lap) return null;
   const L = comboLength(lap);
@@ -49,28 +57,110 @@ export function getResampled(id) {
   const { data: _, ...meta } = lap;
   const entry = { R, meta };
   resampleCache.set(id, entry);
-  if (resampleCache.size > 300) resampleCache.delete(resampleCache.keys().next().value);
+  if (resampleCache.size > RESAMPLE_MAX) resampleCache.delete(resampleCache.keys().next().value);
   return entry;
 }
 
+// Works out a track + car: best lap, corners, ideal lap. A generator that yields before each lap it has to read from
+// the database (the slow part, ~8 ms a lap): comboInfo runs it in one go, comboInfoAsync lets the telemetry loop
+// run in between (PL3: a long history used to hold the 60 Hz loop for seconds).
+function* comboSteps(m, key) {
+  const own = db.lapsForCombo(m.track, m.layout, m.car, true).filter((l) => l.valid);
+  const info = { version, key, best: null, corners: [], cornersSource: 'speed', ideal: null, validLaps: own.length };
+  if (!own.length) return info;
+  const cached = (id) => resampleCache.has(id);
+  info.best = own.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a));
+  if (!cached(info.best.id)) yield;
+  const bestR = getResampled(info.best.id).R;
+  // corners: the shared track model (same T1..Tn in every car) when recorded, else from this car's best lap
+  const model = trackModel(m.track, m.layout);
+  if (model?.corners?.length) { info.corners = cornersOnGrid(model, bestR); info.cornersSource = 'track'; }
+  else info.corners = detectCorners(bestR);
+  const sig = `corners|${bestR.n}|${bestR.step}|${info.corners.map((c) => `${c.a}-${c.b}`).join(',')}`;
+  cornerSig.set(info, sig);
+  const laps = [];
+  for (const l of own) {
+    if (!hasLapPoints(l.id, sig) && !cached(l.id)) yield;
+    const p = lapCornerTimes(info, l.id);
+    if (p) laps.push({ id: l.id, dts: p.dts }); // null: deleted meanwhile (the result is not kept: laps changed)
+  }
+  // only the laps that hold a best corner are read in full
+  for (const w of pickIdealCorners(laps, info.corners)) if (!cached(w.lap.id)) { yield; getResampled(w.lap.id); }
+  info.ideal = buildIdeal(laps, info.corners, { grid: bestR, getR: (lap) => getResampled(lap.id).R });
+  return info;
+}
+export const hasLapPoints = (id, sig) => points.has(`${id}|${sig}`);
+/** fn(R) of a lap's resampled trace, kept by lap id + sig; null when the lap does not exist. */
+export function lapPoints(id, sig, fn) {
+  const k = `${id}|${sig}`;
+  if (points.has(k)) return points.get(k);
+  const e = getResampled(id);
+  if (!e) return null;
+  const v = fn(e.R);
+  points.set(k, v);
+  if (points.size > POINTS_MAX) points.delete(points.keys().next().value);
+  return v;
+}
+const cornerSig = new WeakMap(); // comboInfo result -> the sig of its corners
+/** A lap's time through each corner of comboInfo's corners: {n (its grid size), dts}; null if the lap does not exist. */
+export function lapCornerTimes(info, id) {
+  const sig = cornerSig.get(info);
+  if (!sig) return null;
+  return lapPoints(id, sig, (R) => ({ n: R.n, dts: info.corners.map((c) => R.t[c.b] - R.t[c.a]) }));
+}
+const fresh = (c) => !!c && c.version === version;
+/** True when the track + car is worked out already (comboInfo will not read any lap). */
+export const comboReady = (m) => fresh(comboCache.get(comboKey(m)));
 export function comboInfo(m) {
   const key = comboKey(m);
   const cached = comboCache.get(key);
-  if (cached && cached.version === version) return cached;
-  const own = db.lapsForCombo(m.track, m.layout, m.car, true).filter((l) => l.valid);
-  const info = { version, key, best: null, corners: [], cornersSource: 'speed', ideal: null, validLaps: own.length };
-  if (own.length) {
-    info.best = own.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a));
-    const bestR = getResampled(info.best.id).R;
-    // corners: the shared track model (same T1..Tn in every car) when recorded, else from this car's best lap
-    const model = trackModel(m.track, m.layout);
-    if (model?.corners?.length) { info.corners = cornersOnGrid(model, bestR); info.cornersSource = 'track'; }
-    else info.corners = detectCorners(bestR);
-    const laps = own.map((l) => ({ id: l.id, R: getResampled(l.id).R }));
-    info.ideal = buildIdeal(laps, info.corners);
+  if (fresh(cached)) return cached;
+  const steps = comboSteps(m, key);
+  let r = steps.next();
+  while (!r.done) r = steps.next();
+  comboCache.set(key, r.value);
+  return r.value;
+}
+
+const SLICE_MS = 8; // work this long, then let the event loop (and the 60 Hz telemetry tick) run
+const yieldToLoop = () => new Promise((resolve) => setImmediate(resolve));
+/** Runs a generator to its end, giving the event loop a turn whenever SLICE_MS have passed at one of its yields. */
+export async function runInSlices(steps) {
+  let t = performance.now(), r = steps.next();
+  while (!r.done) {
+    if (performance.now() - t >= SLICE_MS) { await yieldToLoop(); t = performance.now(); }
+    r = steps.next();
   }
-  comboCache.set(key, info);
-  return info;
+  return r.value;
+}
+const inflight = new Map(); // comboKey -> promise
+/** comboInfo in slices of SLICE_MS: the same result, without holding up the telemetry loop on a long history. */
+export function comboInfoAsync(m) {
+  const key = comboKey(m);
+  const cached = comboCache.get(key);
+  if (fresh(cached)) return Promise.resolve(cached);
+  if (inflight.has(key)) return inflight.get(key);
+  const run = (async () => {
+    const v0 = version, g0 = comboGen.get(key) || 0;
+    const info = await runInSlices(comboSteps(m, key));
+    // laps changed meanwhile: the result is returned but not kept (the next call works it out again)
+    if (version === v0 && (comboGen.get(key) || 0) === g0) comboCache.set(key, info);
+    return info;
+  })().finally(() => inflight.delete(key));
+  inflight.set(key, run);
+  return run;
+}
+/** Works out every track + car with laps (or the ones given) in slices, before a page that needs them all. */
+export async function warmCombos(combos = null) {
+  const list = combos ?? [...new Map(db.listLaps().map((l) => [comboKey(l), l])).values()];
+  for (const c of list) {
+    if (comboReady(c)) continue;
+    try { await comboInfoAsync(c); } catch { /* unreadable lap data: the page itself reports it */ }
+  }
+}
+/** Reads laps into the cache, one per turn of the event loop (the HUD's reference laps). */
+export async function warmLaps(ids) {
+  for (const id of ids) if (id != null && !resampleCache.has(id)) { await yieldToLoop(); getResampled(id); }
 }
 
 // Overview for the laps page: combos with best / ideal / lap counts.
