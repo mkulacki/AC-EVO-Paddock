@@ -41,7 +41,7 @@ None in progress. PL2 is committed on `platform/pl2-quality`: report `docs/platf
 
 - PL0 baseline (2026-11-24, `be3b5ef`): `npm run check` 104/104; `npm test` 175/175.
 - PL1 with review fixes (2026-11-24, `platform/pl1-data-safety`): `npm run check` 112/112; `npm test` 213/213 (22 files).
-- PL2 (2026-11-24, `platform/pl2-quality`): `npm run check` 115/115; `npm test` 214/214 on Node 22.23.4; `npm run test:electron` 214/214 on Node 24.22.2; `npm run test:browser` 6/6; `npm run smoke:packaged -- --build` passed. One command: `npm run verify`.
+- PL2 (2026-11-24, `platform/pl2-quality`): `npm run check` 116/116; `npm test` 215/215 on Node 22.23.4; `npm run test:electron` 215/215 on Node 24.22.2; `npm run test:browser` 6/6; `npm run smoke:packaged -- --build` passed. One command: `npm run verify`.
 
 ## Pending user decisions
 

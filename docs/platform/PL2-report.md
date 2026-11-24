@@ -17,6 +17,7 @@
 | `fd4f53c` | `README.md`: requirement corrected to Node 22.13 (see findings); Contributing documents `npm run verify` and each test command, the CI file and the packaged smoke. `docs/ARCHITECTURE.md`: integration-boundary table rewritten with current line references (PL1 moved most of them) plus a "Sensitive settings" row; runtime and tooling summary updated. `docs/DECISIONS.md`: D-PL2-1 … 4, OD-PL-8, OD-PL-9. |
 | `5568ba7` | `CHANGELOG.md` (Unreleased, PL2), `docs/FEATURE_INVENTORY.md` (engineering rows). |
 | `04f30e6` | This report, `docs/PHASE_LOG.md`, `docs/DEVELOPMENT_STATE.md`. |
+| `8c58e04` | **Review fixes** (independent review, no important findings; 4 nits): `stop()` is final, so a `stopped` flag in `later()` means a sync still in flight, a lap or a sign-in schedules nothing afterwards (new test, which fails without the flag); `docs/ARCHITECTURE.md` runtime row says Node ≥ 22.13; CI `push` only on `main` (a branch is checked once, through its pull request); the Ubuntu job runs `test/portable.js` = every `test/*.test.js` minus the named `WINDOWS_ONLY` files (new files are included automatically; an exclusion naming a missing file fails); `smoke:packaged` exits 1 when there is no build unless `--allow-missing`, and prints "SKIPPED (NOT TESTED)" when it skips. |
 
 ## Verified findings / rejected assumptions / unresolved
 
@@ -33,21 +34,21 @@
 | --- | --- | --- | --- |
 | F1 | README said Node ≥ 22.5, but `node:sqlite` needs `--experimental-sqlite` before 22.13 and `npm start` passes no such flag | **Verified (static; 22.5–22.12 not installed here)**, fixed in README and `engines` | `README.md:23`; `package.json` `scripts.start` |
 | F2 | The smoke test cannot run under Electron's Node | **Verified (runtime)**, fixed | it deleted `ELECTRON_RUN_AS_NODE` for children that run on `process.execPath` (`test/smoke.test.js:18` before) |
-| F3 | The whole suite passes on the shipped runtime | **Verified (runtime)**: 214/214 on Node 24.22.2 (Electron 44.11.1), ~3 s | `npm run test:electron` |
+| F3 | The whole suite passes on the shipped runtime | **Verified (runtime)**: 215/215 on Node 24.22.2 (Electron 44.11.1), ~3 s | `npm run test:electron` |
 | F4 | Starting the packaged app writes the App Loader and HUD into `ACE_DIR` at once | **Verified (runtime)**: the scratch `ACE` folder got `mods\ACEUIAppLoader.kspkg`, `mods\uiresources\ACEUIAppLoader\trainerhud\`, `Video\ACEUIAppLoader-trainerhud.settingspreset` | `src/server.js:84-85` → `src/hudinstall.js` `startAuto`. CLAUDE.md step 6 sets only `ACEVO_DATA` (OD-PL-9) |
 | F5 | The pages' critical flows work and throw no JavaScript error | **Verified (runtime, headless Edge)**, no defect found | `test/browser.flows.js` 6/6, 10 repeated runs 0 failures |
 | F6 | Type checking would pay off now | **Rejected** for now: no defect found, only inference noise | D-PL2-1 |
 | F7 | `npm audit` problems reach users | **Rejected**: runtime 0; 6 moderate in build tooling (one `minimatch` advisory via `electron-builder`) | D-PL2-2 |
 | F8 | `engines` breaks `npm ci` | **Rejected (runtime)**: `npm ci` on a clean `git archive` export with the new `package.json`/lock works; `check` and `npm test` pass there (Electron binary download skipped) | scratch run |
-| U1 | The Ubuntu CI job passes | **Unresolved**: no Linux or WSL distro here. The same 17-file list passes on Windows (163/163); none of them reaches `tasklist` or the Windows-only DLL calls (`koffi` loads `kernel32` lazily in `src/shm.js:41`, `src/gamebridge.js:31-45` catches) | first CI run |
+| U1 | The Ubuntu CI job passes | **Unresolved**: no Linux or WSL distro here. The same 17 files (`node test/portable.js`) pass on Windows (164/164); none of them reaches `tasklist` or the Windows-only DLL calls (`koffi` loads `kernel32` lazily in `src/shm.js:41`, `src/gamebridge.js:31-45` catches) | first CI run |
 
 ## Tests run and results
 
 | Check | Before (PL1) | After (PL2) |
 | --- | --- | --- |
-| `npm run check` | 112/112 | 115/115 (+ `test/electron-node.js`, `test/packaged-smoke.js`, `test/browser.flows.js`) |
-| `npm test` (Node 22.23.4) | 213/213, 22 files | 214/214, 22 files |
-| `npm run test:electron` (Node 24.22.2 / Electron 44.11.1) | not possible (202/214, smoke failed under Electron) | 214/214 |
+| `npm run check` | 112/112 | 116/116 (+ `test/electron-node.js`, `test/packaged-smoke.js`, `test/browser.flows.js`, `test/portable.js`) |
+| `npm test` (Node 22.23.4) | 213/213, 22 files | 215/215, 22 files |
+| `npm run test:electron` (Node 24.22.2 / Electron 44.11.1) | not possible (202/214, smoke failed under Electron) | 215/215 |
 | `npm run test:browser` (headless Edge) | none | 6/6 (also on Node 24) |
 | `npm run verify` | none | pass |
 | `npm run smoke:packaged -- --build` | manual only | pass: GET 127.0.0.1:8080/ 200, title "AC EVO Paddock", log 7 lines with no errors, no `dist/win-unpacked/data` |
