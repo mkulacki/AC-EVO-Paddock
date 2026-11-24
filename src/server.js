@@ -41,6 +41,7 @@ import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
 import * as sensitive from './sensitive.js';
 import * as lapfile from './lapfile.js';
+import { limitBytes } from './zip.js';
 import * as updates from './updates.js';
 import { pipeline } from 'node:stream/promises';
 
@@ -631,7 +632,8 @@ async function route(req, res) {
       if (p === '/api/backup/upload' && m === 'POST') { // streamed: a backup can be big
         fs.mkdirSync(backup.BACKUP_DIR, { recursive: true });
         const tmp = path.join(backup.BACKUP_DIR, `.upload-${Date.now()}-${process.pid}`);
-        try { await pipeline(req, fs.createWriteStream(tmp)); return send(res, 200, backup.importUpload(tmp)); } finally { fs.rmSync(tmp, { force: true }); }
+        // capped: nothing bigger than the largest backup Paddock makes (the disk is not filled by a stray upload)
+        try { await pipeline(req, limitBytes(backup.MAX_UPLOAD, 'The uploaded backup'), fs.createWriteStream(tmp)); return send(res, 200, backup.importUpload(tmp)); } finally { fs.rmSync(tmp, { force: true }); }
       }
       if (p === '/api/backup/restore' && m === 'POST') {
         if (busy()) return;

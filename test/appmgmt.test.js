@@ -201,6 +201,31 @@ test('crafted zips: an entry larger than it says, or an oversized manifest, is r
   buf.writeUInt32LE(10, cen + 24);
   fs.writeFileSync(z, buf);
   assert.throws(() => zip.readEntry(z, 'manifest.json'), /larger than it says/);
+  // PL1 (PL0 1.3-b): the streamed extraction (backups, mods) stops at the stated size too, and leaves no file behind
+  const dest = path.join(dir, 'bomb.out');
+  const entry = zip.list(z)[0];
+  assert.equal(entry.size, 10);
+  await assert.rejects(zip.extract(z, entry, dest), /larger than it says/);
+  assert.ok(!fs.existsSync(dest));
+});
+
+test('crafted zips: a central directory said to be bigger than the file is refused before reading it (PL0 1.3-c)', async () => {
+  const z = path.join(dir, 'bigdir.zip');
+  await zip.writeZip(z, [{ name: 'a.txt', data: 'hello' }]);
+  const buf = fs.readFileSync(z);
+  const end = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  buf.writeUInt32LE(0xfffffff0, end + 12); // cdSize ~4 GB in a tiny file
+  fs.writeFileSync(z, buf);
+  assert.throws(() => zip.list(z), /Damaged zip directory/);
+});
+
+test('limitBytes: passes data up to the limit, fails with 413 past it', async () => {
+  const { Readable, Writable } = await import('node:stream');
+  const { pipeline } = await import('node:stream/promises');
+  const sink = () => new Writable({ write(_c, _e, cb) { cb(); } });
+  await pipeline(Readable.from([Buffer.alloc(600), Buffer.alloc(400)]), zip.limitBytes(1000), sink());
+  await assert.rejects(pipeline(Readable.from([Buffer.alloc(600), Buffer.alloc(401)]), zip.limitBytes(1000, 'The upload'), sink()), (e) => e.code === 413 && /The upload is larger/.test(e.message));
+  assert.ok(backup.MAX_UPLOAD > 3.9 * 1024 ** 3);
 });
 
 // ---------------------------------------------------------------- export

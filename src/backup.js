@@ -21,6 +21,8 @@ export const FORMAT = 'acevo-paddock-backup';
 const FORMAT_VERSION = 1;
 export const JSON_FILES = RESTORABLE.filter((f) => f !== 'telemetry.db');
 const MAX_DB = 3.9 * 1024 ** 3; // the zip has no Zip64: a bigger database cannot be backed up this way
+// an uploaded backup can be at most this big (the largest backup Paddock makes, plus room for the small files)
+export const MAX_UPLOAD = Math.ceil(MAX_DB + 256 * 1024 ** 2);
 
 const p2 = (n) => String(n).padStart(2, '0');
 const stamp = (d = new Date()) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
