@@ -156,7 +156,13 @@ if (want('history')) {
     // (svc.warmCombos), then the page at once. wallMs = until the page is ready, maxHoldMs = the longest the event loop
     // was busy meanwhile (what the 60 Hz telemetry tick would have waited).
     const coldOverview = await sliced(async () => { await svc.warmCombos(); svc.overview(); });
-    const coldReport = await sliced(async () => { await svc.warmCombos([db.getSession(sid)]); report.build(sid); });
+    const coldReport = await sliced(async () => { // as src/server.js warmSession
+      await svc.warmCombos([db.getSession(sid)]);
+      await svc.warmLaps(db.lapsOfSession(sid).map((l) => l.id));
+      const prev = report.previousSession(sid);
+      if (prev != null) await svc.warmLaps(db.lapsOfSession(prev).map((l) => l.id));
+      report.build(sid);
+    });
     svc.invalidate(); // a lap deleted or imported: everything is worked out again (lap data itself is unchanged)
     const t0 = now(); svc.overview(); const afterInvalidate = r2(now() - t0);
     out[`${db.counts().laps} laps`] = {

@@ -353,6 +353,9 @@ async function warmSession(sid) {
   if (!s) return;
   await svc.warmCombos([s]);
   await svc.warmLaps(db.lapsOfSession(sid).map((l) => l.id)); // the session's own laps are read in full
+  // and the previous session's, when its report is made on the way (its targets are checked)
+  const prev = report.previousSession(sid);
+  if (prev != null && !db.getReport(prev)) await svc.warmLaps(db.lapsOfSession(prev).map((l) => l.id));
 }
 async function warmFor(p, q) {
   try {

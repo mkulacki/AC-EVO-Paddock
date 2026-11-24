@@ -170,6 +170,15 @@ export function checkTargets(targets, r) {
  * Build the report of a session. -> report object, or throws when there is nothing to report on.
  * opts.withPrevTargets: also check the previous report's targets (false while building that previous report)
  */
+/** The last earlier session with a valid lap on the same track + car (its report's targets are checked), or null. */
+export function previousSession(sessionId) {
+  const laps = db.lapsOfSession(sessionId).filter((l) => l.source === 'local');
+  if (!laps.length) return null;
+  const startAt = laps[0].recorded_at;
+  return db.lapsForCombo(laps[0].track, laps[0].layout, laps[0].car, true).sort((a, b) => a.recorded_at - b.recorded_at)
+    .filter((l) => l.recorded_at < startAt && l.session_id !== sessionId).reverse().find((l) => l.valid)?.session_id ?? null;
+}
+
 export function build(sessionId, { withPrevTargets = true } = {}) {
   const session = db.getSession(sessionId);
   if (!session) throw new Error('Session not found');

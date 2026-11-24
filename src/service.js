@@ -320,9 +320,9 @@ function progressNow(combo) {
     const improved = !!best && (allTime == null || best.lap_time_ms < allTime);
     if (improved) allTime = best.lap_time_ms;
     for (const l of valid) {
-      const R = getResampled(l.id)?.R;
-      if (!R || R.n !== refN) continue;
-      corners.forEach((c, k) => { const dt = R.t[c.b] - R.t[c.a]; if (dt < cornerBest[k]) cornerBest[k] = dt; });
+      const ct = lapCornerTimes(info, l.id); // kept per lap (PL3): a long history is not read again
+      if (!ct || ct.n !== refN) continue;
+      ct.dts.forEach((dt, k) => { if (dt < cornerBest[k]) cornerBest[k] = dt; });
     }
     const ideal = corners.length && cornerBest.every(Number.isFinite) ? Math.round(cornerBest.reduce((a, b) => a + b, 0)) : null;
     const clean = best ? valid.map((l) => l.lap_time_ms).filter((t) => t <= best.lap_time_ms * CLEAN_WITHIN).sort((a, b) => a - b) : [];
