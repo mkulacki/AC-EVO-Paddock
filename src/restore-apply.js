@@ -1,12 +1,13 @@
 // Applies a restore staged by src/backup.js. Runs at start, from src/db.js, BEFORE the database is opened: the files
 // can only be replaced while nothing holds them. A backup of the data as it was was made when the restore was asked for.
-// No imports from the app: db.js imports this first.
+// No imports from the app: db.js imports this first (src/sensitive.js has no imports itself).
 //
 // Safety: the database is swapped first and by rename (copy next to it, clear the old WAL, then rename over), so a
 // failure leaves the current data as it was. If the database cannot be swapped, nothing else is touched and the
 // restore stays staged for the next start (a file lock may be gone by then); after 3 failed starts it is set aside.
 import fs from 'node:fs';
 import path from 'node:path';
+import { mergeRestoredSettings } from './sensitive.js';
 
 export const PENDING = 'restore-pending';
 // the files a backup may bring back (all directly in data\)
@@ -15,11 +16,9 @@ const MAX_ATTEMPTS = 3;
 
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } };
 
-// secrets a backup may leave out: kept from the current files
-function mergeSettings(restored, current) {
-  if (!restored.geminiApiKey && current.geminiApiKey) restored.geminiApiKey = current.geminiApiKey;
-  return restored;
-}
+// secrets a backup may leave out are kept from the current files; the leaderboard sign-in is never restored and is
+// cleared, also when an older backup still holds one (src/sensitive.js, decision OD-PL-1)
+const mergeSettings = mergeRestoredSettings;
 // race.json: every {ip, port, password} anywhere (saved servers, presets, the last setup) gets the current password
 // for the same server back when the backup had none
 function mergeRace(restored, current) {

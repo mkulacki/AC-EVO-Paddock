@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './db.js';
+import { pageView } from './sensitive.js';
 
 const FILE = path.join(DATA_DIR, 'settings.json');
 const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName: '', language: 'English', port: 8080,
@@ -64,4 +65,4 @@ export function update(patch) {
   return current;
 }
 // settings safe to send to the browser
-export const publicView = () => ({ ...current, hud, spotter, geminiApiKey: current.geminiApiKey ? '••••' + current.geminiApiKey.slice(-4) : '', hasKey: !!current.geminiApiKey, boardToken: undefined });
+export const publicView = () => ({ ...pageView(current), hud, spotter, hasKey: !!current.geminiApiKey });

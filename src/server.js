@@ -40,6 +40,7 @@ import * as channels from './channels.js';
 import * as backup from './backup.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
+import * as sensitive from './sensitive.js';
 import * as updates from './updates.js';
 import { pipeline } from 'node:stream/promises';
 
@@ -858,7 +859,8 @@ async function route(req, res) {
       const body = await readJson(req);
       if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.startsWith('••••')) delete body.geminiApiKey;
       if (body.markButton !== undefined && body.markButton !== null) delete body.markButton; // set only by /api/wheel/capture
-      delete body.channelChecks; delete body.probeConfirmed; delete body.boardToken; delete body.boardSteam; // set only by the Steam sign-in // set only by /api/setupcheck/confirm
+      delete body.channelChecks; delete body.probeConfirmed; // set only by /api/setupcheck/confirm
+      for (const k of sensitive.SIGN_IN_FIELDS) delete body[k]; // set only by the Steam sign-in (src/sensitive.js)
       const oldPath = settings.get().gamePath, oldKey = settings.get().markKey;
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
