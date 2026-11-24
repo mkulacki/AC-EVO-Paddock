@@ -1,7 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import * as db from './db.js';
 import * as svc from './service.js';
@@ -41,6 +40,7 @@ import * as backup from './backup.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
 import * as sensitive from './sensitive.js';
+import * as lapfile from './lapfile.js';
 import * as updates from './updates.js';
 import { pipeline } from 'node:stream/promises';
 
@@ -294,9 +294,9 @@ const send = (res, code, body, type = 'application/json') => {
   res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
   res.end(type === 'application/json' ? JSON.stringify(body) : body);
 };
-const readBody = (req) => new Promise((resolve, reject) => {
+const readBody = (req, max = 50e6) => new Promise((resolve, reject) => {
   const chunks = []; let size = 0;
-  req.on('data', (c) => { size += c.length; if (size > 50e6) { reject(new Error('too large')); req.destroy(); } else chunks.push(c); });
+  req.on('data', (c) => { size += c.length; if (size > max) { reject(Object.assign(new Error('The upload is too large'), { code: 413 })); req.destroy(); } else chunks.push(c); });
   req.on('end', () => resolve(Buffer.concat(chunks)));
   req.on('error', reject);
 });
@@ -753,23 +753,25 @@ async function route(req, res) {
   if ((mm = p.match(/^\/api\/laps\/(\d+)\/export$/))) {
     const lap = db.getLap(Number(mm[1]));
     if (!lap) return send(res, 404, { error: 'not found' });
-    const { data, id, session_id, ...meta } = lap;
-    const file = zlib.gzipSync(JSON.stringify({ format: 'acevo-trainer-lap', version: 1, meta, data }));
+    const file = lapfile.exportLapFile(lap); // without the leaderboard data (OD-PL-2)
+    const meta = lap;
     const name = safeName(`${meta.track}_${meta.car}_${meta.driver}_${(meta.lap_time_ms / 1000).toFixed(3)}.lap.gz`);
     res.writeHead(200, { 'content-type': 'application/gzip', 'content-disposition': `attachment; filename="${name}"` });
     return res.end(file);
   }
   if (p === '/api/laps/import' && m === 'POST') {
-    let buf = await readBody(req);
-    if (buf[0] === 0x1f && buf[1] === 0x8b) buf = zlib.gunzipSync(buf);
-    const obj = JSON.parse(buf.toString());
-    if (obj.format !== 'acevo-trainer-lap' || !obj.data?.t || !obj.data?.d) return send(res, 400, { error: 'Not an acevo-trainer lap file' });
-    const mt = obj.meta;
-    const id = db.insertLap({ sessionId: null, track: mt.track, layout: mt.layout, car: mt.car, lapNumber: mt.lap_number,
-      lapTimeMs: mt.lap_time_ms, valid: !!mt.valid, driver: mt.driver || 'Imported', source: 'import',
-      recordedAt: mt.recorded_at || Date.now(), trackLength: mt.track_length, data: obj.data });
-    svc.invalidate();
-    return send(res, 200, { ok: true, id });
+    // checked within fixed limits before anything is stored (src/lapfile.js); one INSERT, so all or nothing
+    try {
+      const { lap, recordedAtGiven } = lapfile.parseLapFile(await readBody(req, lapfile.LIMITS.fileBytes));
+      const same = recordedAtGiven ? db.findSameLap(lap) : null;
+      if (same) return send(res, 409, { error: `This lap is already in Paddock (lap #${same.id}, ${same.driver}, ${(same.lap_time_ms / 1000).toFixed(3)} s)`, existing: same.id });
+      const id = db.insertLap({ ...lap, sessionId: null, source: 'import' });
+      svc.invalidate();
+      return send(res, 200, { ok: true, id });
+    } catch (e) {
+      if (!(e.code >= 400 && e.code < 500)) console.error(`[import] lap import failed: ${e.message}`);
+      return send(res, e.code >= 400 && e.code < 500 ? e.code : 500, { error: e.code >= 400 && e.code < 500 ? e.message : 'The lap could not be imported' });
+    }
   }
   if (p === '/api/spotter/test' && m === 'POST') { spotter.test(); return send(res, 200, { ok: true }); }
   // ---- own brake marks (track page) and marking them (button, pedal)

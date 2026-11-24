@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -212,6 +213,30 @@ test('application management routes: export, diagnostics without private data, u
   const b = await fetch(base + '/api/backup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   assert.equal(b.status, 409);
   assert.equal((await fetch(base + '/api/backup/file?name=..%2fsettings.json')).status, 400);
+});
+
+test('lap import route (PL1.2): duplicate refused with the existing lap named, bad files 400, bombs 413, never a 500', async () => {
+  const o = await json('/api/overview');
+  const id = o.laps[0].id;
+  const r0 = await fetch(`${base}/api/laps/${id}/export`);
+  assert.equal(r0.status, 200);
+  const file = Buffer.from(await r0.arrayBuffer());
+  const imp = (body) => fetch(base + '/api/laps/import', { method: 'POST', body, headers: { 'content-type': 'application/octet-stream' } });
+  const dup = await imp(file);
+  assert.equal(dup.status, 409);
+  assert.match((await dup.json()).error, new RegExp(`already in Paddock \\(lap #${id}`));
+  const obj = JSON.parse(zlib.gunzipSync(file));
+  const fresh = await imp(zlib.gzipSync(JSON.stringify({ ...obj, meta: { ...obj.meta, recorded_at: obj.meta.recorded_at + 1 } })));
+  assert.equal(fresh.status, 200);
+  const newId = (await fresh.json()).id;
+  assert.ok(newId > 0);
+  assert.equal((await json('/api/overview')).laps.find((l) => l.id === newId).source, 'import');
+  for (const [body, code] of [[Buffer.from('junk'), 400], [zlib.gzipSync(JSON.stringify({ ...obj, meta: undefined })), 400],
+    [zlib.gzipSync(JSON.stringify({ ...obj, data: { ...obj.data, t: 5 } })), 400], [zlib.gzipSync(Buffer.alloc(70 * 1024 * 1024, 0x20)), 413]]) {
+    const r = await imp(body);
+    assert.equal(r.status, code, (await r.json()).error);
+  }
+  assert.ok(!/\[import\] lap import failed/.test(log), 'no unexpected import error');
 });
 
 test('only Paddock pages may use the API: foreign origins, cross-site requests and other host names are refused', async () => {
