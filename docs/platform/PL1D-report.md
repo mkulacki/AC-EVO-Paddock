@@ -2,7 +2,7 @@
 
 - **Date:** 2026-11-24 · **Branch:** `platform/pl1-decisions` (from `675441f`, the PL2 merge)
 - **Scope:** apply the user's answers (2026-11-24) to OD-PL-1 … OD-PL-7 (`docs/DECISIONS.md`). OD-PL-8 and OD-PL-9 stay open.
-- **Result:** complete. Nothing pushed or merged.
+- **Result:** complete, including the review round (below). Nothing pushed or merged.
 
 ## Decisions applied
 
@@ -27,7 +27,7 @@
 
 ## Verified findings / rejected assumptions / unresolved
 
-- **Undo restore (verified by test):** restoring the secret-free safety backup keeps the current key, passwords and sign-in because restores already keep every secret a backup leaves out (`src/sensitive.js` `mergeRestoredSettings`, `src/restore-apply.js` `mergeRace` `:24`). Consequence, by design of OD-PL-4: what was in place *before* the restore cannot come back from the safety backup. If the restored backup brought another key, undoing keeps that key; a saved password for a server the install no longer lists stays empty (tested on a preset).
+- **Undo restore (verified by test):** restoring the secret-free safety backup keeps the current key, passwords and sign-in because restores already keep every secret a backup leaves out (`src/sensitive.js` `mergeRestoredSettings`, `src/restore-apply.js` `mergeRace` `:24`). First-round consequence (superseded by decision A in the review round): if the restored backup brought another key, undoing kept that key. Since "current secrets win", a restore never replaces a key or password in the first place, and servers missing from a backup are kept, so nothing needs to come back from the safety backup.
 - **The "with key" badge** needed no code change: it follows `includesSecrets` in each backup's manifest.
 - **Earlier damaged copies** are not part of the decision text; listing them is the read-only reading of "where the damaged copy was kept": a copy made in an earlier run (after a restart the original state is gone) is still named until the driver deletes it. No new state or delete button was added.
 
@@ -58,13 +58,25 @@
 
 ## Open decisions
 
-- None new. OD-PL-8 and OD-PL-9 stay **OPEN (operator)**.
+- None new. OD-PL-8 (no Dependabot) and OD-PL-9 (scratch `ACE_DIR` in step 6) were decided by the user in the review round.
+
+## Review round (independent review + user decisions A–C, 2026-11-24)
+
+| Commit | Change |
+| --- | --- |
+| `9ca4649` | **Decision A, current secrets win** (fixes the important finding: a restore of a backup *with* secrets replaced the current key and passwords, and servers missing from the backup were dropped with theirs). `src/sensitive.js` `mergeRestoredSettings`: a non-empty current secret always stays; only an empty one is filled from the backup. `src/restore-apply.js` `mergeRestoredRace` (exported): every password takes the current one of the same server (id, else host:port; saved servers first), only an empty one keeps the backup's; current servers absent from the backup are kept; current presets absent from the backup are kept when they hold a password. Confirm text (`public/system.js:123`), README, CHANGELOG. Tests: restoring a with-secrets backup keeps the current key/passwords and the extra server and preset; empty ones are filled; id vs host:port matching. |
+| `901c537` | **Decision B**: Dismiss (persisted per copy name in `data\notices-dismissed.json`, pruned of copies that are gone) and Delete copy (on-page confirm row, focus on "Keep it", Esc cancels; no `confirm()`). `POST /api/settings/notice` (`src/server.js`, behind `foreignRequest`) → `src/settings.js` `dismissNotice` / `deleteKeptCopy`: name must match the kept-copy pattern, equal its own basename and be a regular file in `data\`. **Nits 2–3**: Save is disabled with the reason when `canSave` is false (the error path stays); the notice is `role="note"`. Tests: unit (dismissal per copy, new copy shown, live files / traversal / folders / other names refused), browser (keyboard Dismiss, confirm step and Esc, API refusals incl. foreign origin, Save state). The test helper's Enter now carries `"\r"`, as a real key press does. |
+| `f981b82` | **Nit 4, flaky keyboard browser test, root cause:** `public/system.js` backup and update cards draw after their API answers and look up their parts by id (`$('#bkTotal')`, `$('#updOn')`). When the driver leaves Settings before the answer arrives (the test's Alt+0 then Alt+1), the lookups return null and throw a TypeError, which the test's "no page errors" check caught about 1 run in 5 (seen as `TypeError … at total (system.js:91)`). The cards now draw only while still on the page (`box.isConnected`). New browser test delays the two answers and leaves at once: fails without the fix, passes with it. |
+| `6df2d09` | **Decision C (OD-PL-9):** `CLAUDE.md` release step 6 says to use `npm run smoke:packaged`, or by hand to set `$env:ACE_DIR` to a scratch folder too. |
+| (this commit) | DECISIONS (D-PL1D-1, D-PL1D-2, OD-PL-8 and OD-PL-9 decided, the OD-PL-4 line fixed), this report, PHASE_LOG, DEVELOPMENT_STATE. |
+
+Tests after the review round: `npm run check` 116/116; `npm test` **222/222**; `npm run test:electron` **222/222** (Node 24.22.2); `npm run test:browser` **11/11 in 10 consecutive runs, 0 failures**.
 
 ## Remaining risks
 
 - A damaged copy (`settings.json.unreadable-*`) can hold the Gemini key in plain text in `data\` until deleted (as since PL1; backups never include it). The notice tells the driver to delete it when done.
 - `src/restore-apply.js` reads the current `settings.json` with a plain parse; if it is damaged at restore time the current key and sign-in are not kept (pre-existing, unchanged; restore and damage together are unlikely).
-- The notice for earlier copies stays until the file is deleted by hand; drivers who keep the copy see it every time they open Settings.
+- (Resolved in the review round: the notice can be dismissed per copy, or the copy deleted from the page.)
 
 ## Recommended next phase
 

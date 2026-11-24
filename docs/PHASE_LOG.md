@@ -432,5 +432,6 @@
   - Commits: `e119946`, `90020d0`, `cb5ff43`, plus the docs commit.
 - **Tests:** `npm run check` 116/116; `npm test` 215/215 → 218/218 (Node 22.23.4); `npm run test:electron` 218/218 (Node 24.22.2); `npm run test:browser` 6/6 → 7/7.
 - **Known limitations:** the notice was checked through DOM assertions only, not looked at; undoing a restore cannot bring back secrets that were replaced by the restore (by design of OD-PL-4).
-- **Open decisions:** none new; OD-PL-8 and OD-PL-9 stay open.
+- **Review round (2026-11-24):** user decisions A (current secrets win on restore; servers and presets with passwords missing from the backup are kept), B (Dismiss / Delete copy on the notice, `POST /api/settings/notice`), C (CLAUDE.md step 6 scratch `ACE_DIR`); OD-PL-8/9 decided; nits: Save disabled when `canSave` is false, `role="note"`, flaky keyboard browser test fixed at its root (Settings cards drew after the page was left). Commits `9ca4649`, `901c537`, `f981b82`, `6df2d09` + docs. Tests: check 116/116, test 222/222, test:electron 222/222, test:browser 11/11 ×10.
+- **Open decisions:** none open from PL0–PL2.
 - **User approval:** pending. Push/merge not done.
