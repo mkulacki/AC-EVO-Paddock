@@ -167,6 +167,59 @@ test('current secrets win (user decision 2026-11-24): restoring a backup WITH se
   assert.equal(r2.servers.find((x) => x.id === 's1').password, PW);
 });
 
+// round 3 review: the current files are read like everywhere else (a BOM is fine) and never silently taken as empty
+function applyRaw(name, settingsText, raceText) {
+  const other = fs.mkdtempSync(path.join(dir, 'restore-raw-'));
+  fs.mkdirSync(path.join(other, PENDING));
+  const f = backup.fileOf(name);
+  const files = [];
+  for (const e of zip.list(f)) if (['settings.json', 'race.json'].includes(e.name)) { fs.writeFileSync(path.join(other, PENDING, e.name), zip.readEntry(f, e.name)); files.push(e.name); }
+  fs.writeFileSync(path.join(other, PENDING, 'manifest.json'), JSON.stringify({ files }));
+  if (settingsText != null) fs.writeFileSync(path.join(other, 'settings.json'), settingsText);
+  if (raceText != null) fs.writeFileSync(path.join(other, 'race.json'), raceText);
+  const r = applyPendingRestore(other);
+  const read = (n) => JSON.parse(fs.readFileSync(path.join(other, n), 'utf8'));
+  return { r, other, settings: read('settings.json'), race: read('race.json'), kept: fs.readdirSync(other).filter((n) => /\.json\.unreadable-\d+$/.test(n)) };
+}
+
+test('restore: a current settings.json / race.json with a BOM (Notepad) keeps key, sign-in and passwords', () => {
+  const bom = '﻿';
+  const { r, settings: s, race } = applyRaw(withKey.name,
+    bom + JSON.stringify({ geminiApiKey: 'bom-key', boardToken: 'bom-token', boardSteam: { steamId: '2', name: 'Bom' } }),
+    bom + JSON.stringify({ servers: [{ id: 's1', ip: '1.2.3.4', port: 9600, password: 'bom-pw' }] }));
+  assert.equal(r.ok, true, r.error);
+  assert.equal(s.geminiApiKey, 'bom-key');
+  assert.equal(s.boardToken, 'bom-token');
+  assert.equal(s.boardSteam.name, 'Bom');
+  assert.equal(race.servers.find((x) => x.id === 's1').password, 'bom-pw');
+});
+
+test('restore: a damaged current settings.json / race.json is kept aside (never silently lost), then the backup is applied', () => {
+  const DAMAGED_S = '{"geminiApiKey": "damaged-key-0123456789", "driverName": "X', DAMAGED_R = '{"servers": [{"password": "damaged-pw"';
+  const logged = []; const real = console.error; console.error = (m) => logged.push(String(m));
+  let out; try { out = applyRaw(withKey.name, DAMAGED_S, DAMAGED_R); } finally { console.error = real; }
+  assert.equal(out.r.ok, true, out.r.error);
+  assert.equal(out.kept.length, 2, 'both damaged files kept as <name>.unreadable-<time>');
+  const keptS = out.kept.find((n) => n.startsWith('settings.json.')), keptR = out.kept.find((n) => n.startsWith('race.json.'));
+  assert.equal(fs.readFileSync(path.join(out.other, keptS), 'utf8'), DAMAGED_S, 'the key stays recoverable in the kept copy');
+  assert.equal(fs.readFileSync(path.join(out.other, keptR), 'utf8'), DAMAGED_R);
+  assert.equal(out.settings.geminiApiKey, KEY, 'nothing current could be read: the backup fills the key');
+  assert.ok(logged.some((m) => /settings\.json is damaged/.test(m)), 'logged');
+});
+
+test('restore: a current settings.json that cannot be read at all (locked) is not replaced', () => {
+  const other = fs.mkdtempSync(path.join(dir, 'restore-locked-'));
+  fs.mkdirSync(path.join(other, PENDING));
+  fs.writeFileSync(path.join(other, PENDING, 'settings.json'), zip.readEntry(backup.fileOf(withKey.name), 'settings.json'));
+  fs.writeFileSync(path.join(other, PENDING, 'manifest.json'), JSON.stringify({ files: ['settings.json'] }));
+  fs.mkdirSync(path.join(other, 'settings.json')); // read fails (EISDIR), like a file held by another program
+  const real = console.error; console.error = () => {};
+  let r; try { r = applyPendingRestore(other); } finally { console.error = real; }
+  assert.equal(r.ok, false);
+  assert.match(r.error, /settings\.json: the current file could not be read/);
+  assert.ok(fs.statSync(path.join(other, 'settings.json')).isDirectory(), 'left as it was');
+});
+
 test('race merge: servers match by id, else host:port; the restored list is never shortened', async () => {
   const { mergeRestoredRace } = await import('../src/restore-apply.js');
   const out = mergeRestoredRace(
@@ -176,6 +229,11 @@ test('race merge: servers match by id, else host:port; the restored list is neve
   assert.equal(out.last.server.password, '', 'no current password for that address: the backup value (empty) stays');
   assert.deepEqual(mergeRestoredRace(null, { servers: [{ id: 'z', ip: 'h', port: 3, password: 'p' }] }).servers.map((x) => x.id), ['z'], 'a backup without servers keeps the current ones');
   assert.deepEqual(mergeRestoredRace({ servers: [{ id: 'q', password: 'from-backup' }] }, {}).servers[0].password, 'from-backup');
+  // presets: same id, else same name (as src/race.js savePreset): never two presets of one name
+  const pr = mergeRestoredRace({ presets: [{ id: 'b1', name: 'Online', spec: { server: { ip: 'h', port: 1, password: '' } } }] },
+    { presets: [{ id: 'c1', name: ' Online ', spec: { server: { ip: 'h', port: 1, password: 'pw' } } }, { id: 'c2', name: 'Other', spec: { server: { password: 'pw2' } } }] });
+  assert.deepEqual(pr.presets.map((p) => p.id), ['b1', 'c2']);
+  assert.equal(pr.presets[0].spec.server.password, 'pw', 'the same-named preset gets the current password for its server');
 });
 
 test('an older backup that still holds a token restores without it, and keeps the current sign-in', async () => {

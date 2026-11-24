@@ -1,6 +1,6 @@
 // Applies a restore staged by src/backup.js. Runs at start, from src/db.js, BEFORE the database is opened: the files
 // can only be replaced while nothing holds them. A backup of the data as it was was made when the restore was asked for.
-// No imports from the app: db.js imports this first (src/sensitive.js has no imports itself).
+// No imports from the app: db.js imports this first (src/sensitive.js and src/jsonfile.js have no imports themselves).
 //
 // Safety: the database is swapped first and by rename (copy next to it, clear the old WAL, then rename over), so a
 // failure leaves the current data as it was. If the database cannot be swapped, nothing else is touched and the
@@ -8,13 +8,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { mergeRestoredSettings } from './sensitive.js';
+import { loadJson } from './jsonfile.js';
 
 export const PENDING = 'restore-pending';
 // the files a backup may bring back (all directly in data\)
 export const RESTORABLE = ['telemetry.db', 'settings.json', 'race.json', 'setup-meta.json'];
 const MAX_ATTEMPTS = 3;
 
-const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } };
+// The JSON files a restore merges are read like everywhere else (src/jsonfile.js loadJson: a BOM is fine, e.g. a file
+// saved by Notepad). The current file is never silently taken as empty: a damaged one is kept aside as
+// <name>.unreadable-<time> (the Settings page names it, and the key in it stays recoverable), and one that cannot be
+// read at all (locked) is not replaced. -> the parsed object, or throws (that file is then not restored).
+function readCurrent(file) {
+  const r = loadJson(file, {});
+  if (r.state === 'failed') throw new Error('the current file could not be read, so it was not replaced (what is in it is kept)');
+  return r.value; // ok, missing ({}), or aside ({}: the damaged file is kept next to it)
+}
+function readStaged(file) {
+  const r = loadJson(file, null, { log: () => {} });
+  if (r.state !== 'ok') throw new Error('the copy in the backup cannot be read');
+  return r.value;
+}
 
 // Current secrets win (decision OD-PL-1/OD-PL-4 refinement, 2026-11-24): a restore never replaces a key or password
 // the install has, it only fills empty ones from the backup; the leaderboard sign-in is never restored (src/sensitive.js).
@@ -58,8 +72,12 @@ export function mergeRestoredRace(restored, current) {
   }
   if (Array.isArray(cur.presets)) {
     if (!Array.isArray(out.presets)) out.presets = [];
+    // the same preset = same id, else same name (src/race.js savePreset matches by name): never two of one name
     const ids = new Set(out.presets.filter(isObj).map((p) => p.id).filter((v) => v != null));
-    for (const p of cur.presets) if (isObj(p) && p.id != null && !ids.has(p.id) && holdsPassword(p)) out.presets.push(p);
+    const names = new Set(out.presets.filter(isObj).map((p) => String(p.name ?? '').trim()).filter(Boolean));
+    for (const p of cur.presets) {
+      if (isObj(p) && !ids.has(p.id) && !names.has(String(p.name ?? '').trim()) && holdsPassword(p)) out.presets.push(p);
+    }
   }
   return out;
 }
@@ -99,8 +117,9 @@ export function applyPendingRestore(dataDir) {
   for (const name of files.filter((n) => n !== 'telemetry.db')) {
     const from = path.join(dir, name), to = path.join(dataDir, name);
     try {
-      const text = name === 'settings.json' ? JSON.stringify(mergeSettings(readJson(from), readJson(to)), null, 2)
-        : name === 'race.json' ? JSON.stringify(mergeRace(readJson(from), readJson(to)), null, 2)
+      // the backup's copy first: when it cannot be read, the current file is not touched at all
+      const text = name === 'settings.json' ? (() => { const b = readStaged(from); return JSON.stringify(mergeSettings(b, readCurrent(to)), null, 2); })()
+        : name === 'race.json' ? (() => { const b = readStaged(from); return JSON.stringify(mergeRace(b, readCurrent(to)), null, 2); })()
           : fs.readFileSync(from, 'utf8');
       fs.writeFileSync(`${to}.restoring`, text);
       fs.renameSync(`${to}.restoring`, to);
