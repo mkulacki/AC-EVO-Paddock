@@ -20,7 +20,7 @@ Everything runs on your PC; only the leaderboards (when you switch sending on) a
 
 ## Run from source
 
-**Requirements:** Windows, AC EVO from Steam, Node.js 22.5 or newer (the database uses the built-in `node:sqlite`).
+**Requirements:** Windows, AC EVO from Steam, Node.js 22.13 or newer (the database uses the built-in `node:sqlite`, which older 22.x releases only offer behind a flag).
 
 - Double-click `start.bat`. It installs the dependencies, and installs them again whenever `package-lock.json` changes, then opens the browser.
 - Or run it by hand: `npm install` first, then `npm start`. **Run `npm install` again after every `git pull`**, because new versions can add packages. For example, the bundled fonts (`@fontsource/barlow`, `@fontsource/barlow-condensed`) were added after 0.4.0-beta.1. Without them the page falls back to system fonts.
@@ -342,7 +342,17 @@ Everything stays on your PC. Paddock contacts these services:
 
 Bug reports, ideas and pull requests are welcome. Please open an issue first for larger changes.
 `npm run seed` and `npm run mock` let you work without the game.
-Before a pull request, run `npm run check` (syntax) and `npm test`: unit tests for the analysis, database migrations, file formats and setup recognition, plus a smoke test of the API with the mock car. They run in temporary folders and need neither the game nor your `data\`.
+Before a pull request, run **`npm run verify`** (on a clean checkout: `npm ci` first). It runs, in order:
+
+| Command | What it checks |
+| --- | --- |
+| `npm run check` | the syntax of every shipped script |
+| `npm test` | unit tests (analysis, database migrations, file formats, setup recognition, data safety, the leaderboard against a local server) and an API smoke test with the mock car, on your Node |
+| `npm run test:electron` | the same tests on the Node inside the desktop app (Electron's, 24.x) |
+| `npm run test:browser` | the pages in headless Edge or Chrome: open a session, compare laps, import lap files, change a setting, keyboard navigation (skipped without a browser) |
+
+They all use temporary folders and need neither the game, nor your `data\`, nor a network service or an AI key. The same checks are set up to run on GitHub for every push and pull request (`.github/workflows/ci.yml`).
+Before a release, `npm run smoke:packaged -- --build` builds the desktop app and starts it once with scratch data and game folders (it skips when port 8080 is in use: quit Paddock first). Where the test data comes from: `test/fixtures/README.md`.
 Project documentation (architecture, feature inventory, roadmap) is in [docs/](docs/).
 
 ## Support the project
