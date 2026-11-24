@@ -14,6 +14,12 @@ All notable changes to AC EVO Paddock. Newest first.
 - **Backups and mod zips** are never unpacked beyond the size they state. A backup whose database holds triggers or views (Paddock never makes them) is not restored.
 - Downloads of private data (backups, lap and CSV exports, diagnostics, setups) are refused when another website asks for them.
 
+### Quality checks (platform phase PL2)
+
+- For contributors: `npm run verify` runs the syntax check, the tests on your Node and on the desktop app's own Node, and browser tests of the main pages in headless Edge. A GitHub workflow is set up to run the same on every push. `npm run smoke:packaged` starts a built app once with scratch folders.
+- Requirements corrected: running from source needs Node.js 22.13 or newer.
+- Leaderboard: the background sending now runs on timers Paddock can stop (found through a test that failed now and then); what is sent, and when, is unchanged.
+
 ## 0.7.0-beta.1
 
 ### New: online leaderboards

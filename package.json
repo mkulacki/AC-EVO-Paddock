@@ -18,6 +18,10 @@
     "overlay": "electron overlay/main.cjs",
     "test": "node --no-warnings --test test/*.test.js",
     "check": "node test/check-syntax.js",
+    "test:electron": "node test/electron-node.js",
+    "test:browser": "node --no-warnings --test test/browser.flows.js",
+    "verify": "npm run check && npm test && npm run test:electron && npm run test:browser",
+    "smoke:packaged": "node test/packaged-smoke.js",
     "board": "node --no-warnings leaderboard/local.mjs",
     "wrangler": "cd leaderboard && npx --yes wrangler@4.160.1",
     "board:schema": "cd leaderboard && npx --yes wrangler@4.160.1 d1 execute acevo-paddock-leaderboard --remote --file schema.sql",
@@ -33,6 +37,9 @@
   "devDependencies": {
     "electron": "44.11.1",
     "electron-builder": "26.18.0"
+  },
+  "engines": {
+    "node": ">=22.13"
   },
   "build": {
     "appId": "local.acevo.paddock",

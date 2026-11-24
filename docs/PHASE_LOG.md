@@ -404,3 +404,18 @@
 - **Known limitations:** not run in game, on the live leaderboard, in the packaged exe or under Electron's Node 24; Windows rename retries and a real 4 GB upload not exercised.
 - **Open decisions:** OD-PL-1 … 4 defaults applied (still open for confirmation); new OD-PL-5 (damaged-file notice), OD-PL-6 (mod upload cap), OD-PL-7 (unknown lap channels).
 - **User approval:** pending. Push/merge not done.
+
+## PL2: Automated quality and release checks
+
+- **Started / finished:** 2026-11-24 · branch `platform/pl2-quality` (from `platform/integration` = `f5cbaa0`) · scope in `docs/platform/BACKLOG.md` (PL2); report `docs/platform/PL2-report.md`
+- **Objectives:** CI workflow; the suite on the shipped runtime; one verification command; packaged-app smoke script; browser tests of critical flows; fixture provenance; dependency and type-check assessment; fix the flaky leaderboard test; refresh `docs/ARCHITECTURE.md` line references.
+- **Changes:**
+  - Flaky test: `src/leaderboard.js` keeps its background timers (`later()`, `stop()`, `background` option; app default unchanged); the leaderboard tests switch background work off; a mock-timer test covers scheduling and `stop()`.
+  - `npm run test:electron` (`test/electron-node.js`), `npm run test:browser` (`test/browser.flows.js`, headless Edge over the DevTools protocol, no dependency), `npm run verify` (check + test + test:electron + test:browser), `npm run smoke:packaged [-- --build]` (`test/packaged-smoke.js`, skips when 8080 is busy, scratch `ACEVO_DATA` and `ACE_DIR`).
+  - `.github/workflows/ci.yml` (Windows: everything; Ubuntu: 17 platform-neutral files, 5 named exclusions); `engines` node ≥ 22.13; `test/fixtures/README.md`; README, ARCHITECTURE, FEATURE_INVENTORY, CHANGELOG, DECISIONS updated.
+  - Commits: `3b61ccd`, `e99fed6`, `18a6ce4`, `105c06c`, `eac9f50`, `c079f7c`, `fd4f53c`, `5568ba7`, `04f30e6` (report and docs), `8c58e04` (review fixes: final `stop()`, CI push on main only, Ubuntu job = all tests minus named Windows-only files, smoke fails without a build).
+- **Findings:** flaky-test root cause = leaked, uncancellable timers of earlier leaderboard instances acting on the shared DB/settings (reproduced 7/40 under parallel load, 0/50 after). README's Node 22.5 floor was too low (`node:sqlite` unflagged in 22.13). The smoke test could not run under Electron's Node (fixed). The packaged app installs the loader and HUD into `ACE_DIR` at start (OD-PL-9). Type checking and an audit gate not adopted (D-PL2-1, D-PL2-2).
+- **Tests:** `npm run check` 112/112 → 116/116; `npm test` 213/213 → 215/215 (Node 22.23.4); `npm run test:electron` 215/215 (Node 24.22.2); `npm run test:browser` 6/6; packaged smoke passed (200, title, log, no `dist/win-unpacked/data`).
+- **Known limitations:** CI not run on GitHub (no push); the Ubuntu job never ran on Linux; no game, Steam or Cloudflare checks.
+- **Open decisions:** OD-PL-8 (Dependabot), OD-PL-9 (`ACE_DIR` in release step 6).
+- **User approval:** pending. Push/merge not done.

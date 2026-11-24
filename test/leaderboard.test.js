@@ -1,6 +1,6 @@
 // Online leaderboard: the server (leaderboard/worker.js, run locally) with its Steam sign-in, and the app side
 // (src/leaderboard.js). Steam itself is faked: nothing here goes to the internet.
-import { test, after } from 'node:test';
+import { test, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -171,7 +171,7 @@ test('safeUrl: the login only goes over https, or to a server on this PC', () =>
 test('app: a lap gets its conditions; it waits for the Steam sign-in, then the best one is sent once', async () => {
   settings.update({ boardShare: true, boardUrl: URL0, boardToken: '', boardSteam: null });
   const rec = new EventEmitter();
-  const app = lb.createLeaderboard({ recorder: rec, launchInfo: () => ({ weather: 'Clear', grip: 'Fast' }), gameVersion: () => '0.5.1', appVersion: 'test' });
+  const app = lb.createLeaderboard({ background: false, recorder: rec, launchInfo: () => ({ weather: 'Clear', grip: 'Fast' }), gameVersion: () => '0.5.1', appVersion: 'test' });
   for (let i = 0; i < 10; i++) app.onFrame({ status: 2, probe: { airTemp: 20 + (i % 2), roadTemp: 30 } });
   const id = newLap(100000);
   app.onLap({ id, valid: false }); // conditions only: no sync started from here in the test
@@ -197,7 +197,7 @@ test('app: a lap gets its conditions; it waits for the Steam sign-in, then the b
 test('app: with the server away the lap waits and is retried; a dead login asks for a new sign-in', async () => {
   const away = 'http://127.0.0.1:1', login = settings.get().boardSteam;
   settings.update({ boardUrl: away, boardSteam: { ...login, url: away } }); // signed in there, but it does not answer
-  const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.5.2', appVersion: 'test' });
+  const app = lb.createLeaderboard({ background: false, recorder: null, gameVersion: () => '0.5.2', appVersion: 'test' });
   const id = newLap(101000);
   app.onLap({ id, valid: false });
   assert.equal((await app.sync()).failed, 1); // the first lap fails: the rest are not tried
@@ -215,7 +215,7 @@ test('app: with the server away the lap waits and is retried; a dead login asks 
 
 test('app: with automatic sending off, laps wait for Send now; signing out stops sending', async () => {
   settings.update({ boardUrl: URL0, boardAuto: false });
-  const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.5.3', appVersion: 'test' });
+  const app = lb.createLeaderboard({ background: false, recorder: null, gameVersion: () => '0.5.3', appVersion: 'test' });
   const id = newLap(102000);
   app.onLap({ id, valid: false });
   assert.equal((await app.sync()).skipped, true);
@@ -229,7 +229,7 @@ test('app: with automatic sending off, laps wait for Send now; signing out stops
 
 test('app: a lap sent anonymously (before sign-in existed) is sent again under the Steam account', async () => {
   settings.update({ boardUrl: URL0, boardAuto: true });
-  const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.5.4', appVersion: 'test' });
+  const app = lb.createLeaderboard({ background: false, recorder: null, gameVersion: () => '0.5.4', appVersion: 'test' });
   const id = newLap(103000);
   app.onLap({ id, valid: false });
   db.setLapBoard(id, { at: 1, ok: true, rank: 1, of: 1 }); // the old anonymous send
@@ -241,7 +241,7 @@ test('app: a lap sent anonymously (before sign-in existed) is sent again under t
 
 test('app: a login and a "sent" mark belong to one server', async () => {
   settings.update({ boardUrl: URL0, boardShare: true, boardAuto: true });
-  const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.5.5', appVersion: 'test' });
+  const app = lb.createLeaderboard({ background: false, recorder: null, gameVersion: () => '0.5.5', appVersion: 'test' });
   const id = newLap(104000);
   app.onLap({ id, valid: false });
   await appSignIn(app, '76561198000000003');
@@ -355,7 +355,7 @@ test('reports: signed in, not your own lap; admins see them and can hide the lap
 test('app: beaten notices, the HUD target, and downloading another driver lap', async () => {
   settings.update({ boardUrl: URL0, boardShare: true, boardAuto: true, boardTel: true, boardTarget: 'next' });
   const seen = [];
-  const app = lb.createLeaderboard({ recorder: null, gameVersion: () => '0.9', appVersion: 'test', notify: (n) => seen.push(n) });
+  const app = lb.createLeaderboard({ background: false, recorder: null, gameVersion: () => '0.9', appVersion: 'test', notify: (n) => seen.push(n) });
   await appSignIn(app, '76561198000000003'); // Carol
   const sessionId = db.createSession({ track: 'imola', layout: '', car: 'kart', sessionType: 1, driver: 'Me', startedAt: 1 });
   const id = db.insertLap({ sessionId, track: 'imola', layout: '', car: 'kart', lapNumber: 2, lapTimeMs: 100000, valid: true, driver: 'Me', recordedAt: Date.now(), trackLength: 1000,
@@ -418,11 +418,74 @@ test('downloading an online lap (PL1.2): a server that sends a gzip bomb or an i
   const reply = (body) => async () => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
   const bomb = telc.toBase64(new Uint8Array(zlib.gzipSync(Buffer.alloc(20 * 1024 * 1024))));
   const lap = { ok: true, track: 'imola', layout: '', car: 'kart', lapMs: 100000, name: 'X' };
-  const app1 = lb.createLeaderboard({ recorder: null, appVersion: 'test', fetchImpl: reply({ ...lap, tel: bomb }) });
+  const app1 = lb.createLeaderboard({ background: false, recorder: null, appVersion: 'test', fetchImpl: reply({ ...lap, tel: bomb }) });
   await assert.rejects(app1.fetchOnline(990001), /too large/);
-  const app2 = lb.createLeaderboard({ recorder: null, appVersion: 'test', fetchImpl: reply({ ok: true, tel: bomb }) });
+  const app2 = lb.createLeaderboard({ background: false, recorder: null, appVersion: 'test', fetchImpl: reply({ ok: true, tel: bomb }) });
   await assert.rejects(app2.fetchOnline(990002), /incomplete lap/);
-  const app3 = lb.createLeaderboard({ recorder: null, appVersion: 'test', fetchImpl: reply({ ...lap, tel: 'AAAA' }) });
+  const app3 = lb.createLeaderboard({ background: false, recorder: null, appVersion: 'test', fetchImpl: reply({ ...lap, tel: 'AAAA' }) });
   await assert.rejects(app3.fetchOnline(990003), /cannot be read/);
   assert.equal(db.listLaps().length, before);
+});
+
+test('background work (PL2): a valid lap schedules a sync; stop() cancels everything still pending', async () => {
+  const before = settings.get();
+  const url = 'http://127.0.0.1:2';
+  settings.update({ boardUrl: url, boardShare: true, boardAuto: true, boardToken: 'e'.repeat(64), boardSteam: { steamId: '76561198000000009', name: 'T', url } });
+  const calls = [];
+  const fetchImpl = async (u) => { calls.push(String(u)); return new Response(JSON.stringify({ ok: false, error: 'test' }), { status: 400 }); };
+  const flush = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const on = lb.createLeaderboard({ recorder: null, appVersion: 'test', fetchImpl });
+    on.onLap({ id: newLap(105000), valid: true, track: 'nowhere', layout: '', car: 'kart', lapTimeMs: 105000 });
+    mock.timers.tick(1500);
+    await flush();
+    assert.ok(calls.some((u) => u.endsWith('/v1/laps')), 'the deferred sync ran');
+    on.stop();
+    calls.length = 0;
+    const off = lb.createLeaderboard({ recorder: null, appVersion: 'test', fetchImpl });
+    off.onLap({ id: newLap(106000), valid: true, track: 'nowhere', layout: '', car: 'kart', lapTimeMs: 106000 });
+    off.stop();
+    mock.timers.tick(60 * 60 * 1000);
+    await flush();
+    assert.deepEqual(calls, []); // nothing ran after stop(): no deferred sync, no start check, no periodic sync
+  } finally {
+    mock.timers.reset();
+    settings.update({ boardUrl: before.boardUrl, boardShare: before.boardShare, boardAuto: before.boardAuto, boardToken: before.boardToken, boardSteam: before.boardSteam });
+  }
+});
+
+test('background work (PL2 review): after stop() nothing new is scheduled, not by a sync in flight, a lap or a sign-in', async () => {
+  const before = settings.get();
+  const url = 'http://127.0.0.1:3';
+  settings.update({ boardUrl: url, boardShare: true, boardAuto: true, boardToken: 'f'.repeat(64), boardSteam: { steamId: '76561198000000009', name: 'T', url } });
+  const calls = [];
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const fetchImpl = async (u) => {
+    calls.push(String(u));
+    if (String(u).endsWith('/v1/laps')) await gate; // the send is still on its way when stop() comes
+    return new Response(JSON.stringify({ ok: true, rank: 1, of: 1 }), { status: 200 });
+  };
+  const flush = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const app = lb.createLeaderboard({ recorder: null, appVersion: 'test', gameVersion: () => '0.9.9', fetchImpl }); // its own best: a new game version
+    const id = newLap(107000);
+    app.onLap({ id, valid: false }); // conditions only
+    const running = app.sync();
+    await flush();
+    assert.ok(calls.some((u) => u.endsWith('/v1/laps')), 'the send started');
+    app.stop();
+    release();
+    assert.equal((await running).sent, 1); // the send in flight finishes...
+    app.onLap({ id: newLap(108000), valid: true }); // ...but neither it nor a new lap schedules anything
+    calls.length = 0;
+    mock.timers.tick(60 * 60 * 1000);
+    await flush();
+    assert.deepEqual(calls, []);
+  } finally {
+    mock.timers.reset();
+    settings.update({ boardUrl: before.boardUrl, boardShare: before.boardShare, boardAuto: before.boardAuto, boardToken: before.boardToken, boardSteam: before.boardSteam });
+  }
 });

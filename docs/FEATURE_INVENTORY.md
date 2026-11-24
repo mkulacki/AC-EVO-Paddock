@@ -109,12 +109,12 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 
 | Item | Status |
 | --- | --- |
-| Automated tests | Done (P1): `npm test` 175/175 in 17 files, `npm run check` 104/104 (PL0 baseline, 2026-11-24) |
-| Lint / type checks | Missing (`node --check` only); no CI workflow (PL2) |
+| Automated tests | Done (P1, extended PL1/PL2): `npm test` 214/214 in 22 files, `npm run check` 115/115, `npm run test:browser` 6/6; one command `npm run verify` (PL2, 2026-11-24) |
+| Lint / type checks | `node --check` only; TypeScript evaluated and not adopted (D-PL2-1). CI workflow `.github/workflows/ci.yml` added in PL2, not yet run on GitHub |
 | `src/server.js` router + loop + orchestration in one file | Refactor (gradual) |
 | Shared-memory offsets for car data and setup fingerprint | **Unverified in game** |
 | Broken features found in the baseline | None. All main endpoints return 200 with seeded mock data |
-| Tested runtime = shipped runtime | No: tests on Node 22.x, the app on Electron 44 / Node 24.22.2 (PL2) |
+| Tested runtime = shipped runtime | Yes since PL2: `npm run test:electron` runs the suite on Electron 44 / Node 24.22.2 (214/214); `npm run smoke:packaged` starts the built app |
 
 ## Platform baseline (PL0, 2026-11-24)
 
