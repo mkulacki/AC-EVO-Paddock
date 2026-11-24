@@ -44,11 +44,26 @@ async function updatesCard() {
         <button class="small" id="updNow" ${busy ? 'disabled' : ''}>${busy ? 'Checking…' : 'Check now'}</button></div>
       <p class="hint" style="margin:6px 0 0">Paddock asks GitHub for its list of releases: one request, nothing about you is sent. It never downloads or installs anything by itself.</p>`;
     $('#updOn').onchange = async (e) => { await post('/api/settings', { updateCheck: e.target.checked }); };
-    $('#updNow').onclick = async () => { draw(u, true); try { const n = await post('/api/updates/check', {}); draw(n); window.dispatchEvent(new Event('paddock:updates')); } catch (e) { draw({ ...u, error: e.message }); } };
+    $('#updNow').onclick = async () => {
+      draw(u, true);
+      let n; try { n = await post('/api/updates/check', {}); } catch (e) { if (box.isConnected) draw({ ...u, error: e.message }); return; }
+      window.dispatchEvent(new Event('paddock:updates'));
+      if (box.isConnected) draw(n); // the driver may have left Settings meanwhile
+    };
   };
   // the answer can come after the driver left Settings: the card is gone then, and nothing is drawn
   let u; try { u = await api('/api/updates'); } catch (e) { if (box.isConnected) box.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
   if (box.isConnected) draw(u);
+}
+
+/**
+ * What a restore does to secrets, by the parts it brings back (current secrets win, src/restore-apply.js): the key and
+ * sign-in live in settings (part 'settings'), saved servers and their passwords in race.json (part 'race').
+ */
+export function restoreSecretsNote(parts = []) {
+  const p = new Set(parts || []);
+  return (p.has('settings') ? 'Your current Gemini key and leaderboard sign-in always stay: the backup only fills in a key you do not have. ' : '')
+    + (p.has('race') ? 'Your saved server passwords always stay: the backup only fills in a password you do not have, and saved servers missing from the backup are kept. ' : '');
 }
 
 const LS_PARTS = 'backup.parts';
@@ -123,7 +138,7 @@ async function backupCard(onRestart) {
       const x = b.backups.find((y) => y.name === btn.dataset.restore);
       const what = (x.parts || []).map(partLabel(b)).join(', ') || 'laps, sessions and settings';
       if (!confirm(`Restore the backup of ${when(x.createdAt)}${x.counts ? ` (${plural(x.counts.laps, 'lap')})` : ''}?\n\nIt brings back: ${what}. These are replaced by the ones in the backup; anything else stays as it is. `
-        + ((x.parts || []).includes('settings') ? 'Your current Gemini key, server passwords and leaderboard sign-in always stay: the backup only fills in a key or password you do not have, and saved servers missing from the backup are kept. ' : '')
+        + restoreSecretsNote(x.parts)
         + 'Paddock first makes a backup of your current data (listed as "made before a restore", without your key, passwords or sign-in), then restarts.')) return;
       btn.disabled = true; say('Checking the backup and backing up your current data…');
       try { await post('/api/backup/restore', { name: x.name }); say('Restarting to restore…'); onRestart?.(btn); }

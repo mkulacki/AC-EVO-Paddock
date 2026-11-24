@@ -290,6 +290,27 @@ test('settings: leaving the page before its cards load is not an error (root cau
   assert.deepEqual(errors, []);
 });
 
+test('restore confirm text: key and sign-in with the settings part, passwords and servers with the race part (round 3)', { skip }, async () => {
+  const note = (parts) => js(`import('/system.js').then((m) => m.restoreSecretsNote(${JSON.stringify(parts)}))`);
+  assert.equal(await note(['laps']), '');
+  const s = await note(['settings']), r = await note(['race']), both = await note(['settings', 'race']);
+  assert.match(s, /Gemini key and leaderboard sign-in/); assert.doesNotMatch(s, /password|servers/);
+  assert.match(r, /server passwords/); assert.match(r, /servers missing from the backup are kept/); assert.doesNotMatch(r, /Gemini|sign-in/);
+  assert.equal(both, s + r);
+});
+
+test('settings: "Check now" answered after leaving the page is not an error (round 3)', { skip }, async () => {
+  await go('#/settings', "document.querySelector('#updNow')");
+  await js(`window.__realFetch = window.__realFetch || window.fetch;
+    window.fetch = async (u, o) => { if (String(u).endsWith('/api/updates/check')) { await new Promise((r) => setTimeout(r, 400)); return new Response('{"current":"t","enabled":true}', { status: 200, headers: { 'content-type': 'application/json' } }); } return window.__realFetch(u, o); }; 1`);
+  try {
+    await js("document.querySelector('#updNow').click(); 1");
+    await go('#/home');
+    await sleep(800);
+  } finally { await js('window.fetch = window.__realFetch; 1'); }
+  assert.deepEqual(errors, []);
+});
+
 test('settings: when settings.json cannot be saved, Save is disabled with the reason (review nit)', { skip }, async () => {
   // the server's answer is changed in the page only: making settings.json unreadable would need another server
   await js(`window.__realFetch = window.__realFetch || window.fetch;
