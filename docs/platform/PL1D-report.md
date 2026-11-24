@@ -2,7 +2,7 @@
 
 - **Date:** 2026-11-24 · **Branch:** `platform/pl1-decisions` (from `675441f`, the PL2 merge)
 - **Scope:** apply the user's answers (2026-11-24) to OD-PL-1 … OD-PL-7 (`docs/DECISIONS.md`). OD-PL-8 and OD-PL-9 stay open.
-- **Result:** complete, including the review round (below). Nothing pushed or merged.
+- **Result:** complete, including the review round and a third, user-approved fix round (below). Nothing pushed or merged.
 
 ## Decisions applied
 
@@ -72,10 +72,22 @@
 
 Tests after the review round: `npm run check` 116/116; `npm test` **222/222**; `npm run test:electron` **222/222** (Node 24.22.2); `npm run test:browser` **11/11 in 10 consecutive runs, 0 failures**.
 
+## Round 3 (user-approved, the last; focused re-review of `8374334..a031c2d`)
+
+| Commit | Change |
+| --- | --- |
+| `19f381b` | **Important:** `src/restore-apply.js` parsed the current `settings.json` / `race.json` with a plain `JSON.parse`, so a file with a BOM (saved by Notepad) counted as empty and "current secrets win" kept nothing (key, token, Steam identity, passwords lost). It now reads both through `src/jsonfile.js` `loadJson` (no app imports, so the start-up constraint holds): a BOM is fine; a damaged current file is kept aside as `<name>.unreadable-<time>` (logged, shown by the Settings notice, the key stays recoverable) before the backup is applied; a current file that cannot be read at all is not replaced (that file is reported as not restored); an unreadable copy in the backup leaves the current file untouched. **Nit 3:** presets the backup lacks are matched by id, else by name (as `src/race.js` `savePreset`), so no two presets share a name. Tests: BOM keeps key, sign-in and passwords; damaged current files kept aside with their contents; locked current file left as it was; preset name match. |
+| `e36b256` | **Important:** the restore confirm text tied the passwords/servers sentence to the `settings` part; `restoreSecretsNote` (`public/system.js`) now shows the key/sign-in sentence for `settings` and the passwords/servers sentence for `race` (`src/backup.js` parts). **Nit 5:** *Check now* draws only while its card is on the page. Browser tests for both (fail without the fix). |
+| `205af33` | **Nit 4:** `notices-dismissed.json` is read once and cached (refreshed on write), read directly so a locked or damaged one is logged once and never recorded as a settings-file issue; saving it ignores `canSave` on purpose (comment). Test: no re-read across calls, a damaged file is not a notice and is not moved. |
+| `fd04d11` | **Nit 6:** `CLAUDE.md` step 6 says `npm run smoke:packaged` prints `SKIPPED (NOT TESTED)` and tests nothing when 8080 is busy. |
+| (this commit) | This report, PHASE_LOG, CHANGELOG. |
+
+Tests after round 3: `npm run check` 116/116; `npm test` **226/226**; `npm run test:electron` **226/226** (Node 24.22.2); `npm run test:browser` **13/13 in 5 consecutive runs, 0 failures**.
+
 ## Remaining risks
 
 - A damaged copy (`settings.json.unreadable-*`) can hold the Gemini key in plain text in `data\` until deleted (as since PL1; backups never include it). The notice tells the driver to delete it when done.
-- `src/restore-apply.js` reads the current `settings.json` with a plain parse; if it is damaged at restore time the current key and sign-in are not kept (pre-existing, unchanged; restore and damage together are unlikely).
+- (Resolved in round 3: a damaged current file is kept aside before a restore, a BOM is read, a locked one is not replaced.)
 - (Resolved in the review round: the notice can be dismissed per copy, or the copy deleted from the page.)
 
 ## Recommended next phase

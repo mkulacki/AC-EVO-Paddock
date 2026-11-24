@@ -43,7 +43,7 @@ None in progress. PL1D is committed on `platform/pl1-decisions`: report `docs/pl
 - PL0 baseline (2026-11-24, `be3b5ef`): `npm run check` 104/104; `npm test` 175/175.
 - PL1 with review fixes (2026-11-24, `platform/pl1-data-safety`): `npm run check` 112/112; `npm test` 213/213 (22 files).
 - PL2 (2026-11-24, `platform/pl2-quality`): `npm run check` 116/116; `npm test` 215/215 on Node 22.23.4; `npm run test:electron` 215/215 on Node 24.22.2; `npm run test:browser` 6/6; `npm run smoke:packaged -- --build` passed. One command: `npm run verify`.
-- PL1D with the review round (2026-11-24, `platform/pl1-decisions`): `npm run check` 116/116; `npm test` 222/222; `npm run test:electron` 222/222; `npm run test:browser` 11/11 in 10 consecutive runs.
+- PL1D after round 3 (2026-11-24, `platform/pl1-decisions`): `npm run check` 116/116; `npm test` 226/226; `npm run test:electron` 226/226; `npm run test:browser` 13/13 in 5 consecutive runs (11/11 ×10 after round 2).
 
 ## Pending user decisions
 
