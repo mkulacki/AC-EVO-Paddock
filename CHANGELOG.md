@@ -6,7 +6,7 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ### Data safety (platform phase PL1)
 
-- **Backups never hold your leaderboard sign-in** (the Steam login token and who it belongs to), not even with "include secrets". Restoring settings from a backup signs the leaderboard out: sign in with Steam again. An older backup that still holds a sign-in restores without it.
+- **Backups never hold your leaderboard sign-in** (the Steam login token and who it belongs to), not even with "include secrets". Restoring settings from a backup keeps the sign-in this install has (like your Gemini key when the backup has none), so you stay signed in. An older backup that still holds a sign-in restores without it.
 - **Diagnostics** also take out the leaderboard token and your Steam name.
 - **Settings, Race tab servers and setup notes are saved safely:** written to a temporary file first, so a crash never leaves half a file. A damaged file is no longer silently replaced by defaults: it is kept next to it as `<name>.unreadable-<time>`.
 - **Lap import is checked:** a file is read within size limits, every value is checked, and a bad file gets a plain message instead of an error 500. Importing a lap that is already there is refused and names the lap you have. Exported laps no longer carry your leaderboard data (Steam id, rank).

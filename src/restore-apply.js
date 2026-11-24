@@ -16,8 +16,8 @@ const MAX_ATTEMPTS = 3;
 
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } };
 
-// secrets a backup may leave out are kept from the current files; the leaderboard sign-in is never restored and is
-// cleared, also when an older backup still holds one (src/sensitive.js, decision OD-PL-1)
+// secrets a backup may leave out are kept from the current files; the leaderboard sign-in is never restored, also
+// when an older backup still holds one: the current install's sign-in stays (src/sensitive.js, decision OD-PL-1 (b))
 const mergeSettings = mergeRestoredSettings;
 // race.json: every {ip, port, password} anywhere (saved servers, presets, the last setup) gets the current password
 // for the same server back when the backup had none

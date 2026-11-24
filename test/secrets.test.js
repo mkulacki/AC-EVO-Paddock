@@ -41,11 +41,15 @@ test('inventory: key and token are secrets/sign-in; legacy settings without them
   assert.deepEqual(sensitive.settingsSecrets({ geminiApiKey: KEY, boardToken: TOKEN }), [KEY, TOKEN]);
 });
 
-test('restore merge: the key comes from the current file when the backup has none; the sign-in is always cleared', () => {
+test('restore merge: the key comes from the current file when the backup has none; the sign-in is always the current one (OD-PL-1 b)', () => {
   const cur = { geminiApiKey: 'current', boardToken: 'cur-token', boardSteam: { name: 'Me' } };
-  assert.deepEqual(sensitive.mergeRestoredSettings({ driverName: 'b', geminiApiKey: '' }, cur), { driverName: 'b', geminiApiKey: 'current', boardToken: '', boardSteam: null });
-  assert.deepEqual(sensitive.mergeRestoredSettings({ geminiApiKey: 'from-backup', boardToken: TOKEN, boardSteam: STEAM }, cur), { geminiApiKey: 'from-backup', boardToken: '', boardSteam: null },
-    'an old backup that still holds a token does not sign this install in');
+  assert.deepEqual(sensitive.mergeRestoredSettings({ driverName: 'b', geminiApiKey: '' }, cur), { driverName: 'b', geminiApiKey: 'current', boardToken: 'cur-token', boardSteam: { name: 'Me' } },
+    'a backup without a sign-in keeps the current one');
+  assert.deepEqual(sensitive.mergeRestoredSettings({ geminiApiKey: 'from-backup', boardToken: TOKEN, boardSteam: STEAM }, cur), { geminiApiKey: 'from-backup', boardToken: 'cur-token', boardSteam: { name: 'Me' } },
+    'an old backup that still holds a token never replaces the current sign-in');
+  assert.deepEqual(sensitive.mergeRestoredSettings({ boardToken: TOKEN, boardSteam: STEAM }, {}), { boardToken: '', boardSteam: null },
+    'an old backup that still holds a token does not sign a signed-out install in');
+  assert.deepEqual(sensitive.mergeRestoredSettings({}, { boardToken: 'half', boardSteam: null }), { boardToken: '', boardSteam: null }, 'half a sign-in is not kept');
   assert.deepEqual(sensitive.mergeRestoredSettings({}, {}), { boardToken: '', boardSteam: null });
 });
 
@@ -111,15 +115,18 @@ function applyIn(name, current) {
   return JSON.parse(fs.readFileSync(path.join(other, 'settings.json'), 'utf8'));
 }
 
-test('restoring a secret-free backup: fresh sign-in needed, current key kept, preferences restored', () => {
+test('restoring a secret-free backup: current sign-in and key kept, preferences restored (OD-PL-1 b)', () => {
   const s = applyIn(plain.name, { geminiApiKey: 'current-key', boardToken: 'current-token', boardSteam: { name: 'Current' }, driverName: 'Other' });
   assert.equal(s.driverName, 'Jan Kowalski');
   assert.equal(s.geminiApiKey, 'current-key');
-  assert.equal(s.boardToken, '');
-  assert.equal(s.boardSteam, null);
+  assert.equal(s.boardToken, 'current-token', 'the install stays signed in');
+  assert.deepEqual(s.boardSteam, { name: 'Current' });
+  const out = applyIn(plain.name, { geminiApiKey: '' });
+  assert.equal(out.boardToken, '', 'a signed-out install stays signed out');
+  assert.equal(out.boardSteam, null);
 });
 
-test('an older backup that still holds a token restores without it', async () => {
+test('an older backup that still holds a token restores without it, and keeps the current sign-in', async () => {
   const old = path.join(backup.BACKUP_DIR, 'paddock-backup-legacy.zip');
   await zip.writeZip(old, [
     { name: 'manifest.json', data: JSON.stringify({ format: backup.FORMAT, version: 1, includesSecrets: false, files: ['settings.json'] }) },
@@ -130,6 +137,9 @@ test('an older backup that still holds a token restores without it', async () =>
   assert.equal(s.boardToken, '');
   assert.equal(s.boardSteam, null);
   assert.equal(s.geminiApiKey, 'k2');
+  const kept = applyIn('paddock-backup-legacy.zip', { boardToken: 'current-token', boardSteam: { name: 'Current' } });
+  assert.equal(kept.boardToken, 'current-token', 'the backup token never replaces the current one');
+  assert.equal(kept.boardSteam.name, 'Current');
   backup.remove('paddock-backup-legacy.zip');
 });
 
