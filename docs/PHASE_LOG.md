@@ -502,3 +502,18 @@
 - **Review round (2026-11-25):** gear finding without its 3-pass minimum and with a low-gear tie break; a false "gearbox not recorded" caveat (it is, `laps.aids.assists.gearbox`): automatic-gearbox laps now left out of gear comparisons, caveats on the cards; "same setup" ignoring setup recognition; trend verdict without a minimum change; ± for single passes and fractional counts; target range from median intervals; stale result when laps changed mid-run, channel checks not invalidating; `/api/analysis` not private. Fixed in `76bb4ec` with regression tests (D-PL6-10 … 14). User decisions: OD-PL-25 … 31 (a); D-PL6-1 … 9 confirmed (D-PL6-8 corrected). Tests: check 138/138, test 346/346, test:electron 346/346, test:browser 22/22 ×2.
 - **Open decisions:** none.
 - **User approval:** pending. Push/merge not done.
+
+## PL7: Structured practice
+
+- **Started / finished:** 2026-11-25 · branch `platform/pl7-practice` (from `ff85248`, the PL6 merge) · scope in `docs/platform/BACKLOG.md` (PL7); report `docs/platform/PL7-report.md`; rules in `docs/platform/PRACTICE.md`
+- **Objectives:** build on P9 goals and P8 training plans: one-focus drills from repeated weaknesses (PL6 findings), each with issue, evidence, one exercise, a measurable success criterion, minimum evidence and a review point; before/after evaluation by behaviour; corner mastery; adaptive targets; revisit suggestions; progress summaries; works with AI off.
+- **Changes:**
+  - Schema v3 (`drill_events`, pre-upgrade copy, v2 fixture); drills are `goals` rows of kind `drill`, kept out of goal lists, Home and achievements.
+  - `src/practice.js` (pure rules), `src/drills.js` (loop), `svc.drillPassesAsync` (slices), `/api/practice` (private GET).
+  - Lap analysis: **Practise this** on card findings, drill section, mastery badges; Development: Practice drills section.
+  - Commits: `9e2b190`, `4a9c335`, `ba8ee9b`, `a7bac8d`, `d6400ef`, `01a26fb`, plus the report commit.
+- **Findings:** P9 goal checks are synchronous over lap rows (corner metrics need slices, so drills evaluate in `src/drills.js`); the analysis page shadowed `window` (redraw fixed); within one car + track only the game version can make laps unfair to compare (OD-PL-34).
+- **Tests:** `npm run check` 138/138 → 143/143; `npm test` 346/346 → 365/365 (Node 22.23.4); `npm run test:electron` 365/365 (Node 24.22.2); `npm run test:browser` 22/22 → 23/23.
+- **Known limitations:** thresholds on synthetic laps only; drills evaluated on demand only; packaged smoke not run (port 8080 in use by the user's app).
+- **Open decisions:** OD-PL-32 … 41, OPEN (operator), defaults built.
+- **User approval:** pending. Push/merge not done.
