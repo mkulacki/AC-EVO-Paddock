@@ -133,7 +133,8 @@ function setupTelemetry(setup, trackId, layout) {
   // the laps split by setup: which setup was faster, from the driver's own laps (setup recognition may be unconfirmed)
   const combos = [...new Map(laps.map((l) => [`${l.track}|${l.layout}|${l.car}`, { track: l.track, layout: l.layout, car: l.car }])).values()];
   try {
-    out.by_setup = setuphistory.forAi(combos, setup.rel ?? null);
+    // left out when the driver marked setup recognition as wrong (PL4: never used silently)
+    out.by_setup = channels.usable('setupProbe') ? setuphistory.forAi(combos, setup.rel ?? null) : 'left out: setup recognition known to be wrong';
     out.by_setup_note = `Setups are recognised from pit-box readings (${channels.trusted('setupProbe') ? 'checked against the game' : 'not checked against the game yet'}). this_setup = the laps driven with this setup's current values; this_setup_other_values = the same file with other (older) or unknown values. "Standard" = no saved setup matched; "Not recorded" = no setup recorded for those laps.`;
   } catch (e) { out.by_setup_note = `not available: ${e.message}`; }
   // what the car did in the latest session with car data (tyres, brakes, suspension, balance)

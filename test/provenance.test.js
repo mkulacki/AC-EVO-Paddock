@@ -153,6 +153,18 @@ test('debrief: prompt asks for a rating and carries data quality', async () => {
   assert.equal(ai.splitConfidence(out.text).confidence.level, 'medium');
 });
 
+test('debrief: setups and temperatures marked as wrong are left out of the prompt, not just labelled (PL4)', async () => {
+  answer('Fine.\nConfidence: low - few laps');
+  channels.confirm('setupProbe', false); channels.confirm('conditions', false);
+  await ai.debrief({ trend: [{ n: 1, ms: 80000, valid: true, setup: 'Secret Setup' }], setups: [{ name: 'Secret Setup' }], conditions: { airC: 21, roadC: 30, weather: 'Clear' } });
+  const input = calls.at(-1).body.contents[0].parts[0].text;
+  assert.ok(!input.includes('Secret Setup'), 'no setup names');
+  assert.ok(!input.includes('"airC"') && !input.includes('"roadC"'), 'no temperatures');
+  assert.match(input, /"weather":"Clear"/);
+  assert.match(input, /left out: known to be wrong/);
+  channels.confirm('setupProbe', true); channels.confirm('conditions', null);
+});
+
 test('setup engineer: confidence parsed and checked, per change too', async () => {
   const setup = { carName: 'Car', track: { name: 'Track' }, name: 'S1', values: [
     { name: 'camber_FL', label: 'Camber', corner: 'FL', value: -3, min: -4, max: 0, step: 0.1, scale: 1, unit: '°', locked: false, list: false },

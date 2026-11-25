@@ -82,7 +82,7 @@ export function context(combo) {
     recent_sessions: sessions,
     reports: reports.length ? reports : 'no session reports yet (a report needs 3 laps in a session)',
     corners_latest_report: latest?.corners?.all ? latest.corners.all.map((c) => ({ corner: c.name, typical_ms: c.medianMs, fastest_ever_ms: c.bestEverMs, gap_ms: c.gapMs, spread_ms: c.sdMs })) : undefined,
-    laps_by_setup: setuphistory.forAi([combo]),
+    laps_by_setup: channels.usable('setupProbe') ? setuphistory.forAi([combo]) : 'left out: setup recognition known to be wrong', // PL4
     training_plan: plan ? { since: day(plan.fromStartedAt), targets: plan.targets.map((t) => ({ target: t.text, sessions_checked: t.checked, met: t.met, last: t.last?.actual ?? null })) } : 'none',
     brake_marks: marks.marksFor(mc).length,
     units: 'times m:ss.mmm or ms; distances metres from the start/finish line; speeds km/h',
