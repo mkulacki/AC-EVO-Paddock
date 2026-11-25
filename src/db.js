@@ -10,7 +10,7 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 export const restoreResult = applyPendingRestore(DATA_DIR);
 
 /** The newest database layout this Paddock knows (user_version). */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 // A database made by a newer Paddock (user_version above SCHEMA_VERSION) is never upgraded or written: this Paddock
 // would not know what its new parts mean. It is closed again at once (nothing written: the version is read before any
 // other statement) and Paddock runs on an empty database in memory with recording off (D-PL5-19: no lap is recorded
@@ -440,6 +440,76 @@ export function drillEvents() {
 }
 /** The practice drills (goals of kind 'drill'), newest first. */
 export const listDrills = () => db.prepare("SELECT * FROM goals WHERE kind = 'drill' ORDER BY id DESC").all().map(goalRow);
+
+// ---------------------------------------------------------------- v4 (PL8): setup experiments
+// setup_experiments: one A/B test of two setups on one track + car (the game's names, as in the laps): status
+// ('planned', 'running', 'reviewed', 'archived'), the experiment it follows up (parent_id: its ancestry) and the rest as
+// JSON in data (title, hypothesis, expected outcome, the two variants with the setup file and a copy of its values'
+// hash, the stint plan, the stints driven, the game version, and the result saved at review). experiment_entries: its
+// change journal and handling feedback, oldest first (kind 'journal', 'feedback', 'event'; data JSON). Laps are never
+// copied: an experiment points at time windows or sessions, and its saved result keeps the numbers (src/experiments.js).
+// Versioned: user_version 4. Two new tables, nothing existing changes. A copy of the database is made first, as for
+// v1 … v3 (one copy per start); if that copy cannot be made (a full disk), the upgrade still runs: it only adds empty
+// tables, in one transaction, and the reason is logged.
+{
+  const ver = db.prepare('PRAGMA user_version').get().user_version;
+  if (ver < 4) {
+    if (!preMigrationCopy && hasUserRows()) {
+      const backup = path.join(DATA_DIR, `telemetry.backup-v${ver}-${Date.now()}.db`);
+      try { vacuumInto(backup); preMigrationCopy = backup; console.log(`[db] before the v4 upgrade (setup experiments): copy kept as ${path.basename(backup)}`); }
+      catch (e) { console.error(`[db] the copy before the v4 upgrade could not be made (${e.code || e.message}); upgrading anyway (it only adds new tables)`); }
+    }
+    db.exec('BEGIN');
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS setup_experiments (id INTEGER PRIMARY KEY, track TEXT, layout TEXT, car TEXT, status TEXT NOT NULL,
+          parent_id INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER, data TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS setup_experiments_combo ON setup_experiments(track, layout, car);
+        CREATE TABLE IF NOT EXISTS experiment_entries (id INTEGER PRIMARY KEY, experiment_id INTEGER NOT NULL, at INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT);
+        CREATE INDEX IF NOT EXISTS experiment_entries_exp ON experiment_entries(experiment_id);
+        PRAGMA user_version = 4;`);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+  // journal entries of experiments that are gone (cheap; nothing else deletes experiments without their entries)
+  const n = Number(db.prepare('DELETE FROM experiment_entries WHERE experiment_id NOT IN (SELECT id FROM setup_experiments)').run().changes);
+  if (n) console.log(`[db] removed ${n} journal entr${n === 1 ? 'y' : 'ies'} of setup experiments that no longer exist`);
+}
+const expRow = (r) => (r ? { id: r.id, combo: { track: r.track, layout: r.layout, car: r.car }, status: r.status, parentId: r.parent_id,
+  createdAt: r.created_at, updatedAt: r.updated_at, ...JSON.parse(r.data) } : null);
+const EXP_FIELDS = ['id', 'combo', 'status', 'parentId', 'createdAt', 'updatedAt'];
+const expData = (e) => JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k]) => !EXP_FIELDS.includes(k))));
+/** Setup experiments, newest first; with a combo, only that track + car's. */
+export const listExperiments = (c = null) => (c
+  ? db.prepare('SELECT * FROM setup_experiments WHERE track = ? AND layout = ? AND car = ? ORDER BY id DESC').all(c.track, c.layout, c.car)
+  : db.prepare('SELECT * FROM setup_experiments ORDER BY id DESC').all()).map(expRow);
+export const getExperiment = (id) => expRow(db.prepare('SELECT * FROM setup_experiments WHERE id = ?').get(id));
+export function addExperiment(e) {
+  const at = e.createdAt ?? Date.now();
+  const r = db.prepare('INSERT INTO setup_experiments (track, layout, car, status, parent_id, created_at, updated_at, data) VALUES (?,?,?,?,?,?,?,?)')
+    .run(e.combo.track, e.combo.layout, e.combo.car, e.status || 'planned', e.parentId ?? null, at, at, expData(e));
+  return Number(r.lastInsertRowid);
+}
+/** Saves an experiment's status and data (the combo, parent and creation time never change). */
+export function saveExperiment(e) {
+  return db.prepare('UPDATE setup_experiments SET status = ?, updated_at = ?, data = ? WHERE id = ?').run(e.status, Date.now(), expData(e), e.id);
+}
+export function deleteExperiment(id) {
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM setup_experiments WHERE id = ?').run(id);
+    db.prepare('DELETE FROM experiment_entries WHERE experiment_id = ?').run(id);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+export function addExperimentEntry(expId, kind, data = null, at = Date.now()) {
+  const r = db.prepare('INSERT INTO experiment_entries (experiment_id, at, kind, data) VALUES (?,?,?,?)').run(expId, at, kind, data == null ? null : JSON.stringify(data));
+  return Number(r.lastInsertRowid);
+}
+/** An experiment's journal and feedback, oldest first: [{id, at, kind, data}]. */
+export const experimentEntries = (expId) => db.prepare('SELECT * FROM experiment_entries WHERE experiment_id = ? ORDER BY at, id').all(expId)
+  .map((r) => ({ id: r.id, at: r.at, kind: r.kind, data: r.data ? JSON.parse(r.data) : null }));
+/** The track + car combos with own laps: [{track, layout, car, laps}] (one grouped query). */
+export const ownCombos = () => db.prepare("SELECT track, layout, car, COUNT(*) AS laps, MAX(recorded_at) AS last FROM laps WHERE source = 'local' GROUP BY track, layout, car ORDER BY last DESC").all();
 
 export const getMeta = (key) => db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
 export const setMeta = (key, value) => db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));

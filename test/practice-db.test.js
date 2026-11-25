@@ -31,7 +31,7 @@ const svc = await import('../src/service.js');
 const goals = await import('../src/goals.js');
 const drills = await import('../src/drills.js');
 
-test('v2 -> v3: one copy first, data kept, schema version 3, only the drill_events table added', () => {
+test('v2 -> v3 (and on to v4, PL8): one copy first, data kept, only the drill_events and setup experiment tables added', () => {
   const copies = fs.readdirSync(ACEVO_DATA).filter((f) => f.startsWith('telemetry.backup-'));
   assert.equal(copies.length, 1);
   assert.match(copies[0], /^telemetry\.backup-v2-\d+\.db$/);
@@ -39,13 +39,13 @@ test('v2 -> v3: one copy first, data kept, schema version 3, only the drill_even
   assert.equal(c.prepare('PRAGMA user_version').get().user_version, 2, 'the copy is the old file');
   assert.equal(c.prepare('SELECT COUNT(*) AS n FROM goals').get().n, 1);
   c.close();
-  assert.equal(db.SCHEMA_VERSION, 3);
-  assert.equal(db.counts().schema, 3);
+  assert.equal(db.SCHEMA_VERSION, 4);
+  assert.equal(db.counts().schema, 4);
   assert.equal(db.listGoals().length, 1);
   assert.equal(db.coachMessages({ track: 'trk', layout: 'gp', car: 'car' }).length, 1);
   const after = tableInfo(db.raw);
   for (const [t, cols] of Object.entries(before)) assert.equal(after[t], cols, `table ${t} unchanged`);
-  assert.deepEqual(Object.keys(after).filter((t) => !(t in before)), ['drill_events']);
+  assert.deepEqual(Object.keys(after).filter((t) => !(t in before)).sort(), ['drill_events', 'experiment_entries', 'setup_experiments']);
   assert.equal(db.blocked, null);
 });
 
