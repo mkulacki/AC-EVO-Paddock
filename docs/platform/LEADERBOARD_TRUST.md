@@ -136,12 +136,15 @@ signs out and switches sharing off. Local laps are never deleted. Kept after del
 | Code-to-token swaps per IP | 30 an hour | `rate_limits` |
 | Moderation actions per moderator | 120 an hour | `rate_limits` (limits the harm of a stolen moderator token) |
 | Own-lap deletions per driver | 60 an hour | `rate_limits` |
+| Account deletions per driver | 5 an hour | `rate_limits` |
 | Request bodies | 256 KB for laps, 4 KB elsewhere | `readJson` (413) |
 | Reasons | one line, 200 characters, control characters removed | `cleanReason` |
 
-- IP addresses are used only as a 16-hex SHA-256 prefix of `ip|RATE_SALT` (`cf-connecting-ip`; `RATE_SALT` is an
-  optional Worker secret). Rows older than two hourly windows are deleted (on about 1 in 20 counted requests). An
-  unsalted hash of an IPv4 address can be reversed by brute force, so set `RATE_SALT` before deploying.
+- IP addresses are used only as a 16-hex SHA-256 prefix of `ip|RATE_SALT` (`cf-connecting-ip`). **`RATE_SALT` is a
+  required Worker secret:** an unsalted hash of an IPv4 address can be reversed by brute force, so without it the
+  sign-in routes answer 503 and log an error, and `/v1/health` shows `configured.rateSalt: false`. The local runner
+  makes a random salt at each start (`BOARD_RATE_SALT` to fix one). Rows older than two hourly windows are deleted
+  (on about 1 in 20 counted requests).
 - Auth: tokens are random 256-bit values, only their SHA-256 is stored, they expire after ~6 months and end on sign-out
   or account deletion. One-time login codes live 2 minutes and work once. The sign-in only returns to an address on the
   driver's PC. Sending a token from Paddock needs https (or a server on the PC).
@@ -149,19 +152,24 @@ signs out and switches sharing off. Local laps are never deleted. Kept after del
   Paddock, `/api/board/admin/*` GETs are private (refused cross-site, `PRIVATE_GET`) because they carry reporters'
   SteamIDs; POSTs already were.
 - Suspended drivers can still sign in, read boards and delete their own data; they cannot send laps or reports.
+- Paddock against a server older than PL10: moderators' Hide / Show fall back to the old `/v1/admin/hide` (not
+  logged there); Remove, Delete my online data, Evidence, Review and Suspend say "The leaderboard server doesn't
+  support this yet"; the Evidence column shows "–" (no tier from the server), not Legacy.
 - Not done (needs a decision or Cloudflare configuration): Cloudflare's own rate-limiting rules or WAF for read routes,
   a minimum account age or lap count before reporting, automatic hiding.
 
 ## 9. Deploy order (when approved)
 
 1. Back up the live database (`wrangler d1 export`).
-2. Apply `migrations/0003_integrity.sql` (`npm run wrangler -- d1 execute acevo-paddock-leaderboard --remote --file migrations/0003_integrity.sql`).
-   Every statement may run twice safely. The old Worker keeps working on the migrated database (it ignores the new
-   columns), but laps it stores in between get no keys and no tier.
-3. Optionally `npm run wrangler -- secret put RATE_SALT`.
-4. `npm run board:deploy`. The PL10 Worker **needs** migration 0003 (it reads the new columns and tables).
-5. Run `migrations/0003_integrity.sql` once more: it fills the keys (and the `legacy` tier) of laps the old Worker
-   stored between steps 2 and 4. Without this, those laps are missing from the new boards.
+2. Apply `migrations/0003_integrity.sql` **once** (`npm run wrangler -- d1 execute acevo-paddock-leaderboard --remote --file migrations/0003_integrity.sql`).
+   Its `ALTER TABLE` lines fail on a second run on D1 (only the local runner skips them). The old Worker keeps working
+   on the migrated database (it ignores the new columns), but laps it stores in between get no keys and no tier.
+3. **Required:** `npm run wrangler -- secret put RATE_SALT` (any long random text). Without it sign-in is refused.
+4. `npm run board:deploy`. The PL10 Worker **needs** migration 0003 (it reads the new columns and tables). Check
+   `/v1/health`: `version: 3`, `configured.rateSalt: true`.
+5. Run `migrations/0004_backfill_keys.sql` (updates only, safe to run any number of times): it fills the keys and
+   the `legacy` tier of laps the old Worker stored between steps 2 and 4. The PL10 Worker also does this by itself
+   (`healKeys`, at most every 10 minutes per instance), so 0004 only makes it immediate.
 6. Release a Paddock version with the new Leaderboards tab. Older Paddock versions keep working against the new Worker
    (same routes and fields; `/v1/admin/hide` is kept).
 

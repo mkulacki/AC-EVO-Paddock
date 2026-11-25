@@ -402,7 +402,9 @@ Made without asking (technical or within the plan; the user may still object):
 - **D-PL10-4, moderators hide, never delete.** Only drivers delete (their own lap or their account).
 - **D-PL10-5, compatibility.** `/v1/admin/hide` stays for older Paddock versions (logged like `moderate`); new fields (`tier`) are added to responses, none removed; `/v1/health` says version 3.
 - **D-PL10-6, moderation evidence is private in Paddock.** `/api/board/admin/*` GETs are in `PRIVATE_GET` (refused cross-site): they carry reporters' SteamIDs.
-- **D-PL10-7, deploy order.** Migration 0003 before the Worker, then 0003 once more (fills keys of laps stored in between); written in `LEADERBOARD_TRUST.md` section 9.
+- **D-PL10-7, deploy order.** Backup, migration 0003 once, `RATE_SALT`, the Worker, then `0004_backfill_keys.sql` (updates only; 0003 cannot run twice on D1); the Worker also fills missing keys itself (`healKeys`, every 10 minutes at most). Written in `LEADERBOARD_TRUST.md` section 9 (corrected in the review round).
+- **D-PL10-8, `RATE_SALT` is required (review round).** Without it the sign-in routes answer 503 and `/v1/health` reports `configured.rateSalt: false`: an unsalted IPv4 hash is reversible. The local runner salts itself.
+- **D-PL10-9, older servers (review round).** Against a pre-PL10 Worker, moderators' Hide / Show fall back to `/v1/admin/hide`; the other new actions say the server is too old; a missing tier shows as "–", not Legacy. Account deletion is limited to 5 an hour; reports from suspended drivers are refused (as before the review).
 
 Operator decisions, **all OPEN (operator), recommended default applied, user reviews in the app**:
 

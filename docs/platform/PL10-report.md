@@ -11,7 +11,9 @@
 | `59d5009` | App: `src/leaderboard.js` (trust note, moderation and deletion calls, removed laps never re-sent, tier kept locally), `public/leaderboard.js` (Evidence column, trust sentence, moderation queue with flags / evidence / trail / suspension, reasons, Remove, Delete my online data), `src/server.js` routes, `test/leaderboard.test.js` |
 | `b7a260c` | Fix: the `PRIVATE_GET` pattern for `/api/board/admin` (`59d5009` broke `src/server.js` syntax: an unescaped `/` in the regex); smoke test for the private moderation GETs |
 | `49d854e` | Docs: `LEADERBOARD_TRUST.md`, `COMMUNITY_DESIGN.md`, `DECISIONS.md` (D-PL10-1 … 7, OD-PL-64 … 73) |
-| (this commit) | This report, `PHASE_LOG.md`, `DEVELOPMENT_STATE.md`, `CHANGELOG.md`, `BACKLOG.md` |
+| `58649b3` | This report, `PHASE_LOG.md`, `DEVELOPMENT_STATE.md`, `CHANGELOG.md`, `BACKLOG.md` |
+| `d3f3a93` | Review fixes (code): `migrations/0004_backfill_keys.sql`, `worker.js` `healKeys`, `RATE_SALT` required, account-deletion limit; app fallbacks for an older server; tests |
+| (this commit) | Review fixes (docs): deploy steps in `LEADERBOARD_TRUST.md` §9 and `leaderboard/README.md`, DECISIONS, this report, CHANGELOG |
 
 ## Verified findings / rejected assumptions / unresolved
 
@@ -57,13 +59,13 @@ Static inspection of `d2d4564` plus the local board (no live server was contacte
 ## Migration and recovery implications
 
 - Paddock's local database: unchanged (no schema change; `laps.board` JSON gains `tier` and `removed`).
-- D1: `0003_integrity.sql` is additive (columns, tables, indexes, `UPDATE … WHERE … IS NULL`), safe to run twice. Recovery: `wrangler d1 export` before applying; rollback = redeploy the old `worker.js` (it ignores the additions). Deploy order in `LEADERBOARD_TRUST.md` §9 (migration, deploy, migration again).
+- D1: `0003_integrity.sql` is additive (columns, tables, indexes, `UPDATE … WHERE … IS NULL`) and runs **once** on D1 (its `ALTER TABLE` lines fail a second time; only the local runner skips them). `0004_backfill_keys.sql` (updates only) can run any number of times. Recovery: `wrangler d1 export` before applying; rollback = redeploy the old `worker.js` (it ignores the additions). Deploy order in `LEADERBOARD_TRUST.md` §9 (backup, 0003 once, `RATE_SALT`, deploy, 0004).
 
 ## Needs approval (prepared, NOT executed)
 
-1. **Apply D1 migration `leaderboard/migrations/0003_integrity.sql` to the live database** (with a `wrangler d1 export` backup first), and run it once more after step 2. **Not executed.**
-2. **Deploy the PL10 Worker** (`npm run board:deploy`). **Not executed.** Needs step 1 first.
-3. Optional Worker secret `RATE_SALT` (salts the IP hashes). Not set.
+1. **Apply D1 migration `leaderboard/migrations/0003_integrity.sql` to the live database, once** (after a `wrangler d1 export` backup). **Not executed.**
+2. **Set the Worker secret `RATE_SALT`** (required: without it sign-in is refused). **Not executed.**
+3. **Deploy the PL10 Worker** (`npm run board:deploy`), then run `leaderboard/migrations/0004_backfill_keys.sql`. **Not executed.** Needs steps 1 and 2 first.
 4. Push / merge of `platform/pl10-leaderboard-integrity`, and a Paddock release with the new Leaderboards tab.
 5. Community features (clubs, seasons, skill bands, improvement competitions, reference packs, profiles, Discord summaries): design only in `COMMUNITY_DESIGN.md`; each needs backend, cost and privacy approval and the moderation prerequisites listed there.
 
@@ -77,8 +79,20 @@ OD-PL-64 … 73, all **OPEN (operator), recommended default applied, user review
 - Flags are compared only with drivers already on a board; the first laps on a new board are never flagged.
 - The trail is append-only by code only; anyone with D1 access can change it.
 - Canonical keys could merge two names that are really different cars (only case, spaces and dashes differ); not seen in tests.
-- IP hashes without `RATE_SALT` are reversible for IPv4 (kept 2 hours).
+- Forgetting `RATE_SALT` turns sign-in off (503) until it is set; `/v1/health` shows it.
 - The PL9 bridge stress test is timing-sensitive under load (one failure in one run).
+
+## Review round (2026-11-25)
+
+| Finding | Fix |
+| --- | --- |
+| The deploy note said to run 0003 again; its `ALTER TABLE` lines fail a second time on D1, leaving laps stored by the old Worker without keys | `0004_backfill_keys.sql` (updates only, tested 3× on node:sqlite); `worker.js` `healKeys` fills missing keys itself every 10 minutes at most (tested); README and §9: backup → 0003 once → `RATE_SALT` → deploy → 0004 |
+| Moderators lost Hide / Show against the old Worker (no `/admin/moderate`) | `adminModerate` falls back to `/v1/admin/hide` on a 404 (tested with a fake old server) |
+| A 404 from the old Worker showed "not found" | Remove, Delete my online data, Evidence, Log, Review and Suspend say "The leaderboard server doesn't support this yet (it needs the new server version)" |
+| Every row read "Legacy" against the old Worker | No tier from the server shows "–" ("Not reported by the server") |
+| `RATE_SALT` optional; account deletion unlimited | `RATE_SALT` required (sign-in 503 without it, health reports it; the local runner salts itself); account deletion 5 an hour. `report()` already refused suspended drivers (now tested) |
+
+Tests after the review: `npm run check` 155/155; `npm test` 439/439; `npm run test:browser` 26/26.
 
 ## Recommended next phase
 

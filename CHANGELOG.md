@@ -10,7 +10,8 @@ All notable changes to AC EVO Paddock. Newest first.
 - **Your data:** **Remove** on your own row takes that lap (and its telemetry) off the leaderboard; **Delete my online data** removes your laps, telemetry, reports and sign-in from the server, signs you out and switches sharing off. Your laps in Paddock stay, and a removed lap is never sent again by itself. Nothing new is sent, and every sharing switch keeps its default.
 - Boards no longer split when a track or car name differs only in capitals, spaces or dashes; car classes are read the same way (`gt3` is GT3).
 - **Moderators:** a queue of reported or automatically flagged laps (far ahead of the field, a sector far ahead, telemetry refused, a date in the future), each lap's evidence, a trail of every action with its reason, review marks, and suspending a driver. Flags only ask a moderator to look; they hide nothing.
-- The server limits sign-ins per address, moderation actions per moderator and request sizes.
+- The server limits sign-ins per address, moderation actions per moderator, account deletions and request sizes.
+- Until the new leaderboard server is live, the new buttons say "The leaderboard server doesn't support this yet", the Evidence column shows "–", and moderators' Hide / Show keep working through the old route.
 
 ### HUD and live assistance (platform phase PL9, Paddock HUD 0.15.0)
 

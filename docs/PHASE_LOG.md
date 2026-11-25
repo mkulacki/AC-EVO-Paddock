@@ -562,6 +562,7 @@
 - **Findings:** every lap field is client-supplied (identity is the only proof); hiding left no trail; boards split on spelling; bodies uncapped; sign-in routes unlimited; no way for a driver to delete online data. The upload whitelist is unchanged.
 - **Tests:** `npm run check` 154/154 → 155/155; `npm test` 426/426 → 436/436 (Node 22.23.4); `npm run test:electron` 436/436 (Node 24.22.2); `npm run test:browser` 26/26. Local board run on port 8799 with a scratch database.
 - **Known limitations:** nothing ran against Cloudflare or D1; flags need 3 other drivers on a board; the trail is append-only by code only; one timing failure of the PL9 bridge stress test in one full run (passed on rerun).
-- **Needs approval:** apply migration 0003 to the live D1 (then again after the deploy) and deploy the Worker: **not executed**; optional `RATE_SALT`; community features.
+- **Needs approval:** back up, apply migration 0003 once to the live D1, set `RATE_SALT` (required), deploy the Worker, run `0004_backfill_keys.sql`: **not executed**; community features.
+- **Review round (2026-11-25):** 0003 cannot run twice on D1, so the backfill moved to `0004_backfill_keys.sql` (updates only) and the Worker fills missing keys itself; `RATE_SALT` required (sign-in 503 without it); account deletion limited; Hide/Show fall back to `/admin/hide` on an older server, other new actions say the server is too old, a missing tier shows "–" (D-PL10-7 corrected, D-PL10-8, -9). Fixes `d3f3a93`. Tests: check 155/155, test 439/439, test:browser 26/26.
 - **Open decisions:** OD-PL-64 … 73, OPEN (operator), recommended defaults applied; the user reviews them in the app. D-PL10-1 … 7 to confirm.
 - **User approval:** pending. Push/merge/deploy not done.

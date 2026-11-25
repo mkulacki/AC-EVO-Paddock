@@ -102,7 +102,7 @@ Tests: one failing regression test per verified finding before its fix, plus the
 
 - `docs/platform/LEADERBOARD_TRUST.md`; canonical IDs; verification tiers and legacy labels; anomaly flags; moderation audit trail; new D1 migration files only (`leaderboard/migrations/0003_…`), tested with `npm run board`. Never `board:schema`/`board:deploy`.
 - Community features: `docs/platform/COMMUNITY_DESIGN.md` only; Needs approval.
-- **Done 2026-11-25** (`docs/platform/PL10-report.md`, trust model in `docs/platform/LEADERBOARD_TRUST.md`): migration 0003 and the Worker are prepared and tested on the local board only, **not applied or deployed**; OD-PL-64 … 73 applied as operator defaults. Follow-ups: apply and deploy after approval (0003, deploy, 0003 again); set `RATE_SALT`; look at how many live laps the flags would catch.
+- **Done 2026-11-25** (`docs/platform/PL10-report.md`, trust model in `docs/platform/LEADERBOARD_TRUST.md`): migration 0003 and the Worker are prepared and tested on the local board only, **not applied or deployed**; OD-PL-64 … 73 applied as operator defaults. Follow-ups: apply and deploy after approval (backup, 0003 once, `RATE_SALT` (required), deploy, 0004); look at how many live laps the flags would catch.
 
 ## PL11: Data ownership (P2)
 
