@@ -17,14 +17,25 @@ let version = 0;
 const progressCache = new Map(); // comboKey -> {version, value}
 // A few numbers per lap taken from its resampled trace (PL3): the time through each corner (the ideal lap) and at
 // the sector lines (the HUD). Small, so every lap of a long history fits, and a new lap does not read them all again.
-// Key: lap id + sig (what was measured, on which grid). Lap data never changes once saved.
-const points = new Map();        // `${lapId}|${sig}` -> value
-const POINTS_MAX = 100000;
+// Key: lap id, then sig (what was measured, on which grid). Lap data never changes once saved; a deleted lap's
+// entries are dropped at once (db.onLapDeleted), because SQLite gives its id to the next lap if it was the newest.
+const points = new Map();        // lapId -> Map(sig -> value), oldest lap first
+const POINTS_MAX = 100000;       // values in all
+let pointsCount = 0;
+const inflight = new Map();      // comboKey -> running comboInfoAsync promise
 /** Laps changed. With a combo (a new lap): only that track + car is worked out again; without: everything. */
 export const invalidate = (combo = null) => {
-  if (combo) { const k = comboKey(combo); comboCache.delete(k); progressCache.delete(k); comboGen.set(k, (comboGen.get(k) || 0) + 1); return; }
-  version++; comboCache.clear(); modelCache.clear(); progressCache.clear();
+  // a run that started before the change is not joined by later callers (it would miss the change)
+  if (combo) { const k = comboKey(combo); comboCache.delete(k); progressCache.delete(k); inflight.delete(k); comboGen.set(k, (comboGen.get(k) || 0) + 1); return; }
+  version++; comboCache.clear(); modelCache.clear(); progressCache.clear(); inflight.clear();
 };
+/** Drops everything kept for a lap (it was deleted). */
+function forgetLap(id) {
+  resampleCache.delete(id);
+  pointsCount -= points.get(id)?.size ?? 0;
+  points.delete(id);
+}
+db.onLapDeleted(forgetLap);
 
 // Shared track model (edges, centre line, corners, gates) for a track/layout, read from AC EVO's own
 // track data (content.kspkg), or null when the game data has no such track (e.g. the mock track).
@@ -71,7 +82,10 @@ function* comboSteps(m, key) {
   const cached = (id) => resampleCache.has(id);
   info.best = own.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a));
   if (!cached(info.best.id)) yield;
-  const bestR = getResampled(info.best.id).R;
+  const bestE = getResampled(info.best.id);
+  // deleted meanwhile (async only): no best for now; the delete invalidated, so this result is not kept
+  if (!bestE) { info.best = null; return info; }
+  const bestR = bestE.R;
   // corners: the shared track model (same T1..Tn in every car) when recorded, else from this car's best lap
   const model = trackModel(m.track, m.layout);
   if (model?.corners?.length) { info.corners = cornersOnGrid(model, bestR); info.cornersSource = 'track'; }
@@ -85,20 +99,22 @@ function* comboSteps(m, key) {
     if (p) laps.push({ id: l.id, dts: p.dts }); // null: deleted meanwhile (the result is not kept: laps changed)
   }
   // only the laps that hold a best corner are read in full
-  for (const w of pickIdealCorners(laps, info.corners)) if (!cached(w.lap.id)) { yield; getResampled(w.lap.id); }
-  info.ideal = buildIdeal(laps, info.corners, { grid: bestR, getR: (lap) => getResampled(lap.id).R });
+  let gone = false;
+  for (const w of pickIdealCorners(laps, info.corners)) if (!cached(w.lap.id)) { yield; if (!getResampled(w.lap.id)) gone = true; }
+  info.ideal = gone ? null : buildIdeal(laps, info.corners, { grid: bestR, getR: (lap) => getResampled(lap.id).R });
   return info;
 }
-export const hasLapPoints = (id, sig) => points.has(`${id}|${sig}`);
+export const hasLapPoints = (id, sig) => !!points.get(id)?.has(sig);
 /** fn(R) of a lap's resampled trace, kept by lap id + sig; null when the lap does not exist. */
 export function lapPoints(id, sig, fn) {
-  const k = `${id}|${sig}`;
-  if (points.has(k)) return points.get(k);
+  const kept = points.get(id);
+  if (kept?.has(sig)) return kept.get(sig);
   const e = getResampled(id);
   if (!e) return null;
   const v = fn(e.R);
-  points.set(k, v);
-  if (points.size > POINTS_MAX) points.delete(points.keys().next().value);
+  if (kept) kept.set(sig, v); else points.set(id, new Map([[sig, v]]));
+  pointsCount++;
+  while (pointsCount > POINTS_MAX && points.size > 1) { const [oldId, m] = points.entries().next().value; pointsCount -= m.size; points.delete(oldId); }
   return v;
 }
 const cornerSig = new WeakMap(); // comboInfo result -> the sig of its corners
@@ -124,16 +140,16 @@ export function comboInfo(m) {
 
 const SLICE_MS = 8; // work this long, then let the event loop (and the 60 Hz telemetry tick) run
 const yieldToLoop = () => new Promise((resolve) => setImmediate(resolve));
-/** Runs a generator to its end, giving the event loop a turn whenever SLICE_MS have passed at one of its yields. */
+/** Runs a generator to its end, giving the event loop a turn at its first yield and then whenever SLICE_MS have
+ *  passed at one of its yields (so a caller never waits for work it started in the same turn). */
 export async function runInSlices(steps) {
-  let t = performance.now(), r = steps.next();
+  let t = -Infinity, r = steps.next();
   while (!r.done) {
     if (performance.now() - t >= SLICE_MS) { await yieldToLoop(); t = performance.now(); }
     r = steps.next();
   }
   return r.value;
 }
-const inflight = new Map(); // comboKey -> promise
 /** comboInfo in slices of SLICE_MS: the same result, without holding up the telemetry loop on a long history. */
 export function comboInfoAsync(m) {
   const key = comboKey(m);
@@ -146,7 +162,7 @@ export function comboInfoAsync(m) {
     // laps changed meanwhile: the result is returned but not kept (the next call works it out again)
     if (version === v0 && (comboGen.get(key) || 0) === g0) comboCache.set(key, info);
     return info;
-  })().finally(() => inflight.delete(key));
+  })().finally(() => { if (inflight.get(key) === run) inflight.delete(key); });
   inflight.set(key, run);
   return run;
 }

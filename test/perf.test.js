@@ -187,3 +187,69 @@ test('HUD references: unreadable lap data shows no reference, is counted in Diag
   assert.notEqual(blob.length, 0);
   rec.endSession();
 });
+
+// ---- review fixes (PL3)
+const INS = `INSERT INTO laps (session_id, track, layout, car, lap_number, lap_time_ms, valid, driver, source, recorded_at, track_length, samples, data)
+  SELECT session_id, track, layout, car, lap_number, lap_time_ms + ?, valid, driver, source, recorded_at, track_length, samples, data FROM laps WHERE id = ?`;
+
+test('review fix: a call after invalidate(combo) does not join a run that started before the change', async () => {
+  svc.invalidate();
+  const best0 = svc.comboInfo(combo).best;
+  svc.invalidate(); // nothing cached: the next async call runs (and yields)
+  const old = svc.comboInfoAsync(combo);
+  const faster = Number(db.raw.prepare(INS).run(-500, best0.id).lastInsertRowid); // a new, faster lap is saved
+  svc.invalidate(combo);
+  const now = await svc.comboInfoAsync(combo);
+  await old;
+  assert.equal(now.best.id, faster, 'the new lap is the best');
+  assert.equal(svc.comboInfo(combo).best.id, faster);
+  db.deleteLap(faster); svc.invalidate();
+});
+
+test('review fix: a deleted lap\'s kept values are dropped (SQLite reuses the id of the newest lap)', () => {
+  svc.invalidate();
+  const info = svc.comboInfo(combo);
+  const src = db.lapsForCombo(combo.track, combo.layout, combo.car, true).find((l) => l.valid && l.id !== info.best.id);
+  const id = Number(db.raw.prepare(INS).run(0, src.id).lastInsertRowid);
+  const before = svc.lapCornerTimes(info, id);
+  assert.ok(before && svc.getResampled(id));
+  db.deleteLap(id);
+  // the next lap gets the same id, with other data (a copy of another lap, with a different length)
+  const other = db.lapsForCombo(combo.track, combo.layout, combo.car, true).find((l) => l.valid && l.id !== src.id && l.lap_time_ms !== src.lap_time_ms);
+  const id2 = Number(db.raw.prepare(INS).run(0, other.id).lastInsertRowid);
+  assert.equal(id2, id, 'SQLite reused the id');
+  assert.equal(svc.getResampled(id2).meta.lap_time_ms, other.lap_time_ms, 'not the deleted lap\'s trace');
+  assert.deepEqual(svc.lapCornerTimes(info, id2), svc.lapCornerTimes(info, other.id), 'not the deleted lap\'s corner times');
+  assert.notDeepEqual(svc.lapCornerTimes(info, id2), before);
+  db.deleteLap(id2); svc.invalidate();
+});
+
+test('review fix: the best lap deleted while worked out in slices gives no best instead of an error', async () => {
+  svc.invalidate();
+  const best = svc.comboInfo(combo).best;
+  const id = Number(db.raw.prepare(INS).run(-700, best.id).lastInsertRowid); // a faster copy, not read yet
+  svc.invalidate();
+  const run = svc.comboInfoAsync(combo); // stops before reading it
+  db.deleteLap(id); svc.invalidate();
+  const info = await run;
+  assert.equal(info.best, null);
+  assert.equal(svc.comboReady(combo), false, 'not kept');
+  assert.equal(svc.comboInfo(combo).best.id, best.id);
+});
+
+test('review fix: a new session on the same car and track keeps the all-time references, not the last session\'s', async () => {
+  svc.invalidate();
+  const { rec, hud } = liveSession();
+  hud.loadRefs();
+  for (let i = 0; i < 200 && !hud.refs; i++) await tick();
+  // as if the last session had its own best lap and sector bests
+  hud.refs.session = { id: 1, timeMs: 1, R: hud.refs.best.R };
+  hud.refs.sectors.sess = hud.refs.sectors.sess.map(() => 1);
+  hud.refsSession = 999; // the references belong to another session
+  hud.refsKey = null;
+  const kept = hud.loadRefs();
+  assert.ok(kept.best && kept.ideal, 'all-time references kept while loading');
+  assert.equal(kept.session, null);
+  assert.ok(kept.sectors.sess.every((v) => v === null));
+  rec.endSession();
+});

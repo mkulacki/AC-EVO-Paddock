@@ -72,20 +72,22 @@ export class LiveHud {
     if (key === this.refsKey) return this.refs;
     if (!s) { this.refsKey = null; this.refs = null; this.loading = null; return null; }
     if (this.loading?.key === key) return this.loading.keep;
-    const keep = this.refs && this.refsCombo === s.key ? this.refs : null;
+    // same car and track: keep the all-time references; this session's (session best, sector bests) only if it is
+    // the same session, as before PL3 (a new session starts without them)
+    const keep = this.refs && this.refsCombo === s.key ? (this.refsSession === s.id ? this.refs : withoutSession(this.refs)) : null;
     const job = { key, keep };
     this.loading = job;
     const t0 = performance.now();
     this.prepareRefs(s).then((refs) => {
       if (this.loading !== job) return; // the session or the laps changed meanwhile: a newer load runs
-      this.loading = null; this.refs = refs; this.refsKey = key; this.refsCombo = s.key;
+      this.loading = null; this.refs = refs; this.refsKey = key; this.refsCombo = s.key; this.refsSession = s.id;
       perf.record('hudRefs', performance.now() - t0);
     }, (e) => {
       if (this.loading !== job) return;
       // shown as no reference (as with no laps), in the log and in Diagnostics; tried again after the next lap
       console.error('[hud] reference load failed:', e.message);
       perf.error('hudRefs');
-      this.loading = null; this.refs = null; this.refsKey = key; this.refsCombo = s.key;
+      this.loading = null; this.refs = null; this.refsKey = key; this.refsCombo = s.key; this.refsSession = s.id;
     });
     return keep;
   }
@@ -407,6 +409,11 @@ export class LiveHud {
     if (bw) out.board = bw;
     return out;
   }
+}
+
+/** References without the parts that belong to one session (the session best lap, this session's sector bests). */
+function withoutSession(refs) {
+  return { ...refs, session: null, sectors: refs.sectors ? { ...refs.sectors, sess: refs.sectors.sess.map(() => null) } : null };
 }
 
 // Sector boundaries on the reference grid, from AC EVO's track data (timing gates), else thirds of the
