@@ -520,3 +520,30 @@ test('app (PL10): the payload is unchanged; the tier comes back; a removed lap o
     settings.update({ boardUrl: before.boardUrl, boardShare: before.boardShare, boardAuto: before.boardAuto, boardTel: before.boardTel, boardToken: before.boardToken, boardSteam: before.boardSteam });
   }
 });
+
+test('app (PL10 review): against a server older than PL10, Hide/Show fall back to /admin/hide; new routes say the server is too old', async () => {
+  const before = settings.get();
+  const url = 'http://127.0.0.1:4';
+  settings.update({ boardUrl: url, boardToken: 'e'.repeat(64), boardSteam: { steamId: '76561198000000001', name: 'A', admin: true, url } });
+  const calls = [];
+  const fetchImpl = async (u, o) => {
+    calls.push([new URL(String(u)).pathname, o?.body ?? null]);
+    if (String(u).endsWith('/v1/admin/hide')) return new Response(JSON.stringify({ ok: true }));
+    return new Response(JSON.stringify({ ok: false, error: 'not found' }), { status: 404 }); // the old worker
+  };
+  try {
+    const app = lb.createLeaderboard({ background: false, recorder: null, appVersion: 'test', fetchImpl });
+    assert.equal((await app.adminModerate(5, 'hide', 'why')).body.ok, true);
+    assert.deepEqual(calls.map((c) => c[0]), ['/v1/admin/moderate', '/v1/admin/hide']);
+    assert.deepEqual(JSON.parse(calls[1][1]), { lapId: 5, hidden: true });
+    assert.equal((await app.adminModerate(5, 'show')).body.ok, true);
+    const review = await app.adminModerate(5, 'review');
+    assert.equal(review.body.error, lb.OLD_SERVER);
+    for (const r of [await app.deleteOwnLap(5), await app.deleteAccount(), await app.adminLap(5), await app.adminLog(), await app.adminSuspend('76561198000000002', true, 'x')]) {
+      assert.deepEqual([r.status, r.body.ok, r.body.error], [404, false, lb.OLD_SERVER]);
+    }
+    assert.equal(settings.get().boardToken, 'e'.repeat(64), 'a failed account deletion signs nobody out');
+  } finally {
+    settings.update({ boardUrl: before.boardUrl, boardToken: before.boardToken, boardSteam: before.boardSteam });
+  }
+});

@@ -266,3 +266,52 @@ test('abuse: token swaps and sign-in answers are limited per address; moderation
   assert.ok(buckets.some((b) => /^token:[0-9a-f]{16}$/.test(b)));
   assert.ok(!buckets.some((b) => /192.0.2|10.0.0/.test(b)));
 });
+
+// ---------------------------------------------------------------- review fixes
+test('review: 0004 fills keys of laps an older worker stored after 0003, any number of times; the worker heals them too', async () => {
+  const file = path.join(env.dir, 'between.db');
+  const d1 = localD1(file); // schema + every migration: 0003 applied
+  d1.close();
+  const raw = new DatabaseSync(file);
+  // what the old worker writes on the migrated database: no keys, no tier
+  raw.prepare(`INSERT INTO laps (player_id, player_name, ref, track, layout, car, lap_ms, sectors, driven_at, received_at)
+    VALUES (?, 'x', 'old', 'Red Bull Ring', 'GP', 'Old-Car', 100000, '[100000]', 1, 1)`).run(D2);
+  const sql = fs.readFileSync(path.join(ROOT, 'leaderboard', 'migrations', '0004_backfill_keys.sql'), 'utf8');
+  assert.doesNotMatch(sql.replace(/--[^\n]*/g, ''), /ALTER|CREATE|DROP|DELETE/i, 'updates only');
+  for (let i = 0; i < 3; i++) raw.exec(sql); // as D1 would run it: whole file, no statement skipped
+  assert.deepEqual({ ...raw.prepare("SELECT track_key, layout_key, car_key, tier FROM laps WHERE ref = 'old'").get() },
+    { track_key: 'red_bull_ring', layout_key: 'gp', car_key: 'old_car', tier: 'legacy' });
+  // the worker's own healing, on the live test board
+  const live = new DatabaseSync(BOARD_DB);
+  live.prepare(`INSERT INTO laps (player_id, player_name, ref, track, layout, car, lap_ms, sectors, driven_at, received_at)
+    VALUES (?, 'x', 'between', 'Heal Track', '', 'Heal Car', 90000, '[90000]', 1, 1)`).run(D3);
+  live.close();
+  assert.equal((await board({ track: 'heal track', layout: '', car: 'heal car' })).rows.length, 0, 'invisible without keys');
+  // a bare D1-like handle (localD1 would run 0004 itself on opening)
+  const sq = new DatabaseSync(BOARD_DB);
+  const w = { prepare: (q) => ({ run: async () => ({ meta: { changes: Number(sq.prepare(q).run().changes) } }) }), close: () => sq.close() };
+  assert.equal(await worker.healKeys(w, Date.now(), true), 1);
+  assert.equal(await worker.healKeys(w, Date.now(), true), 0);
+  w.close();
+  const rows = (await board({ track: 'heal track', layout: '', car: 'heal car' })).rows;
+  assert.deepEqual(rows.map((r) => [r.driver, r.tier]), [[D3, 'legacy']]);
+  raw.close();
+});
+
+test('review: without RATE_SALT sign-in is refused (no reversible IP hashes); health says so; account deletion is limited', async () => {
+  const bare = await serve({ port: 0, file: ':memory:', fetchImpl: fakeSteam, admins: ADMIN, rateSalt: '' });
+  const u = `http://127.0.0.1:${bare.address().port}`;
+  try {
+    assert.equal((await (await fetch(`${u}/v1/health`)).json()).configured.rateSalt, false);
+    assert.equal((await fetch(`${u}/v1/auth/token`, { method: 'POST', body: JSON.stringify({ code: '0'.repeat(64) }) })).status, 503);
+  } finally { bare.close(); }
+  assert.equal((await (await fetch(`${URL0}/v1/health`)).json()).configured.rateSalt, true);
+  const keep = RATE.account;
+  RATE.account = 0;
+  try { assert.equal((await post(D4, '/v1/me/delete', {})).status, 429); } finally { RATE.account = keep; }
+  // a suspended driver can report nothing either (report() checks it like submit())
+  const D9 = '76561198000000009';
+  await post(ADMIN, '/v1/admin/suspend', { driver: D9, suspended: true, reason: 'test' });
+  assert.equal((await post(D9, '/v1/report', { lapId: 1, reason: 'x' })).status, 403);
+  await post(ADMIN, '/v1/admin/suspend', { driver: D9, suspended: false, reason: 'test over' });
+});

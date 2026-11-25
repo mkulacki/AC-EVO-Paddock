@@ -47,6 +47,9 @@ const pretty = (s) => String(s ?? '').replace(/_/g, ' ');
 const fmtMs = (ms) => `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, '0')}`;
 /** A reason typed by the driver: one line, at most 200 characters (the server cleans it again). */
 const cleanText = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 200) || null : null);
+/** A route the server does not have (a server older than PL10 answers 404 "not found"): says so in words. */
+export const OLD_SERVER = "The leaderboard server doesn't support this yet (it needs the new server version).";
+const newRoute = (r) => (r.status === 404 && r.body?.error === 'not found' ? { status: 404, oldServer: true, body: { ok: false, error: OLD_SERVER } } : r);
 const BOARD_ROWS = 8; // the in-game board window: P1-P3, then two above you, you, two below
 
 /** Login tokens only travel encrypted: https, or plain http to a server on this PC (local testing). */
@@ -440,14 +443,19 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     adminReports: () => call('/v1/admin/reports', {}, { auth: true }),
     adminHide: (lapId, hidden, reason = null) => call('/v1/admin/hide', { method: 'POST', body: JSON.stringify({ lapId, hidden, reason: cleanText(reason) }) }, { auth: true }),
     /** Moderators (PL10): every action is written to the server's moderation trail. */
-    adminModerate: (lapId, action, reason = null) => call('/v1/admin/moderate', { method: 'POST', body: JSON.stringify({ lapId, action, reason: cleanText(reason) }) }, { auth: true }),
-    adminSuspend: (driver, suspended, reason = null, hideLaps = false) => call('/v1/admin/suspend', { method: 'POST',
-      body: JSON.stringify({ driver, suspended, reason: cleanText(reason), hideLaps }) }, { auth: true }),
-    adminLap: (id) => call(`/v1/admin/lap?id=${encodeURIComponent(id)}`, {}, { auth: true }),
-    adminLog: (lap = null) => call(`/v1/admin/log${lap ? `?lap=${encodeURIComponent(lap)}` : ''}`, {}, { auth: true }),
+    // a server older than PL10 has no /admin/moderate: hide and show go through its /admin/hide (not logged there)
+    async adminModerate(lapId, action, reason = null) {
+      const r = newRoute(await call('/v1/admin/moderate', { method: 'POST', body: JSON.stringify({ lapId, action, reason: cleanText(reason) }) }, { auth: true }));
+      if (r.oldServer && (action === 'hide' || action === 'show')) return call('/v1/admin/hide', { method: 'POST', body: JSON.stringify({ lapId, hidden: action === 'hide' }) }, { auth: true });
+      return r;
+    },
+    adminSuspend: async (driver, suspended, reason = null, hideLaps = false) => newRoute(await call('/v1/admin/suspend', { method: 'POST',
+      body: JSON.stringify({ driver, suspended, reason: cleanText(reason), hideLaps }) }, { auth: true })),
+    adminLap: async (id) => newRoute(await call(`/v1/admin/lap?id=${encodeURIComponent(id)}`, {}, { auth: true })),
+    adminLog: async (lap = null) => newRoute(await call(`/v1/admin/log${lap ? `?lap=${encodeURIComponent(lap)}` : ''}`, {}, { auth: true })),
     /** Removes one of the driver's own laps from the server; the local lap is marked so it is not sent again by itself. */
     async deleteOwnLap(remoteId) {
-      const r = await call('/v1/laps/delete', { method: 'POST', body: JSON.stringify({ lapId: remoteId }) }, { auth: true });
+      const r = newRoute(await call('/v1/laps/delete', { method: 'POST', body: JSON.stringify({ lapId: remoteId }) }, { auth: true }));
       if (r.body?.ok) markRemoved((b) => b.remoteId === remoteId);
       return r;
     },
@@ -455,7 +463,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
      *  sending off; the local laps stay, marked so that switching sending on again does not send them by itself. */
     async deleteAccount() {
       const c = cfg();
-      const r = await call('/v1/me/delete', { method: 'POST', body: '{}' }, { auth: true });
+      const r = newRoute(await call('/v1/me/delete', { method: 'POST', body: '{}' }, { auth: true }));
       if (r.body?.ok) {
         markRemoved((b) => b.steamId === c.steam?.steamId && b.url === c.url);
         settings.update({ boardToken: '', boardSteam: null, boardShare: false });

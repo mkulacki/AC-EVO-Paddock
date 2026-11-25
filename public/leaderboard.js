@@ -18,7 +18,8 @@ const TIER = {
   telemetry: ['Telemetry consistent', 'Its light telemetry passed the server checks and matches the lap time. This does not prove how it was driven'],
   reviewed: ['Reviewed', 'A moderator looked at the evidence and kept the lap'],
 };
-const tierCell = (t) => { const [l, tip] = TIER[t] || TIER.legacy; return `<span class="muted" title="${esc(tip)}">${esc(l)}</span>`; };
+// an older server sends no tier: say so instead of calling every lap Legacy
+const tierCell = (t) => { const [l, tip] = TIER[t] || ['–', 'Not reported by the server (an older server version)']; return `<span class="muted" title="${esc(tip)}">${esc(l)}</span>`; };
 // anomaly flags (moderators only): what the server found when the lap was stored
 const flagText = (f) => (f.code === 'tel_rejected' ? `Telemetry refused: ${f.reason}`
   : f.code === 'far_ahead' ? `${f.pct}% faster than the best of ${f.drivers} other drivers (${fmt(f.boardBestMs)})`

@@ -45,6 +45,7 @@ export const RATE = {
   token: 30,    // code -> token swaps per IP
   moderate: 120, // moderation actions per moderator (a stolen moderator login does limited harm)
   delete: 60,   // own-lap deletions per driver
+  account: 5,   // account deletions per driver (a deleted account can sign in again)
 };
 const HOUR = 3_600_000;
 
@@ -173,7 +174,20 @@ async function overLimit(env, bucket, max, now) {
   return (r?.n ?? 0) > max;
 }
 /** The caller's IP address as a short hash (null salt unless the RATE_SALT secret is set). */
-const ipBucket = async (req, env, kind) => `${kind}:${(await sha256(`${req.headers.get('cf-connecting-ip') || 'local'}|${env.RATE_SALT || ''}`)).slice(0, 16)}`;
+const ipBucket = async (req, env, kind) => `${kind}:${(await sha256(`${req.headers.get('cf-connecting-ip') || 'local'}|${env.RATE_SALT}`)).slice(0, 16)}`;
+/** RATE_SALT is required: without it an IP hash could be reversed, so the routes that count per IP refuse to run. */
+const noSalt = () => { console.error('RATE_SALT is not set: sign-in is refused (npm run wrangler -- secret put RATE_SALT)'); return bad('the leaderboard server is not configured (RATE_SALT), sign-in is off', 503); };
+
+/** Laps stored by an older worker after migration 0003 have no keys: fill them (and the legacy tier), at most every
+ *  10 minutes per worker instance (the query uses the laps_board_key index). migrations/0004 does the same by hand. */
+let healedAt = 0;
+export async function healKeys(db, now = Date.now(), force = false) {
+  if (!force && now - healedAt < 10 * 60 * 1000) return 0;
+  healedAt = now;
+  const r = await db.prepare(`UPDATE laps SET track_key = lower(replace(replace(trim(track), ' ', '_'), '-', '_')), layout_key = lower(replace(replace(trim(layout), ' ', '_'), '-', '_')), car_key = lower(replace(replace(trim(car), ' ', '_'), '-', '_')),
+      tier = COALESCE(tier, 'legacy') WHERE track_key IS NULL`).run(); // an older worker leaves all three keys empty
+  return r.meta?.changes ?? 0;
+}
 
 /** Appends one entry to the moderation trail. */
 async function log(env, now, { actor, action, lapId = null, subject = null, reason = null, detail = null }) {
@@ -525,6 +539,7 @@ async function deleteOwnLap(req, env, now) {
 async function deleteAccount(req, env, now) {
   const who = await authed(req, env, now);
   if (!who) return bad('sign in with Steam first', 401);
+  if (await overLimit(env, `account:${who.steamId}`, RATE.account, now)) return bad('too many account deletions this hour', 429);
   const id = who.steamId, db = env.DB;
   const n = await db.prepare('SELECT COUNT(*) AS n FROM laps WHERE player_id = ?').bind(id).first();
   await db.prepare('DELETE FROM telemetry WHERE lap_id IN (SELECT id FROM laps WHERE player_id = ?)').bind(id).run();
@@ -606,7 +621,8 @@ async function authCallback(url, env, now, req) {
   }
   const id = /^https:\/\/steamcommunity\.com\/openid\/id\/(\d{17})$/.exec(q.get('openid.claimed_id') || '');
   if (!id || q.get('openid.identity') !== q.get('openid.claimed_id')) return page('Sign-in failed', 'Steam did not say who you are.', 400);
-  // each answer costs two requests to Steam: limited per IP address
+  // each answer costs two requests to Steam: limited per IP address (hashed with RATE_SALT, which is required)
+  if (!env.RATE_SALT) { noSalt(); return page('Sign-in is off', 'The leaderboard server is not fully configured yet. Try again later.', 503); }
   if (await overLimit(env, await ipBucket(req, env, 'callback'), RATE.callback, now)) return page('Sign-in failed', 'Too many sign-ins from this address. Try again in an hour.', 429);
   // ask Steam whether it really signed this answer (Steam also refuses the same answer twice)
   const check = new URLSearchParams();
@@ -632,6 +648,7 @@ async function authCallback(url, env, now, req) {
 }
 
 async function authToken(req, env, now) {
+  if (!env.RATE_SALT) return noSalt();
   if (await overLimit(env, await ipBucket(req, env, 'token'), RATE.token, now)) return bad('too many sign-ins from this address, try again in an hour', 429);
   const { body: b, error } = await readJson(req);
   if (error) return error;
@@ -661,7 +678,8 @@ export default {
       return new Response(null, { headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': 'content-type, authorization' } });
     }
     try {
-      if (p === '/v1/health') return json({ ok: true, version: 3 });
+      if (p === '/v1/health') return json({ ok: true, version: 3, configured: { rateSalt: !!env.RATE_SALT } });
+      await healKeys(env.DB, now).catch((e) => console.error(`keys not filled: ${e.message}`));
       if (req.method === 'POST') {
         if (p === '/v1/laps') return await submit(req, env, now);
         if (p === '/v1/report') return await report(req, env, now);
