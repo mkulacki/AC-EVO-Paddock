@@ -170,6 +170,13 @@ app.whenReady().then(async () => {
   console.log(`AC EVO Paddock desktop ${app.getVersion()} (Electron ${process.versions.electron}), data: ${DATA}`);
   // "Developer: restart" in the page (src/server.js restartApp): start the whole app again
   globalThis.__trainerRelaunch = () => { quitting = true; saveState(); app.relaunch(); app.exit(0); };
+  // PL11 demo (Settings → Try the demo / the banner's Leave): start again with or without --demo (src/db.js DEMO)
+  globalThis.__paddockDemo = (on) => {
+    try { globalThis.__paddockBeforeQuit?.(); } catch { /* nothing driven */ }
+    quitting = true; saveState();
+    app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--demo').concat(on ? ['--demo'] : []) });
+    app.exit(0);
+  };
   // brake marks keyboard shortcut (Settings): a global shortcut, so it works while the game has the focus.
   // Returns false if the key is invalid or another program already uses it.
   let markKey = null;

@@ -47,6 +47,7 @@ import * as backup from './backup.js';
 import * as autobackup from './autobackup.js';
 import * as recovery from './recovery.js';
 import * as reportexport from './reportexport.js';
+import * as demo from './demo.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
 import * as sensitive from './sensitive.js';
@@ -58,6 +59,7 @@ import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
+if (db.DEMO && !args.includes('--mock')) args.push('--mock', '1'); // PL11 demo: the mock car drives, in real time
 const mockIdx = args.indexOf('--mock');
 
 // ---------------------------------------------------------------- telemetry source
@@ -170,6 +172,8 @@ function setupTelemetry(setup, trackId, layout) {
 
 // a session is loaded in the game (driving, paused, in the pits or watching a replay)
 const inSession = () => ['live', 'pause', 'replay'].includes(recorder.state.status) && Date.now() - recorder.state.lastFrameAt < 5000;
+// PL11 demo: the first start fills data\demo with two synthetic sessions (and their reports)
+if (db.DEMO) { try { await demo.seed(); } catch (e) { console.log(`[demo] not seeded: ${e.message}`); } }
 // PL11 scheduled backups: off until switched on in Settings; checked every 10 minutes, only while no session is driven
 autobackup.schedule({ isIdle: () => !inSession(), appVersion: VERSION });
 // PL11 crash recovery: a session the last run did not end (crash, kill, power cut) is closed now: its saved laps are in
@@ -446,6 +450,15 @@ async function route(req, res) {
   const foreign = foreignRequest(req, p);
   if (foreign) { console.warn(`[http] refused ${m} ${p}: ${foreign} (host ${req.headers.host}, origin ${req.headers.origin ?? '-'})`); return send(res, 403, { error: 'Forbidden' }); }
   if (m === 'GET') await warmFor(p, url.searchParams);
+  // PL11 demo: nothing that touches the game, its files, the leaderboard or the driver's real data folder
+  if (db.DEMO && m !== 'GET' && m !== 'HEAD' && demo.BLOCKED.test(p)) return send(res, 409, { error: demo.BLOCKED_TEXT });
+  if (p === '/api/demo' && m === 'POST') {
+    const { on } = await readJson(req);
+    if (typeof globalThis.__paddockDemo !== 'function') return send(res, 409, { error: on ? 'The demo opens from the desktop app. In a source checkout, run: npm run demo' : 'Stop this run and start Paddock normally (npm start).' });
+    send(res, 200, { restarting: true });
+    setTimeout(() => globalThis.__paddockDemo(!!on), 300);
+    return;
+  }
 
   if (p === '/api/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -916,7 +929,7 @@ async function route(req, res) {
     const lastNotes = last ? safe(() => notes.summaries().get(last.id)) ?? null : null;
     return send(res, 200, { ...d, warnings, recording: recorder.state.status === 'live', development: dev, objective, lastNotes });
   }
-  if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
+  if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView(), demo: db.DEMO, demoInApp: typeof globalThis.__paddockDemo === 'function' });
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows
   if (p === '/api/overview') {
     const reports = Object.fromEntries(db.listReports().map((r) => [r.sessionId, { weakest: (r.data.corners?.weakest || []).map((w) => w.name) }]));

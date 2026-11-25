@@ -7,7 +7,27 @@ const when = (t) => new Date(t).toLocaleString(undefined, { day: 'numeric', mont
 const plural = (n, w) => `${esc(String(n ?? '?'))} ${w}${n === 1 ? '' : 's'}`;
 const REASON = { 'before-restore': 'made before a restore', scheduled: 'scheduled' };
 
+/**
+ * PL11 demo: start Paddock again with or without the demo (desktop app), then reload once the server answers with the
+ * other mode. Outside the desktop app the server says how to start it instead.
+ */
+export async function switchDemo(on, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = on ? 'Opening the demo…' : 'Leaving the demo…'; }
+  try { await post('/api/demo', { on }); }
+  catch (e) { if (btn) { btn.disabled = false; btn.textContent = on ? 'Try the demo' : 'Leave the demo'; } alert(e.message); return; }
+  const t0 = Date.now();
+  const poll = async () => {
+    try { const s = await fetch('/api/status', { cache: 'no-store' }).then((r) => r.json()); if (!!s.demo === !!on) return location.reload(); } catch { /* restarting */ }
+    if (Date.now() - t0 < 60000) setTimeout(poll, 500);
+  };
+  setTimeout(poll, 800);
+}
+
 export const systemHtml = () => `
+  <div class="card" id="sysDemo"><h2>Demo</h2>
+    <p class="muted">Look around Paddock without the game: a mock car drives a fictional circuit, with two earlier sessions and their reports already there.
+      The demo keeps its own laps and settings in <code>data\\demo</code>: nothing of it reaches your laps, stats, backups or the leaderboard, and it never starts the game or changes its files.</p>
+    <div class="row"><button id="demoGo">Try the demo</button><span class="muted" id="demoState"></span></div></div>
   <div class="card" id="sysUpdates"><h2>Updates</h2><div class="sys-body"><span class="spinner"></span></div></div>
   <div class="card" id="sysBackup"><h2>Backup and restore</h2><div class="sys-body"><span class="spinner"></span></div></div>
   <div class="card"><h2>Export</h2>
@@ -19,6 +39,11 @@ export const systemHtml = () => `
     <span id="diagState" class="muted"></span><pre class="raw" id="diagText" hidden></pre></div>`;
 
 export function bindSystem(onRestart) {
+  api('/api/status').then((s) => {
+    if (s.demo) { $('#demoGo').textContent = 'Leave the demo'; $('#demoState').textContent = 'You are in the demo now.'; }
+    else if (!s.demoInApp) $('#demoState').textContent = 'From a source checkout: npm run demo';
+    $('#demoGo').onclick = (e) => switchDemo(!s.demo, e.currentTarget);
+  }).catch(() => {});
   updatesCard();
   backupCard(onRestart);
   const getText = async () => (await api('/api/diagnostics?format=text')).text;
