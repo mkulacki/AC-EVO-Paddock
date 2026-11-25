@@ -170,7 +170,12 @@ export function detail(id) {
 }
 
 // ---------------------------------------------------------------- file changes (the game reads these only when it lists / loads setups)
-function moveMeta(fromRel, toRel) { if (meta.files[fromRel]) { meta.files[toRel] = meta.files[fromRel]; delete meta.files[fromRel]; saveMeta(); } }
+function moveMeta(fromRel, toRel) {
+  if (meta.files[fromRel]) { meta.files[toRel] = meta.files[fromRel]; delete meta.files[fromRel]; }
+  // setups saved from the renamed one keep their ancestry (PL8)
+  for (const m of Object.values(meta.files)) if (m?.basedOnRel === fromRel) m.basedOnRel = toRel;
+  saveMeta();
+}
 
 export function update(id, { name, notes } = {}) {
   if (isGame(id)) throw readOnly();
@@ -250,7 +255,7 @@ export function saveValues(id, changes, { asName = null, notes = null, from = 'p
     if (!track) throw new Error('Pick the track this setup is for');
     const { buf, changed } = cs.write(gameBuf(g), g.car.id, changes || {});
     const w = writeSetup(carFolderOf(g.car), track.name, asName, buf);
-    Object.assign(metaFor(w.rel), { from, basedOn: g.name, changes: changed, ...(notes ? { notes: String(notes).slice(0, 4000) } : {}) });
+    Object.assign(metaFor(w.rel), { from, basedOn: g.name, basedOnRel: null, changes: changed, ...(notes ? { notes: String(notes).slice(0, 4000) } : {}) });
     saveMeta();
     return detail(idOf(w.rel));
   }
@@ -262,7 +267,7 @@ export function saveValues(id, changes, { asName = null, notes = null, from = 'p
   if (asName != null) {
     const w = writeSetup(f.carFolder, f.trackFolder, asName, buf);
     rel = w.rel;
-    Object.assign(metaFor(rel), { from, basedOn: f.name, changes: changed, ...(notes ? { notes: String(notes).slice(0, 4000) } : {}) });
+    Object.assign(metaFor(rel), { from, basedOn: f.name, basedOnRel: f.rel, changes: changed, ...(notes ? { notes: String(notes).slice(0, 4000) } : {}) });
   } else {
     const tmp = path.join(path.dirname(f.file), `.${f.name}.${process.pid}.tmp`);
     fs.writeFileSync(tmp, buf);
@@ -291,9 +296,27 @@ export function copyTo(id, trackId) {
   if (!track) throw new Error('Pick a track');
   if (norm(track.name) === norm(f.trackFolder)) throw new Error(`"${f.name}" is already a ${track.name} setup`);
   const w = writeSetup(f.carFolder, track.name, `${f.name} [${f.trackFolder}]`, fs.readFileSync(f.file));
-  Object.assign(metaFor(w.rel), { from: 'copy', basedOn: `${f.name} (${f.trackFolder})`, notes: meta.files[f.rel]?.notes || '' });
+  Object.assign(metaFor(w.rel), { from: 'copy', basedOn: `${f.name} (${f.trackFolder})`, basedOnRel: f.rel, basedOnTrack: f.trackFolder, notes: meta.files[f.rel]?.notes || '' });
   saveMeta();
   return detail(idOf(w.rel));
+}
+
+/**
+ * Where a saved setup comes from (PL8: setup ancestry): the file itself, then the setup it was saved from or copied
+ * from, and so on (data/setup-meta.json basedOnRel, recorded since PL8; older saves name their parent only, so the
+ * chain ends there). Never more than 10 steps, never a loop. -> [{rel, name, from, track, gone}] (rel null: named only)
+ */
+export function lineage(rel) {
+  const out = [], seen = new Set(), files = scan();
+  let cur = rel;
+  while (cur && !seen.has(cur) && out.length < 10) {
+    seen.add(cur);
+    const m = meta.files[cur] || {}, f = files.find((x) => x.rel === cur);
+    out.push({ rel: cur, name: f?.name ?? cur.split('/').pop().replace(/\.carsetup$/i, ''), from: m.from || null, track: f?.trackName ?? cur.split('/')[1] ?? null, gone: !f });
+    if (!m.basedOnRel && m.basedOn) { out.push({ rel: null, name: m.basedOn, from: null, track: null, gone: false }); break; }
+    cur = m.basedOnRel || null;
+  }
+  return out;
 }
 
 export const status = () => ({ folder: ROOT });
