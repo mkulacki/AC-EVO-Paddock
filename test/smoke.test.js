@@ -265,7 +265,7 @@ test('only Paddock pages may use the API: foreign origins, cross-site requests a
   assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/backup/file?name=x.zip'), 403);
   // PL1 (PL0 1.1-e): GETs of private data refuse other sites too; ordinary GETs and typed/opened URLs stay allowed
   for (const p of ['/api/diagnostics', '/api/diagnostics/perf', '/api/health', '/api/backup/file?name=x.zip', '/api/export/laps.csv', '/api/laps/1/export', '/api/setups/export?id=x', '/api/analysis?track=x&layout=&car=y',
-    '/api/board/admin/reports', '/api/board/admin/lap?id=1', '/api/board/admin/log']) { // PL6 review fix 8: analysis too; PL10: moderation evidence
+    '/api/board/admin/reports', '/api/board/admin/lap?id=1', '/api/board/admin/log', '/api/report/export?session=1']) { // PL6 review fix 8: analysis too; PL10: moderation evidence; PL11: report file
     assert.equal(await send({ 'sec-fetch-site': 'cross-site' }, 'GET', p), 403, `${p} cross-site`);
     assert.equal(await send({ 'sec-fetch-site': 'same-site' }, 'GET', p), 403, `${p} from another local port`);
     assert.equal(await send({ origin: 'https://evil.example' }, 'GET', p), 403, `${p} with a foreign origin`);
@@ -368,4 +368,19 @@ test('setup guide API: an existing driver is not sent to it; skips are recorded;
   assert.ok('objective' in d && 'lastNotes' in d);
   await get('/welcome.js');
   await get('/notes.js');
+});
+
+test('PL11 report file: one offline HTML download, no driver name, key or Steam ID unless asked for', async () => {
+  const r = await fetch(`${base}/api/report/export?session=1`);
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /^text\/html/);
+  assert.match(r.headers.get('content-disposition'), /^attachment; filename="paddock-report-mock_ring-mock_gt3-\d{4}-\d{2}-\d{2}\.html"$/);
+  assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
+  const html = await r.text();
+  assert.doesNotMatch(html, /<script|https?:\/\/|\bsrc\s*=/i);
+  assert.ok(!html.includes(FAKE_KEY) && !html.includes('Test Driver'));
+  const named = await (await fetch(`${base}/api/report/export?session=1&identity=1`)).text();
+  assert.ok(named.includes('Mock Driver') || named.includes('Test Driver'), 'the name only when ticked');
+  assert.ok(!named.includes(FAKE_KEY));
+  assert.equal((await fetch(`${base}/api/report/export?session=999`)).status, 404);
 });

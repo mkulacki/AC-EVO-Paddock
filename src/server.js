@@ -46,6 +46,7 @@ import * as onboarding from './onboarding.js';
 import * as backup from './backup.js';
 import * as autobackup from './autobackup.js';
 import * as recovery from './recovery.js';
+import * as reportexport from './reportexport.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
 import * as sensitive from './sensitive.js';
@@ -397,7 +398,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice|experiments|hudlayouts|assist|board\/admin)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7); experiments: setup names, journal and lap ids (PL8); hudlayouts, assist: Paddock's pages only (PL9 review); board/admin: moderation evidence with reporters' SteamIDs (PL10)
+const PRIVATE_GET = /^\/api\/(backup\/file|report\/export|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice|experiments|hudlayouts|assist|board\/admin)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7); experiments: setup names, journal and lap ids (PL8); hudlayouts, assist: Paddock's pages only (PL9 review); board/admin: moderation evidence with reporters' SteamIDs (PL10)
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -725,6 +726,25 @@ async function route(req, res) {
     return send(res, 200, { ...r, setupChoices: setupmatch.candidates(c.car, c.track, c.layout).map((x) => ({ name: x.file.name, rel: x.file.rel })),
       probeConfirmed: channels.trusted('setupProbe'), channels: channels.summary(), hasKey: !!settings.get().geminiApiKey,
       ai: r.ai ? { ...r.ai, ...ai.splitConfidence(r.ai.text) } : null, laps, technique: TECHNIQUE, plan: coach.planForSession(id, c) });
+  }
+  // PL11: the report as one offline HTML file; name / Steam identity, notes and the AI debrief only when ticked
+  if (p === '/api/report/export' && m === 'GET') {
+    const id = Number(url.searchParams.get('session'));
+    const q = (k) => url.searchParams.get(k) === '1';
+    let r = db.getReport(id);
+    const laps = db.lapsOfSession(id);
+    if (!laps.length) return send(res, 404, { error: 'This session has no laps.' });
+    if (!r) {
+      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return send(res, 400, { error: `A report needs ${report.MIN_LAPS} laps and a valid one.` });
+      try { await warmSession(id); report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); }
+    }
+    const s = settings.get();
+    const html = reportexport.render(r, laps, { appVersion: VERSION, ai: q('ai'),
+      identity: q('identity') ? { driver: db.getSession(id)?.driver || s.driverName || null, steam: s.boardSteam || null } : null,
+      notes: q('notes') ? (() => { try { const n = notes.forSession(id); return { text: n.text, tags: n.tags }; } catch { return null; } })() : null });
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-disposition': `attachment; filename="${reportexport.fileName(r.data)}"`,
+      'content-security-policy': reportexport.CSP, 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' });
+    return res.end(html);
   }
   if (p === '/api/report/regenerate' && m === 'POST') {
     const { session } = await readJson(req);
