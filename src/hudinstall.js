@@ -28,6 +28,9 @@ export function cmpVersion(a, b) {
   return 0;
 }
 
+/** The Paddock HUD version installed in the game (what reads aids and assists in game), or null. */
+export const installedVersion = () => (fs.existsSync(APP_DIR) ? readApp(APP_DIR)?.version ?? null : null);
+
 /** state: 'missing' | 'outdated' | 'current' | 'newer' (installed is newer than this Paddock's copy) | 'no-game' */
 // quick: skip the (slow) check whether the game runs
 export function status({ quick = false } = {}) {

@@ -300,7 +300,7 @@ Open **Settings → Telemetry debug → Show live raw values** while driving, an
 - `probe`: tyre pressures (PSI), camber (°), brake bias and air / track temperature (°C), used for setup recognition and the report's conditions (ACC's physics layout; **Setups → Setup recognition** compares them with a saved setup)
 - `carData`: per wheel, AC EVO's tyre block (tread and core temperatures, pressure, brake temperature, lock-up, and the game's window values) and, from the physics block, suspension travel, slip angle and slip ratio. Used by the Car & setup report; **Setups → Setup recognition → Tyres, brakes and suspension** shows them live
 
-If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src/shm.js`. Which groups count as checked is defined in `src/channels.js`; the driver's own checks are stored in `settings.json` (`channelChecks`).
+If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src/shm.js`. Which groups count as checked is defined in `src/channels.js`; the driver's own checks are stored in `settings.json` (`channelChecks`), each with the game version and reader it was made with: after a game update, or when `OFFSETS` change (bump `PARSER_REV` and `OFFSETS_HASH` in `src/channels.js`), they have to be made again.
 `npm run check-limits [laps]` prints the track-limit channels (tyres out, wheel positions, kerbs) of the most recent laps, to check those offsets.
 
 ## Project layout
@@ -322,7 +322,9 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/ai.js` | Gemini coach, setup engineer and session debrief |
 | `src/coach.js`, `public/coach.js` | Coach page: chat per track and car, training plan, AI braking points |
 | `src/goals.js`, `src/achievements.js`, `src/weekends.js`, `public/development.js` | Development page: goals and challenges, achievements, race weekends, session planner |
-| `src/channels.js` | which telemetry readings are checked against the game (provenance) |
+| `src/channels.js` | which telemetry readings are checked against the game, on which game version (provenance) |
+| `src/compat.js` | whether two laps can be compared like for like, with caveats (Compare, Consistency, Progress) |
+| `src/health.js` | integration health on the Game page (`/api/health`) |
 | `src/backup.js`, `src/restore-apply.js`, `src/dataexport.js`, `src/diagnostics.js`, `src/updates.js`, `public/system.js` | Settings: backup and restore, CSV export, diagnostics, update check |
 | `public/` | browser app (no build step) |
 | `mod/trainerhud/` | the in-game HUD and launcher (ACE UI App Loader app) |

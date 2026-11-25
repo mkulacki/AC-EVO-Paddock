@@ -1,6 +1,6 @@
 // Progress view: one track + car over the days you drove it. Best lap of each day, the all-time best
 // and the ideal lap as they stood that day, and how repeatable the day's laps were.
-import { $, css, esc, api, fmt, fmtGap, prettyName } from './util.js';
+import { $, css, esc, api, fmt, fmtGap, prettyName, mixHtml } from './util.js';
 
 const dayLabel = (day, long) => {
   const [y, m, d] = day.split('-').map(Number);
@@ -30,6 +30,7 @@ export async function viewProgress(view, params, cleanup) {
       <span class="spacer"></span>
       <label class="row">Car and track <select id="pCombo">${combos.map((c) => `<option value="${esc(c.key)}" ${c.key === key ? 'selected' : ''}>${esc(prettyName(c.track))} ${esc(prettyName(c.layout))}, ${esc(prettyName(c.car))}</option>`).join('')}</select></label>
     </div>
+    ${mixHtml(data.compat, 'Your valid laps here')}
     ${!timed.length ? '<div class="card empty">No valid laps for this car and track yet.</div>' : `
     <div class="tiles">
       <div class="card stat"><span class="k">Best lap</span><span class="v">${fmt(data.bestMs)}</span></div>

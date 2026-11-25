@@ -26,6 +26,9 @@ let server, base, port, log = '';
 
 before(async () => {
   fs.writeFileSync(path.join(env.ACEVO_DATA, 'settings.json'), JSON.stringify({ geminiApiKey: FAKE_KEY, driverName: 'Test Driver' }));
+  // a game log as AC EVO writes it: the game version telemetry checks are recorded with (PL4.1)
+  fs.mkdirSync(path.join(env.ACE_DIR, 'Logs'), { recursive: true });
+  fs.writeFileSync(path.join(env.ACE_DIR, 'Logs', 'log-test.txt'), 'Assetto Corsa EVO version 0.6.1, test build');
   execFileSync(process.execPath, node(path.join(ROOT, 'src/mock.js'), '--seed', '6'), { env: childEnv, cwd: ROOT, stdio: 'ignore' });
   port = await freePort();
   base = `http://127.0.0.1:${port}`;
@@ -146,7 +149,7 @@ test('development: goals, suggestions, achievements, weekends; planner refuses w
 test('the Gemini key is never sent to the page, only masked', async () => {
   const s = await json('/api/settings');
   assert.equal(s.geminiApiKey, '••••' + FAKE_KEY.slice(-4));
-  for (const p of ['/api/settings', '/api/status', '/api/game', '/api/overview']) assert.ok(!(await get(p)).includes(FAKE_KEY), `${p} leaks the key`);
+  for (const p of ['/api/settings', '/api/status', '/api/game', '/api/overview', '/api/health']) assert.ok(!(await get(p)).includes(FAKE_KEY), `${p} leaks the key`);
 });
 
 test('telemetry checks: list, confirm a group, refuse unknown ones, not settable through /api/settings', async () => {
@@ -261,7 +264,7 @@ test('only Paddock pages may use the API: foreign origins, cross-site requests a
   assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/diagnostics'), 403, 'DNS rebinding');
   assert.equal(await send({ host: `evil.example:${port}` }, 'GET', '/api/backup/file?name=x.zip'), 403);
   // PL1 (PL0 1.1-e): GETs of private data refuse other sites too; ordinary GETs and typed/opened URLs stay allowed
-  for (const p of ['/api/diagnostics', '/api/diagnostics/perf', '/api/backup/file?name=x.zip', '/api/export/laps.csv', '/api/laps/1/export', '/api/setups/export?id=x']) {
+  for (const p of ['/api/diagnostics', '/api/diagnostics/perf', '/api/health', '/api/backup/file?name=x.zip', '/api/export/laps.csv', '/api/laps/1/export', '/api/setups/export?id=x']) {
     assert.equal(await send({ 'sec-fetch-site': 'cross-site' }, 'GET', p), 403, `${p} cross-site`);
     assert.equal(await send({ 'sec-fetch-site': 'same-site' }, 'GET', p), 403, `${p} from another local port`);
     assert.equal(await send({ origin: 'https://evil.example' }, 'GET', p), 403, `${p} with a foreign origin`);
@@ -288,4 +291,13 @@ test('unknown files and paths outside public/ are refused', async () => {
     const r = await raw(p);
     assert.ok(!r.body.includes('electron-builder') && !r.body.includes(FAKE_KEY), `${p} served a file outside public/ (${r.status})`);
   }
+});
+
+test('integration health (PL4.3): every part answered; a mock run says so; checks are counted against the game log version', async () => {
+  const h = await json('/api/health');
+  assert.deepEqual(h.checks.map((c) => c.id), ['game', 'freshness', 'recording', 'hud', 'channels', 'online']);
+  for (const c of h.checks) { assert.ok(['ok', 'warn', 'bad', 'off', 'unknown'].includes(c.state), c.id); assert.ok(c.summary); }
+  assert.match(h.checks[0].summary, /mock telemetry/);
+  assert.match(h.checks.find((c) => c.id === 'channels').summary, /AC EVO 0\.6\.1/);
+  assert.equal(h.checks.find((c) => c.id === 'online').state, 'off', 'sharing is off by default');
 });

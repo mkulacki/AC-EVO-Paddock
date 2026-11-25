@@ -452,3 +452,20 @@
 - **Review round (2026-11-25):** stale joined async run after `invalidate()`, kept values of a deleted lap served for a reused id (both reproduced), session refs kept across a new session, best lap deleted mid-run: fixed in `6c1d08a` with 4 regression tests. Tests: check 119/119, test 240/240, test:electron 240/240, test:browser 13/13.
 - **Open decisions:** OD-PL-10 → (a) keep gzip 6, OD-PL-11 → (a) leave it (user, 2026-11-25); D-PL3-3/4 confirmed.
 - **User approval:** pending. Push/merge not done.
+
+## PL4: Compatibility, provenance and trustworthy comparisons
+
+- **Started / finished:** 2026-11-25 · branch `platform/pl4-compatibility` (from `ab2ba8c`, the PL3 merge) · scope in `docs/platform/BACKLOG.md` (PL4); report `docs/platform/PL4-report.md`
+- **Objectives:** version-aware channel verification (4.1), comparison compatibility classes (4.2), one integration health panel (4.3), extending the P2 provenance code.
+- **Changes:**
+  - `src/channels.js`: checks are records `{ok, game, adapter, at, method, car}`; old booleans migrate as legacy records that no longer count (OD-PL-12); a check counts only on the same game version and reader (`PARSER_REV`, guarded by an OFFSETS hash test; HUD version for aids/assists); suspension and aids per car; three-class `state` (verified / unverified / unsupported). Setups shows why with **Still matches**; Home asks for a re-check after an update.
+  - `src/compat.js`: compatible / caveats / incompatible from recorded provenance (car, layout, game version, setup identity, conditions, aids, session type, channel quality); unknown never matches; each caveat says what it changes. Compare: "Like for like", "Compare with care", "Not comparable" gate with **Compare anyway**; Consistency and Progress: "Mixed laps". New laps store `cond.reader`.
+  - `src/health.js` + `GET /api/health`: Game page "Integration health" (game connection, telemetry freshness, recording, HUD/loader, telemetry checks, online services, steps), Ctrl+K entry; no network request.
+  - AI prompts drop setup names and temperatures marked as wrong; replay G circle labelled unconfirmed.
+  - Commits: `7b94228`, `cf0dc21`, `9a6340e`, `4c7d2bf`, plus the docs commit.
+- **Findings:** checks were not tied to a version (`src/channels.js:45-59` at `ab2ba8c`); Compare only checked the grid size, so another car's lap compared silently; AI prompts carried data labelled "left out"; lap provenance already existed in `laps.cond` / `setup_info` / `aids` (no DB change needed).
+- **Tests:** `npm run check` 119/119 → 124/124; `npm test` 240/240 → 272/272 (Node 22.23.4); `npm run test:electron` 272/272 (Node 24.22.2); `npm run test:browser` 13/13 → 16/16.
+- **Known limitations:** no game here (versions, HUD feed, per-car checks, panel with a live game unverified); UI checked by DOM assertions only; bench and packaged smoke not rerun (loop unchanged).
+- **Review round (2026-11-25):** layout `''` merged as unknown (ideal lap incompatible on one-layout tracks); setup-history temperatures sent to the AI while marked wrong; "matches" stored with an unknown game version (never counted); replay tab bypassed the gate; unknown `channelChecks` keys dropped; unconfirmed temperatures/aids counted as matched; health error texts with paths. Fixed in `b59541c`, `8703dff` with regression tests; downgrade and `cond.reader` in lap exports documented. User decisions: OD-PL-12 … 17 (a), OD-PL-18 → (b) (implemented), D-PL4-1 … 8 confirmed. Tests: check 124/124, test 279/279, test:electron 279/279, test:browser 16/16.
+- **Open decisions:** none.
+- **User approval:** pending. Push/merge not done.

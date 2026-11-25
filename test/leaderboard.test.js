@@ -175,7 +175,7 @@ test('app: a lap gets its conditions; it waits for the Steam sign-in, then the b
   for (let i = 0; i < 10; i++) app.onFrame({ status: 2, probe: { airTemp: 20 + (i % 2), roadTemp: 30 } });
   const id = newLap(100000);
   app.onLap({ id, valid: false }); // conditions only: no sync started from here in the test
-  assert.deepEqual(JSON.parse(db.getLapMeta(id).cond), { airC: 20.5, roadC: 30, weather: 'Clear', grip: 'Fast', game: '0.5.1', app: 'test' });
+  assert.deepEqual(JSON.parse(db.getLapMeta(id).cond), { airC: 20.5, roadC: 30, weather: 'Clear', grip: 'Fast', game: '0.5.1', app: 'test', reader: 'shm r1' });
 
   assert.equal((await app.sync()).reason, 'sign in with Steam first');
   assert.equal(db.getLapMeta(id).board, null);

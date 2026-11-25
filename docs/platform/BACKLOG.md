@@ -69,6 +69,7 @@ Tests: one failing regression test per verified finding before its fix, plus the
 - 4.1: channel checks (`settings.channelChecks`) become records with game build (from `laps.cond` / game version), parser version (`src/shm.js` OFFSETS revision), method and time; old booleans migrate as "verified, build unknown" and are treated conservatively.
 - 4.2: compatibility classes for Compare/Consistency/Progress/goals from car, track/layout, game version, setup identity (P7 snap), conditions (`cond`), aids (`laps.aids`), channel availability.
 - 4.3: one health panel (game connection, telemetry freshness, recording, HUD + loader version, unverified channels, leaderboard reachability), reusing `/api/diagnostics` data.
+- **Done 2026-11-25** (`docs/platform/PL4-report.md`): no DB change was needed (checks in `settings.json`, lap provenance in `laps.cond` / `setup_info` / `aids`). Compare, Consistency and Progress carry `compat`; goals do not yet (PL6/PL7 should use `src/compat.js`). Leaderboard reachability is the last known state only (no probe request).
 
 ## PL5: Onboarding and usability (P2)
 

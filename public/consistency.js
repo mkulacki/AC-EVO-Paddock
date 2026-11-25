@@ -1,5 +1,5 @@
 // Consistency view: lap-to-lap spread per corner for one track + car.
-import { $, css, esc, api, fmt, fmtGap, prettyName, SESSION_TYPES, stats, emptyHtml, prov } from './util.js';
+import { $, css, esc, api, fmt, fmtGap, prettyName, SESSION_TYPES, stats, emptyHtml, prov, mixHtml } from './util.js';
 
 const METRICS = [
   { k: 'timeMs', label: 'Corner time', unit: 'ms', hint: 'time through the corner segment; left = faster', lowerBetter: true },
@@ -63,6 +63,7 @@ export async function viewConsistency(view, params, cleanup) {
       <div class="card stat"><span class="k">Ideal lap</span><span class="v">${fmt(data.idealMs)}</span></div>
       <div class="card stat"><span class="k">Average to ideal</span><span class="v pos">${fmtGap(times.mean - data.idealMs)}</span></div>
     </div>
+    ${mixHtml(data.compat, 'The laps in view')}
     ${focus.length ? `<div class="card"><h2>Focus corners</h2><p class="secondary" style="margin:0">On average you lose the most time compared with your own fastest pass in
       ${focus.map((n) => { const c = corners.find((x) => x.n === n); return `<b>${c.name}</b> (${(c.opp / 1000).toFixed(3)}s)`; }).join(', ')}.
       Make these corners repeatable before chasing a faster line elsewhere.</p></div>` : ''}

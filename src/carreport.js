@@ -155,10 +155,12 @@ export function build(sessionId) {
     suspension: susp.map(({ hits, ...s }) => ({ ...s, hitCorners: topCorners(hits), hitsBraking: hits.filter((h) => h.braking).length })), rideHeightMin: rh,
     balance, traction, perLap };
   // per section: the group's status, or 'missing' where the game left the readings empty in this session
-  const st = (id, present) => (present ? channels.status(id) : 'missing');
+  // (suspension and aids checks count per car: PL4.1)
+  const car = { car: combo?.car ?? null };
+  const st = (id, present) => (present ? channels.status(id, car) : 'missing');
   report.provenance = { tyres: st('tyres', has.tyres), pressures: st('tyres', has.pressures), brakes: st('brakes', has.brakes),
     suspension: st('suspension', has.susp), rideHeight: st('suspension', has.rideHeight), slip: st('slip', has.slip), windows: st('windows', has.window) };
-  report.suggestions = suggest(report).map((x) => ({ ...x, confirmed: channels.allTrusted(x.basis) }));
+  report.suggestions = suggest(report).map((x) => ({ ...x, confirmed: channels.allTrusted(x.basis, car) }));
   return report;
 }
 
@@ -255,7 +257,8 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 export function forAi(r) {
   if (!r?.available) return null;
   // groups the driver found wrong are left out entirely, with the hints built on them
-  const ok = channels.usable, WRONG = 'left out: known to be wrong';
+  const car = { car: r.combo?.car ?? null };
+  const ok = (id) => channels.usable(id, car), WRONG = 'left out: known to be wrong';
   return {
     laps_with_car_data: r.laps,
     tyres: !ok('tyres') ? WRONG : r.has.tyres ? r.tyres.map((t) => ({ wheel: t.wheel, inner_c: t.inner, middle_c: t.middle, outer_c: t.outer, core_c: t.core, hot_pressure_psi: t.pressure })) : 'not available',
@@ -266,6 +269,6 @@ export function forAi(r) {
     wheelspin_share_on_exits: r.traction?.share,
     rule_based_hints: r.suggestions.filter((s) => s.basis.every(ok)).map((s) => (s.confirmed ? s.text : `${s.text} (rests on readings not confirmed in game)`)),
     // setupProbe: setup_driven (which setup this session was on) comes from setup recognition
-    data_quality: channels.forAi(['tyres', 'brakes', 'suspension', 'slip', 'windows', 'setupProbe']),
+    data_quality: channels.forAi(['tyres', 'brakes', 'suspension', 'slip', 'windows', 'setupProbe'], car),
   };
 }

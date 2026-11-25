@@ -1,7 +1,8 @@
 // Browser flows (PL2): the real pages in headless Edge (or Chrome), driven over the DevTools protocol with Node's own
 // WebSocket, against a mock server on scratch data. `npm run test:browser` (also part of `npm run verify`).
 // Covers: open a session, compare two laps, import a valid / duplicate / broken lap file, change a setting, keyboard
-// navigation (Alt+digit, Ctrl+K palette, ?, Esc), the damaged-file notice in Settings (PL1D, OD-PL-5). Every page must
+// navigation (Alt+digit, Ctrl+K palette, ?, Esc), the damaged-file notice in Settings (PL1D, OD-PL-5), comparison
+// caveats and the incompatible-pair gate, and the integration health panel (PL4). Every page must
 // load without a JavaScript error.
 // Skipped when no Edge/Chrome is found (set PADDOCK_BROWSER to the browser's .exe to choose one).
 // No game, no network, no AI key: the server runs with --mock on a free port, the browser has a scratch profile.
@@ -12,6 +13,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import { isolate, ROOT } from './helpers.js';
 
 const BROWSERS = [process.env.PADDOCK_BROWSER,
@@ -78,6 +80,9 @@ before(async () => {
   if (skip) return;
   // demo laps on scratch data, then the server on a free port (as test/smoke.test.js does)
   execFileSync(process.execPath, node(path.join(ROOT, 'src/mock.js'), '--seed', '6'), { env: childEnv, cwd: ROOT, stdio: 'ignore' });
+  // the laps' own conditions, as the app records them after each lap (the seed does not): similar temperatures that are
+  // not checked against the game, for the combined "not confirmed" line on Compare (D-PL4-12)
+  { const d = new DatabaseSync(path.join(env.ACEVO_DATA, 'telemetry.db')); d.exec(`UPDATE laps SET cond = '{"airC":20,"roadC":28}'`); d.close(); }
   // a damaged setup-meta.json: the server keeps it aside at start and the Settings page must say so (OD-PL-5)
   fs.writeFileSync(path.join(env.ACEVO_DATA, 'setup-meta.json'), '{"files": {"x": {"notes": "half');
   // and a damaged copy left by an earlier run (listed as 'earlier')
@@ -360,5 +365,86 @@ test('keyboard: Alt+digit pages, Ctrl+K palette with Enter, ? shortcuts, Esc clo
   // Tab reaches the sidebar links
   await press('Tab');
   await waitFor("document.activeElement && document.activeElement !== document.body", 'focus after Tab');
+  assert.deepEqual(errors, []);
+});
+
+// ---------------------------------------------------------------- PL4: comparison compatibility and integration health
+test('compare: caveats are listed with what they change, and open from the keyboard (PL4.2)', { skip }, async () => {
+  const o = (await api('/api/overview')).body;
+  const c = o.combos[0];
+  const two = o.laps.filter((l) => l.track === c.track && l.layout === c.layout && l.car === c.car && l.source === 'local').slice(0, 2).map((l) => l.id);
+  await go(`#/compare?laps=${two[0]}&ref=${two[1]}`, "document.querySelector('#view .uplot')");
+  // mock laps record no game version, setup or aids: unknown is never a match
+  assert.ok(await js("!!document.querySelector('#view details.compat-warn')"), 'a compare-with-care card');
+  assert.match(await js("document.querySelector('#view .compat-warn summary').textContent"), /Not recorded for one of the laps/);
+  assert.equal(await js("document.querySelector('#view .compat-warn').open"), false, 'closed at first: the charts stay in view');
+  await js("document.querySelector('#view .compat-warn summary').focus(); 1");
+  await press('Enter');
+  await waitFor("document.querySelector('#view .compat-warn').open", 'Enter opens the caveats');
+  assert.match(await js("document.querySelector('#view .compat-warn .compat-effect').textContent"), /What it changes:/);
+  // readings not confirmed yet: one combined line with where to confirm them, not a caveat each (D-PL4-12)
+  assert.equal(await js("document.querySelectorAll('#view .compat-warn .compat-unconf').length"), 1);
+  assert.match(await js("document.querySelector('#view .compat-unconf').textContent"), /Some readings aren't confirmed yet: temperatures/);
+  assert.equal(await js("[...document.querySelectorAll('#view .compat-item b')].some((b) => /not confirmed/.test(b.textContent))"), false, 'no separate not-confirmed caveat');
+  assert.match(await js("document.querySelector('#view .compat-warn summary').textContent"), /Some readings aren't confirmed yet/);
+  await js("document.querySelector('#view .compat-unconf a').focus(); 1");
+  await js('window.__rendered = 0; 1');
+  await press('Enter');
+  await waitFor("location.hash === '#/setups' && window.__rendered > 0", 'Enter on the link opens Setups');
+  await go(`#/compare?laps=${two[0]}&ref=${two[1]}&tab=line`, "document.querySelector('#view #rpCanvas')");
+  assert.equal(await js("document.querySelectorAll('#view .compat-unconf').length"), 1, 'the same line on the replay tab');
+  assert.match(await js("document.querySelector('#view .compat-basis').textContent"), /Measured/);
+  assert.deepEqual(errors, []);
+});
+
+test('compare: a lap of another car waits behind "Compare anyway" (PL4.2)', { skip }, async () => {
+  const zlib = await import('node:zlib');
+  const o = (await api('/api/overview')).body;
+  const own = o.laps.filter((l) => l.source === 'local');
+  const lap = JSON.parse(zlib.gunzipSync(Buffer.from(await (await fetch(`${base}/api/laps/${own[0].id}/export`)).arrayBuffer())).toString());
+  lap.meta.car = 'mock_gt4'; lap.meta.driver = 'Other Driver';
+  const r = await api('/api/laps/import', { method: 'POST', headers: { origin: base }, body: zlib.gzipSync(JSON.stringify(lap)) });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  // the Racing line replay tab waits behind the same gate (review 4)
+  await go(`#/compare?laps=${r.body.id}&ref=${own[1].id}&tab=line`, "document.querySelector('#view .compat-bad [data-force]')");
+  assert.equal(await js("!!document.querySelector('#view #rpCanvas')"), false, 'no replay until the driver says so');
+  await go(`#/compare?laps=${r.body.id}&ref=${own[1].id}`, "document.querySelector('#view .compat-bad [data-force]')");
+  assert.equal(await js("!!document.querySelector('#view .uplot')"), false, 'no charts until the driver says so');
+  assert.match(await js("document.querySelector('#view .compat-bad').textContent"), /Another car/);
+  assert.equal(await js("document.querySelector('#view .compat-bad').getAttribute('role')"), 'alert');
+  await js("document.querySelector('#view [data-force]').focus(); 1");
+  await press('Enter');
+  await waitFor("document.querySelector('#view .uplot')", 'the charts after Compare anyway');
+  assert.match(await js("document.querySelector('#view .compat-bad').textContent"), /Compared anyway/);
+  // the choice counts for the replay tab too, which shows the same list
+  await go(`#/compare?laps=${r.body.id}&ref=${own[1].id}&tab=line`, "document.querySelector('#view #rpCanvas')");
+  assert.match(await js("document.querySelector('#view .compat-bad').textContent"), /Another car/);
+  assert.equal((await api(`/api/laps/${r.body.id}`, { method: 'DELETE', headers: { origin: base } })).status, 200);
+  assert.deepEqual(errors, []);
+});
+
+test('integration health on the Game page: every part with its state in words, steps open from the keyboard; palette finds it (PL4.3)', { skip }, async () => {
+  await go('#/game', "document.querySelectorAll('#gHealth .health-item').length === 6");
+  const rows = await js("[...document.querySelectorAll('#gHealth .health-item')].map((li) => [li.dataset.check, li.querySelector('.hstate').textContent])");
+  assert.deepEqual(rows.map((r) => r[0]), ['game', 'freshness', 'recording', 'hud', 'channels', 'online']);
+  for (const [, s] of rows) assert.ok(['OK', 'Needs a look', 'Not working', 'Off', 'Not known'].includes(s), s);
+  // the telemetry checks row: closed or open, Enter on its summary toggles it and it has a link to Setups
+  const was = await js("document.querySelector('#gHealth [data-check=channels] details').open");
+  await js("document.querySelector('#gHealth [data-check=channels] summary').focus(); 1");
+  await press('Enter');
+  await waitFor(`document.querySelector('#gHealth [data-check=channels] details').open === ${!was}`, 'Enter toggles the row');
+  assert.ok(await js("!!document.querySelector('#gHealth [data-check=channels] a[href=\"#/setups\"]')"));
+  await sleep(2300); // redrawn every 2 s: an opened row stays as the driver left it
+  assert.equal(await js("document.querySelector('#gHealth [data-check=channels] details').open"), !was);
+
+  await go('#/home');
+  await js('document.activeElement?.blur(); 1');
+  await press('k', { ctrl: true });
+  await waitFor("document.querySelector('.palette input') === document.activeElement", 'the palette');
+  await cdp('Input.insertText', { text: 'integration health' });
+  await waitFor("document.querySelector('.palette-list li.sel')?.textContent.includes('Integration health')", 'the health entry');
+  await js('window.__rendered = 0; 1');
+  await press('Enter');
+  await waitFor("location.hash === '#/game' && document.querySelector('#gHealth .health-item')", 'the Game page with the panel');
   assert.deepEqual(errors, []);
 });

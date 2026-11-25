@@ -11,6 +11,7 @@ const { ACEVO_DATA } = isolate('provenance');
 fs.writeFileSync(path.join(ACEVO_DATA, 'settings.json'), JSON.stringify({ probeConfirmed: true, geminiApiKey: 'test-key', geminiModel: 'test-model' }));
 seedRandom(3);
 const channels = await import('../src/channels.js');
+channels.configure({ gameVersion: () => '0.6.1', hudVersion: () => '0.14.0' }); // as the server does (PL4.1)
 const settings = await import('../src/settings.js');
 const db = await import('../src/db.js');
 const carreport = await import('../src/carreport.js');
@@ -25,10 +26,15 @@ test('built-in statuses: core telemetry checked, slip and windows not', () => {
   assert.throws(() => channels.status('nope'), /Unknown/);
 });
 
-test('the 0.5 switch carries over to the pit-box readings and temperatures only', () => {
-  assert.equal(channels.status('setupProbe'), 'verified');
-  assert.equal(channels.status('conditions'), 'verified');
-  assert.equal(channels.status('tyres'), 'unverified');
+test('the 0.5 switch carries over to the pit-box readings and temperatures only, as checks of an unknown game version (PL4.1)', () => {
+  for (const g of ['setupProbe', 'conditions']) {
+    const e = channels.evaluate(g);
+    assert.equal(e.status, 'unverified', 'no game version recorded: not counted');
+    assert.equal(e.needsRecheck, true);
+    assert.equal(e.record.legacy, true);
+  }
+  assert.equal(channels.evaluate('tyres').needsRecheck, false);
+  assert.equal(channels.evaluate('tyres').record, null);
 });
 
 test('confirm: match, mismatch, undo; only checkable groups', () => {
@@ -37,15 +43,18 @@ test('confirm: match, mismatch, undo; only checkable groups', () => {
   assert.equal(channels.confirm('brakes', null), 'unverified');
   assert.equal(channels.confirm('setupProbe', false), 'mismatch');
   assert.equal(settings.get().probeConfirmed, false, 'the old switch follows');
-  assert.equal(channels.status('conditions'), 'verified', 'the old switch still counts for the temperatures');
+  assert.equal(channels.evaluate('conditions').record?.legacy, true, 'the old switch still stands for the temperatures');
   assert.equal(channels.confirm('setupProbe', null), 'unverified');
-  assert.equal(channels.status('conditions'), 'verified', 'undo on one group keeps the other');
+  assert.equal(channels.evaluate('conditions').record?.legacy, true, 'undo on one group keeps the other');
   assert.equal(channels.confirm('setupProbe', false), 'mismatch');
   assert.throws(() => channels.confirm('tyres', '0'), /true, false or null/);
   assert.throws(() => channels.confirm('slip', true), /cannot be checked/);
   assert.throws(() => channels.confirm('core', true), /cannot be checked/);
   const saved = JSON.parse(fs.readFileSync(path.join(ACEVO_DATA, 'settings.json'), 'utf8'));
-  assert.deepEqual(saved.channelChecks, { tyres: true, setupProbe: false, conditions: true });
+  assert.deepEqual(Object.keys(saved.channelChecks).sort(), ['conditions', 'setupProbe', 'tyres']);
+  assert.deepEqual({ ...saved.channelChecks.tyres, at: 0 }, { ok: true, game: '0.6.1', adapter: 'shm r1', at: 0, method: 'in-game comparison', car: null });
+  assert.equal(saved.channelChecks.setupProbe.ok, false);
+  assert.equal(saved.channelChecks.conditions.legacy, true, 'the old switch, kept as a legacy record');
   channels.confirm('tyres', null); channels.confirm('setupProbe', true);
 });
 
@@ -142,6 +151,18 @@ test('debrief: prompt asks for a rating and carries data quality', async () => {
   assert.match(input, /"data_quality"/);
   assert.match(input, /setupProbe/);
   assert.equal(ai.splitConfidence(out.text).confidence.level, 'medium');
+});
+
+test('debrief: setups and temperatures marked as wrong are left out of the prompt, not just labelled (PL4)', async () => {
+  answer('Fine.\nConfidence: low - few laps');
+  channels.confirm('setupProbe', false); channels.confirm('conditions', false);
+  await ai.debrief({ trend: [{ n: 1, ms: 80000, valid: true, setup: 'Secret Setup' }], setups: [{ name: 'Secret Setup' }], conditions: { airC: 21, roadC: 30, weather: 'Clear' } });
+  const input = calls.at(-1).body.contents[0].parts[0].text;
+  assert.ok(!input.includes('Secret Setup'), 'no setup names');
+  assert.ok(!input.includes('"airC"') && !input.includes('"roadC"'), 'no temperatures');
+  assert.match(input, /"weather":"Clear"/);
+  assert.match(input, /left out: known to be wrong/);
+  channels.confirm('setupProbe', true); channels.confirm('conditions', null);
 });
 
 test('setup engineer: confidence parsed and checked, per change too', async () => {

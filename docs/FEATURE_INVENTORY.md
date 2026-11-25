@@ -128,7 +128,7 @@ How the platform plan PL1–PL11 (a local operator plan, not in the repo; phase 
 | PL1.3 adjacent boundaries | `src/zip.js`, `src/mods.js`, `src/setups.js`, `src/restore-apply.js`, `src/diagnostics.js` | Partial: path traversal guarded; extraction size and partial-overwrite gaps |
 | PL2 CI, browser tests, packaged smoke | `test/*.test.js`, headless-Edge screenshots done by hand | Missing: no `.github/workflows`, no scripted packaged smoke test, no `npm run verify` |
 | PL3 recording performance | 60 Hz loop in `src/server.js` | Missing: no measurements, no `docs/platform/PERFORMANCE.md` |
-| PL4 compatibility and provenance | P2 `src/channels.js`, laps `cond` (game + Paddock version) | Partial: channel checks are not tied to a game build or parser version; no comparison-compatibility classes; no single health panel (spread over Settings, Mods, status line) |
+| PL4 compatibility and provenance | P2 `src/channels.js`, laps `cond` (game + Paddock version + reader) | Done (PL4): version-aware checks (verified / unverified / unsupported), comparison classes on Compare with caveats and an incompatible gate, "Mixed laps" on Consistency/Progress, integration health panel on the Game page |
 | PL5 onboarding | P4 shell + palette, P5 Home | Partial: no first-run flow; no session notes, tags or corner bookmarks |
 | PL6 actionable analysis | P6 technique metrics, report, Consistency | Partial: corner rankings, ideal lap and score exist; no ranked opportunity list with entry/apex/exit split, no `docs/platform/ANALYSIS.md` |
 | PL7 structured practice | P8 training plans, P9 goals/challenges/planner | Partial: no prescriptions with evidence + success criterion + review point |

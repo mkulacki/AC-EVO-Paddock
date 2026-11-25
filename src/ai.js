@@ -241,9 +241,14 @@ Rules:
 - Be concise: under 250 words. No generic tips unrelated to the data.
 ${CONFIDENCE_RULE}`;
 
+const WRONG = 'left out: known to be wrong';
 export async function debrief(report) {
   const s = settings.get();
   const { trend, ...rest } = report;
-  const input = { ...rest, data_quality: channels.forAi(['core', 'trackLimits', 'setupProbe', 'conditions']), lap_times: trend.map((l) => `${l.n}: ${fmt(l.ms)}${l.valid ? '' : ' (invalid)'}${l.setup ? ` [${l.setup}]` : ''}`) };
+  // readings the driver marked as wrong are left out, not just labelled (PL4: analysis never silently uses them)
+  const probeOk = channels.usable('setupProbe'), condOk = channels.usable('conditions');
+  if (!probeOk) rest.setups = WRONG;
+  if (!condOk && rest.conditions && typeof rest.conditions === 'object') rest.conditions = { ...Object.fromEntries(Object.entries(rest.conditions).filter(([k]) => !/temp|C$/.test(k))), temperatures: WRONG };
+  const input = { ...rest, data_quality: channels.forAi(['core', 'trackLimits', 'setupProbe', 'conditions']), lap_times: trend.map((l) => `${l.n}: ${fmt(l.ms)}${l.valid ? '' : ' (invalid)'}${l.setup && probeOk ? ` [${l.setup}]` : ''}`) };
   return generate({ system: DEBRIEF_SYSTEM, contents: [{ role: 'user', parts: [{ text: `Respond in ${s.language || 'English'}.\n\nSession report (JSON):\n${JSON.stringify(input)}` }] }] });
 }
