@@ -81,6 +81,6 @@ test('the next start does not migrate again (no new backup, distances unchanged)
   assert.deepEqual(JSON.parse(out), before.slice(0, 5));
   assert.equal(fs.readdirSync(ACEVO_DATA).filter((f) => f.startsWith('telemetry.backup-')).length, 1);
   const raw = new DatabaseSync(path.join(ACEVO_DATA, 'telemetry.db'), { readOnly: true });
-  assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 1);
+  assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 2); // v0 -> v1 -> v2 (PL5) at one start, one copy
   raw.close();
 });

@@ -22,7 +22,8 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   boardTarget: 'next', // the HUD's leaderboard target: 'next' (the driver just ahead), 'p1' or 'off'
   boardUrl: '', // leaderboard server; empty = the default
   boardToken: '', // Steam sign-in on the leaderboard: the login token (secret: never sent to the page)
-  boardSteam: null }; // who that sign-in is: {steamId, name}
+  boardSteam: null, // who that sign-in is: {steamId, name}
+  onboarding: null }; // the setup guide (src/onboarding.js): {state: 'done' | 'dismissed', at, skipped}; null = not finished
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
 export const HUD_PARTS = ['lap', 'ref', 'delta', 'current', 'speed', 'predicted', 'best', 'session', 'last', 'cues', 'ideal', 'corners', 'footer',

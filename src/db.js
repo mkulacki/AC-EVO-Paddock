@@ -47,6 +47,7 @@ function normaliseDistance(data, L) {
   data.d = out.map((v) => Math.round((v + shift) * 100) / 100);
   return Math.abs(shift) > 0.5;
 }
+let preMigrationCopy = null; // the copy made before an upgrade at this start (one is enough for several steps)
 {
   const ver = db.prepare('PRAGMA user_version').get().user_version;
   if (ver < 1) {
@@ -54,6 +55,7 @@ function normaliseDistance(data, L) {
     if (rows.length) {
       const backup = path.join(DATA_DIR, `telemetry.backup-v${ver}-${Date.now()}.db`);
       db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+      preMigrationCopy = backup;
       const upd = db.prepare('UPDATE laps SET data = ? WHERE id = ?');
       let fixed = 0;
       for (const r of rows) {
@@ -107,6 +109,8 @@ export const counts = () => ({
   sessions: db.prepare('SELECT COUNT(*) AS n FROM sessions').get().n,
   reports: db.prepare('SELECT COUNT(*) AS n FROM reports').get().n,
   brakeMarks: db.prepare('SELECT COUNT(*) AS n FROM brake_marks').get().n,
+  notes: db.prepare('SELECT COUNT(*) AS n FROM session_notes').get().n,
+  bookmarks: db.prepare('SELECT COUNT(*) AS n FROM corner_bookmarks').get().n,
   schema: db.prepare('PRAGMA user_version').get().user_version,
 });
 
@@ -299,6 +303,41 @@ export function addLaunch(l) {
 }
 export const listLaunches = () => db.prepare('SELECT * FROM launches ORDER BY at').all()
   .map((r) => ({ id: r.id, at: r.at, mode: r.mode, trackId: r.track_id, layoutKey: r.layout_key, car: r.car, summary: r.summary, plannedMin: r.planned_min, goalId: r.goal_id }));
+
+// ---------------------------------------------------------------- v2 (PL5): the driver's own notes, tags and corner bookmarks
+// session_notes: free text per session; session_tags: short labels per session (stored in lower case, one row each, so
+// the Sessions page can filter by one); corner_bookmarks: a corner the driver wants to come back to, per track + car
+// (the game's names, as in the laps), with the session it was noted in and a short note.
+// Local only: never sent to the leaderboard, the AI or anyone else, and not in lap files (src/lapfile.js); they are in
+// the database, so a Settings backup holds them. Sizes are bounded by src/notes.js.
+// Versioned: user_version 2. New tables only, nothing existing changes, so an older Paddock can still open the file
+// (it ignores tables it does not know). A copy of the database is made first, as for v1 (telemetry.backup-v1-<time>.db):
+// the recovery path if the upgrade ever has to be undone (one copy per start: a v0 file upgraded to v2 in one go
+// keeps the v0 copy). If that copy cannot be made (a full disk), the upgrade
+// still runs: it only adds empty tables, in one transaction, and the reason is logged.
+export const SCHEMA_VERSION = 2;
+{
+  const ver = db.prepare('PRAGMA user_version').get().user_version;
+  if (ver < 2) {
+    if (!preMigrationCopy && db.prepare('SELECT COUNT(*) AS n FROM laps').get().n) {
+      const backup = path.join(DATA_DIR, `telemetry.backup-v${ver}-${Date.now()}.db`);
+      try { vacuumInto(backup); console.log(`[db] before the v2 upgrade (notes, tags, bookmarks): copy kept as ${path.basename(backup)}`); }
+      catch (e) { console.error(`[db] the copy before the v2 upgrade could not be made (${e.code || e.message}); upgrading anyway (it only adds new tables)`); }
+    }
+    db.exec('BEGIN');
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS session_notes (session_id INTEGER PRIMARY KEY, text TEXT NOT NULL DEFAULT '', updated_at INTEGER);
+        CREATE TABLE IF NOT EXISTS session_tags (session_id INTEGER NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (session_id, tag));
+        CREATE INDEX IF NOT EXISTS session_tags_tag ON session_tags(tag);
+        CREATE TABLE IF NOT EXISTS corner_bookmarks (id INTEGER PRIMARY KEY, session_id INTEGER, track TEXT, layout TEXT, car TEXT,
+          corner TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at INTEGER);
+        CREATE INDEX IF NOT EXISTS corner_bookmarks_combo ON corner_bookmarks(track, layout, car);
+        CREATE INDEX IF NOT EXISTS corner_bookmarks_session ON corner_bookmarks(session_id);
+        PRAGMA user_version = 2;`);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+}
 
 export const getMeta = (key) => db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
 export const setMeta = (key, value) => db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));

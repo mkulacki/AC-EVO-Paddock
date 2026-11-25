@@ -37,6 +37,8 @@ import * as weekends from './weekends.js';
 import * as achievements from './achievements.js';
 import * as channels from './channels.js';
 import * as health from './health.js';
+import * as notes from './notes.js';
+import * as onboarding from './onboarding.js';
 import * as backup from './backup.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
@@ -336,7 +338,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health)/;
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding)/;
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -449,6 +451,15 @@ async function route(req, res) {
       perf: perf.summary(), hud: safe(() => hudInstall.status({ quick: true })), channels: channels.list({ car: liveCar() }), checkContext: channels.context(),
       board: safe(() => board.health()), updates: safe(() => updates.status()),
     }));
+  }
+  // the setup guide (PL5, src/onboarding.js): what it shows, and the driver's choices in it (skips change nothing else)
+  if (p === '/api/onboarding') {
+    if (m === 'POST') {
+      try { settings.update({ onboarding: onboarding.nextState(settings.get().onboarding, await readJson(req)) }); } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
+    }
+    const safe = (fn) => { try { return fn(); } catch { return null; } };
+    return send(res, 200, onboarding.build({ settings: settings.get(), aceFound: fs.existsSync(ACE), contentFound: !!safe(() => trackdata.archive()?.file),
+      hud: safe(() => hudInstall.status({ quick: true })) }));
   }
   if (p === '/api/game/launch' && m === 'POST') return send(res, 200, startGame(null));
   if (p === '/api/game/cancel' && m === 'POST') { game.cancel(); return send(res, 200, { ok: true }); }
@@ -765,7 +776,7 @@ async function route(req, res) {
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows
   if (p === '/api/overview') {
     const reports = Object.fromEntries(db.listReports().map((r) => [r.sessionId, { weakest: (r.data.corners?.weakest || []).map((w) => w.name) }]));
-    return send(res, 200, { ...svc.overview(), reports });
+    return send(res, 200, { ...svc.overview(), reports, notes: Object.fromEntries(notes.summaries()) });
   }
   if (p === '/api/consistency') {
     const q = url.searchParams;
@@ -802,6 +813,17 @@ async function route(req, res) {
     return send(res, 200, svc.compare(laps, url.searchParams.get('ref') || 'best'));
   }
 
+  // the driver's own session notes, tags and corner bookmarks (PL5, src/notes.js): local only
+  if (p.startsWith('/api/notes')) {
+    try {
+      if (p === '/api/notes' && m === 'GET') return send(res, 200, notes.forSession(url.searchParams.get('session')));
+      if (p === '/api/notes' && m === 'POST') { const b = await readJson(req); return send(res, 200, notes.save(b.session, { text: b.text, tags: b.tags })); }
+      if (p === '/api/notes/bookmark' && m === 'POST') { const b = await readJson(req); return send(res, 200, notes.addBookmark(b.session, { corner: b.corner, note: b.note })); }
+      if (p === '/api/notes/bookmark' && m === 'DELETE') return send(res, 200, notes.forSession(notes.removeBookmark(url.searchParams.get('id'))));
+      if (p === '/api/notes/index' && m === 'GET') return send(res, 200, { tags: notes.allTags(), bookmarks: notes.recentBookmarks(), sessions: Object.fromEntries(notes.summaries()) });
+      return send(res, 404, { error: 'not found' });
+    } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
+  }
   // several laps at once (e.g. "remove invalid laps"): {ids: [lapId…]}
   if (p === '/api/laps/delete' && m === 'POST') {
     const { ids = [] } = await readJson(req);
