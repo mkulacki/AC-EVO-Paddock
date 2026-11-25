@@ -9,27 +9,35 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { isolate } from './helpers.js';
+import vm from 'node:vm';
+import { isolate, ROOT } from './helpers.js';
 
 const env = isolate('hudbridge');
 const B = await import('../src/gamebridge.js');
-const { WINDOW_MS, SLOTS, AHEAD, SLOW_WRITE_MS, BACKOFF_MS, GameBridge } = B;
+const { WINDOW_MS, SLOTS, AHEAD, GUARD_MS, BACKOFF_MS, GameBridge } = B;
+// the HUD's own rule for older copies (mod/trainerhud/trainerhud.js isOlder), loaded as the HUD tests do
+const T = (() => { const ctx = { window: { location: { search: '', pathname: '/hud.html' } }, document: { getElementById: () => null }, console, setTimeout, clearTimeout, setInterval, clearInterval };
+  vm.createContext(ctx); vm.runInContext(`${fs.readFileSync(path.join(ROOT, 'mod/trainerhud/trainerhud.js'), 'utf8')}
+;globalThis.__T = TrainerHud;`, ctx); return ctx.__T; })();
 
 const quiet = { log() {}, error() {} };
 const appDir = (name) => { const d = path.join(env.ACE_DIR, name); fs.mkdirSync(d, { recursive: true }); return d; };
 function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
-// a simulated run: the writer timer every 10 ms, stalls of the whole process, write times from ioMs()
-function simulate({ seconds = 120, seed = 1, stallP = 0.002, stallMs = [100, 2000], ioMs = () => 1 + Math.random() * 3 }) {
+// a simulated run: the writer timer every 10 ms, stalls of the whole process, write times from ioMs(); onTick(t) can
+// change the state (the kill switch). The HUD is modelled too: a read every 200 ms of slot w % 8 at 5 ms into its
+// window, keeping the newer copy (isOlder, HUD 0.15.0).
+function simulate({ seconds = 120, seed = 1, stallP = 0.002, stallMs = [100, 2000], ioMs = () => 1 + Math.random() * 3, onTick = () => {}, state = { off: false } }) {
   const r = rng(seed);
   let t = 1_700_000_000_000;
-  const end = t + seconds * 1000;
+  const start = t, end = t + seconds * 1000;
   const writes = [];
-  const br = new GameBridge({ snapshot: () => ({ v: 1, now: t }), onCommand() {}, appDir: appDir('sim'), logDir: path.join(env.ACE_DIR, 'nolog'),
-    now: () => t, log: quiet,
-    writeSlot: (file, buf) => { const a = t; t += ioMs(r); writes.push({ slot: Number(/live(\d)\.json$/.exec(file)[1]), a, b: t, window: JSON.parse(buf.toString()).window }); } });
+  const br = new GameBridge({ snapshot: () => ({ v: 1, now: t, ...(state.off ? { off: true } : {}), cfg: { scale: 100 } }), onCommand() {}, appDir: appDir('sim'),
+    logDir: path.join(env.ACE_DIR, 'nolog'), now: () => t, mono: () => t, log: quiet,
+    writeSlot: (file, buf) => { const a = t; t += ioMs(r); const j = JSON.parse(buf.toString()); writes.push({ slot: Number(/live(\d)\.json$/.exec(file)[1]), a, b: t, window: j.window, now: j.now, off: j.off === true }); } });
   let maxStall = 0;
   while (t < end) {
+    onTick(t);
     if (r() < stallP) { const s = stallMs[0] + r() * (stallMs[1] - stallMs[0]); t += s; maxStall = Math.max(maxStall, s); } else t += 10;
     br.write();
   }
@@ -37,47 +45,110 @@ function simulate({ seconds = 120, seed = 1, stallP = 0.002, stallMs = [100, 200
   let collisions = 0, fromSlowWrite = 0;
   for (const w of writes) {
     for (let k = Math.floor(w.a / WINDOW_MS); k <= Math.floor(w.b / WINDOW_MS); k++) {
-      if (k % SLOTS === w.slot) { collisions++; if (w.b - w.a > SLOW_WRITE_MS) fromSlowWrite++; break; }
+      if (k % SLOTS === w.slot) { collisions++; if (w.b - w.a > SAFE_MS) fromSlowWrite++; break; }
     }
   }
-  // the data age the HUD would see at the start of each read window (newest slot content it reads vs. now)
-  const bySlot = new Map(); let maxAge = 0, wi = 0;
+  // the HUD's reads
+  const reads = [];
   const sorted = writes.slice().sort((x, y) => x.b - y.b);
-  for (let w = Math.floor(writes[0].a / WINDOW_MS) + AHEAD; w * WINDOW_MS < end; w++) {
-    const at = w * WINDOW_MS;
+  const bySlot = new Map();
+  let wi = 0, shown = null, shownAt = 0;
+  for (let w = Math.floor(start / WINDOW_MS) + 8; w * WINDOW_MS < end; w += 4) {
+    const at = w * WINDOW_MS + 5;
     while (wi < sorted.length && sorted[wi].b <= at) { bySlot.set(sorted[wi].slot, sorted[wi]); wi++; }
     const c = bySlot.get(w % SLOTS);
-    if (c && c.window <= w) maxAge = Math.max(maxAge, at - c.a);
+    if (c && !T.isOlder(shown, c, shownAt, at)) { shown = c; shownAt = at; }
+    if (shown) reads.push({ at, age: at - shown.now, off: shown.off });
   }
-  return { stats: br.stats(), writes, collisions, fromSlowWrite, maxStall: Math.round(maxStall), maxAge: Math.round(maxAge) };
+  const ages = reads.map((x) => x.age).sort((a, b) => a - b);
+  const share = (ms) => ages.filter((a) => a > ms).length / Math.max(1, ages.length);
+  return { stats: br.stats(), writes, reads, collisions, fromSlowWrite, maxStall: Math.round(maxStall), maxAge: Math.round(ages[ages.length - 1] ?? 0), over1s: share(1000), over3s: share(3000) };
 }
+const SAFE_MS = 150; // the least margin a write has before its slot's read window (written 4 windows ahead, at the latest at the end of its window)
 
 test('scheduling stalls (100 ms to 2 s, about every 5 s): no write ever overlaps its slot\'s read window', (t) => {
   for (const seed of [1, 2, 3]) {
     const r = simulate({ seed });
-    t.diagnostic(`stalls seed ${seed}: windows ${r.stats.windows}, writes ${r.stats.writes}, missed windows ${r.stats.missedWindows}, longest gap ${r.stats.maxGapMs} ms, collisions ${r.collisions}, oldest data at a read ${r.maxAge} ms`);
+    t.diagnostic(`stalls seed ${seed}: windows ${r.stats.windows}, writes ${r.stats.writes} (${r.stats.aheadWrites} to w+5), missed windows ${r.stats.missedWindows}, longest gap ${r.stats.maxGapMs} ms, collisions ${r.collisions}, HUD reads over 1 s old ${(r.over1s * 100).toFixed(1)} %, oldest ${r.maxAge} ms`);
     assert.equal(r.collisions, 0);
     assert.equal(r.stats.lateWrites, 0);
+    assert.equal(r.stats.backoffs, 0);
     assert.ok(r.stats.missedWindows > 0, 'stalls happened');
-    // a written slot always names a window ahead of the one it was written in (the HUD's clock-mismatch guard holds)
-    for (const w of r.writes) assert.ok(w.window * WINDOW_MS > w.b, 'written before its read window');
+    // a written slot always names its own read window, after the write ended (the HUD's clock-mismatch guard holds)
+    for (const w of r.writes) { assert.ok(w.window * WINDOW_MS > w.b, 'written before its read window'); assert.equal(w.window % SLOTS, w.slot); }
   }
 });
 
-test('slow disk (writes of 80 to 400 ms now and then): back-off after each, collisions only from a write that was itself too slow', (t) => {
+test('one write per window: the schedule is exactly the old one (slot w+4)', () => {
+  const r = simulate({ seconds: 10, stallP: 0, ioMs: () => 1 });
+  assert.equal(r.stats.aheadWrites, 0);
+  for (const w of r.writes) assert.equal(w.window - Math.floor(w.a / WINDOW_MS), AHEAD);
+});
+
+test('review fix: a disk that is a little slow (70 ms a write) is not paused and the HUD data stays fresh', (t) => {
+  const r = simulate({ seconds: 60, seed: 3, stallP: 0, ioMs: () => 70 });
+  t.diagnostic(`70 ms a write: writes ${r.stats.writes}/min (${r.stats.aheadWrites} to w+5), back-offs ${r.stats.backoffs}, collisions ${r.collisions}, HUD reads over 1 s old ${(r.over1s * 100).toFixed(1)} %, over 3 s ${(r.over3s * 100).toFixed(1)} %, oldest ${r.maxAge} ms`);
+  assert.equal(r.stats.backoffs, 0);
+  assert.equal(r.collisions, 0);
+  assert.ok(r.stats.writes > 600, `${r.stats.writes} writes a minute`);
+  assert.equal(r.over1s, 0);
+  assert.ok(r.maxAge < 700, `oldest data ${r.maxAge} ms`);
+});
+
+// the kill switch at a time; -> the writes after it, and what the HUD showed
+function killSwitch(ioMs, seed) {
+  const state = { off: false };
+  let at = null;
+  const r = simulate({ seconds: 40, seed, stallP: 0, ioMs: () => ioMs, state, onTick: (t) => { if (at === null && t >= 1_700_000_000_000 + 20000) { state.off = true; at = t; } } });
+  const after = r.writes.filter((w) => w.a >= at);
+  const reached = new Set(); let n = 0;
+  for (const w of after) { if (reached.size === SLOTS) break; n++; if (w.off) reached.add(w.slot); }
+  const hudReads = r.reads.filter((x) => x.at >= at);
+  const firstOff = hudReads.findIndex((x) => x.off);
+  return { r, at, after, reached, n, hudReads, firstOff };
+}
+
+for (const ms of [70, 200]) {
+  test(`review fix: with ${ms} ms a write the kill switch reaches every slot within one round of writes (8, plus up to two where both safe slots already had it), and the HUD never shows the old state again`, (t) => {
+    const k = killSwitch(ms, 5);
+    const firstWrite = k.after[0];
+    t.diagnostic(`${ms} ms a write: all 8 slots off after ${k.n} writes (${Math.round(k.after[k.n - 1].b - k.at)} ms; first write ${Math.round(firstWrite.a - k.at)} ms after the switch), HUD hidden after ${Math.round(k.hudReads[k.firstOff].at - k.at)} ms, back-offs ${k.r.stats.backoffs}`);
+    assert.equal(k.reached.size, SLOTS);
+    assert.ok(k.n <= SLOTS + 2, `${k.n} writes`);
+    assert.ok(k.after.every((w) => w.off), 'no slot is written with the old state after the switch');
+    assert.ok(k.firstOff >= 0);
+    assert.ok(k.hudReads.slice(k.firstOff).every((x) => x.off), 'once hidden, the HUD stays hidden (no flicker)');
+    if (ms === 70) { assert.ok(k.after[k.n - 1].b - k.at <= 1000, 'every slot within 1 s'); assert.ok(k.hudReads[k.firstOff].at - k.at < 1000); }
+  });
+}
+
+test('slow disk (writes of 80 to 400 ms now and then): back-off only near the read window; collisions only from a write longer than the margin', (t) => {
   const r = simulate({ seed: 7, stallP: 0.001, ioMs: (rand) => (rand() < 0.01 ? 80 + rand() * 320 : 1 + rand() * 3) });
-  t.diagnostic(`slow disk: writes ${r.stats.writes}, slow ${r.stats.slowWrites} (longest ${Math.round(r.stats.maxWriteMs)} ms), paused windows ${r.stats.pausedWindows}, late writes ${r.stats.lateWrites}, collisions ${r.collisions} (all from writes over ${SLOW_WRITE_MS} ms: ${r.fromSlowWrite}), oldest data at a read ${r.maxAge} ms`);
-  assert.ok(r.stats.slowWrites > 0);
+  t.diagnostic(`slow disk: writes ${r.stats.writes}, slow ${r.stats.slowWrites} (longest ${Math.round(r.stats.maxWriteMs)} ms), back-offs ${r.stats.backoffs}, paused windows ${r.stats.pausedWindows}, late writes ${r.stats.lateWrites}, collisions ${r.collisions} (from writes over ${SAFE_MS} ms: ${r.fromSlowWrite}), HUD reads over 1 s old ${(r.over1s * 100).toFixed(1)} %, oldest ${r.maxAge} ms`);
+  assert.ok(r.stats.slowWrites > r.stats.backoffs, 'writes slow but far from the read window are not paused for');
   assert.equal(r.collisions, r.fromSlowWrite, 'no collision comes from the schedule');
-  // after a slow write nothing is written for BACKOFF_MS
+  // after a write that came near its read window nothing is written for BACKOFF_MS
   for (let i = 1; i < r.writes.length; i++) {
     const prev = r.writes[i - 1];
-    if (prev.b - prev.a > SLOW_WRITE_MS) assert.ok(r.writes[i].a - prev.b >= BACKOFF_MS - 10, `write ${i} came ${r.writes[i].a - prev.b} ms after a slow one`);
+    if (prev.b > prev.window * WINDOW_MS - GUARD_MS) assert.ok(r.writes[i].a - prev.b >= BACKOFF_MS - 10, `write ${i} came ${r.writes[i].a - prev.b} ms after one near its read window`);
   }
-  // without the back-off the same disk would put more writes next to reads: compare with a run where every write is slow
-  const noBackoff = simulate({ seed: 7, stallP: 0, seconds: 20, ioMs: () => 170 });
-  t.diagnostic(`every write 170 ms: writes ${noBackoff.stats.writes} in 20 s (one per ${BACKOFF_MS} ms back-off), collisions ${noBackoff.collisions}`);
-  assert.ok(noBackoff.stats.writes <= 20 * 1000 / BACKOFF_MS + 2);
+  const everySlow = simulate({ seed: 7, stallP: 0, seconds: 20, ioMs: () => 200 });
+  t.diagnostic(`every write 200 ms: writes ${everySlow.stats.writes} in 20 s, back-offs ${everySlow.stats.backoffs}, collisions ${everySlow.collisions} (all from writes over ${SAFE_MS} ms: ${everySlow.fromSlowWrite})`);
+  assert.ok(everySlow.stats.backoffs > 0);
+  assert.ok(everySlow.stats.writes < 20 * 1000 / 200 / 2, 'paused most of the time');
+  assert.equal(everySlow.collisions, everySlow.fromSlowWrite);
+});
+
+test('review fix: the back-off runs on a monotonic clock: a system clock step back does not stretch it', () => {
+  let t = 1_700_000_000_000, m = 0;
+  const writes = [];
+  const br = new GameBridge({ snapshot: () => ({ v: 1, now: t }), onCommand() {}, appDir: appDir('mono'), logDir: path.join(env.ACE_DIR, 'nolog'), now: () => t, mono: () => m, log: quiet,
+    writeSlot: () => { const d = writes.length === 0 ? 200 : 1; t += d; m += d; writes.push(t); } });
+  br.write(); // a 200 ms write: back-off
+  assert.equal(br.stats().backoffs, 1);
+  t -= 10000; // the wall clock steps back 10 s
+  for (let i = 0; i < 120; i++) { t += 10; m += 10; br.write(); }
+  assert.ok(writes.length > 1, 'writing resumed about 1 s later by the monotonic clock');
 });
 
 test('real files: a reader thread following the HUD rules never sees a partial or future slot, with stalls and slow writes', async (t) => {

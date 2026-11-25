@@ -1002,5 +1002,12 @@ test('HUD layouts: apply a built-in one, save the look under a name, context pro
   await api('/api/hudlayouts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'apply', name: 'Default' }) });
   await api('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ spotter: { cooldownMs: 0 } }) });
   assert.equal((await api('/api/hudlayouts', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, body: JSON.stringify({ action: 'apply', name: 'Race' }) })).status, 403);
+  // review fix: layouts and the switch are Paddock's pages only: no open CORS, a cross-site or same-site read is refused
+  const g = await fetch(`${base}/api/hudlayouts`, { headers: { 'sec-fetch-site': 'cross-site' } });
+  assert.equal(g.status, 403);
+  assert.equal(g.headers.get('access-control-allow-origin'), null);
+  assert.equal((await fetch(`${base}/api/assist`, { headers: { 'sec-fetch-site': 'same-site' } })).status, 403);
+  assert.equal((await fetch(`${base}/api/hudlayouts`)).headers.get('access-control-allow-origin'), null);
+  assert.equal((await fetch(`${base}/api/hud`)).headers.get('access-control-allow-origin'), '*'); // the HUD's own route stays open
   assert.deepEqual(errors, []);
 });

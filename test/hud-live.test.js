@@ -231,3 +231,35 @@ test('HUD 0.15.0 ships the new parts (off by default in the in-game window too) 
   assert.match(src, /\[TrainerHUD-cmd\] /);
   for (const p of settings.HUD_PARTS) assert.ok(src.includes(`"${p}"`), `HUD knows part ${p}`);
 });
+
+// ---------------------------------------------------------------- PL9 review fixes
+test('review fix: reference-pedal markers are not moved along with the car from stale data (static check of the HUD)', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'mod/trainerhud/trainerhud.js'), 'utf8');
+  const line = src.split(/\r?\n/).find((l) => /const ah = d && d\.ahead/.test(l));
+  assert.ok(line, 'the ahead markers line');
+  assert.match(line, /state\.quality\.stale/);
+  assert.match(line, /tel === "stale"/);
+  // the other extrapolations are gated the same way
+  assert.match(src, /lp\.inPit \|\| qual\.stale \? 0/);
+  assert.match(src, /qual\.stale \? 0 : Math\.min\(EXTRAPOLATE_MAX_MS/);
+  assert.match(src, /if \(cue && !\(state\.quality && \(state\.quality\.stale/);
+});
+
+test('review fix: the HUD never steps back to an older copy, unless the newer one is over 3 s old (clock steps)', () => {
+  const T = loadHud(), now = 1e6;
+  assert.equal(T.isOlder({ now: 500 }, { now: 400 }, now - 100, now), true);
+  assert.equal(T.isOlder({ now: 500 }, { now: 600 }, now - 100, now), false);
+  assert.equal(T.isOlder({ now: 500 }, { now: 400 }, now - 3500, now), false);
+  assert.equal(T.isOlder(null, { now: 400 }, 0, now), false);
+});
+
+test('review fix: built-in layout lookups use own keys only (constructor, toString are not layouts)', () => {
+  const before = JSON.stringify(settings.hudConfig());
+  for (const n of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    assert.throws(() => layouts.apply(n), (e) => e.code === 404, n);
+  }
+  assert.equal(JSON.stringify(settings.hudConfig()), before, 'the look is unchanged');
+  const v = layouts.save('constructor'); // an ordinary name for a saved layout
+  assert.ok(v.list.some((l) => l.name === 'constructor'));
+  layouts.remove('constructor');
+});
