@@ -508,7 +508,10 @@ export function nextStep(last, records) {
       href: `#/compare?laps=${rec.bestLapId}&ref=ideal`, label: 'Open the comparison' };
   }
   return { kind: 'progress', ...where, text: 'Look at your trend on this car and track',
-    evidence: rec?.bestMs != null ? 'Your best lap matches your ideal lap here: the trend shows whether your typical laps are catching up.' : 'No valid lap here yet: the Progress page shows your laps as they come.',
+    // only what is known is claimed (review): best = ideal needs both values
+    evidence: rec?.bestMs == null ? 'No valid lap here yet: the Progress page shows your laps as they come.'
+      : rec.idealMs == null ? 'Paddock has no ideal lap for this car and track yet, so there is nothing to compare your best lap with: the Progress page shows your best lap per driving day.'
+        : 'Your best lap matches your ideal lap here: the trend shows whether your typical laps are catching up.',
     href: `#/progress?combo=${key}`, label: 'Progress' };
 }
 

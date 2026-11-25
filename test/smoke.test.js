@@ -322,6 +322,10 @@ test('notes API: save, bookmark, list; bounded; private (refused cross-site); in
   // another site cannot read them
   assert.equal((await fetch(`${base}/api/notes?session=${sid}`, { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
   assert.equal((await fetch(`${base}/api/notes/index`, { headers: { 'sec-fetch-site': 'same-site' } })).status, 403);
+  for (const p of ['/api/overview', '/api/dashboard']) assert.equal((await fetch(`${base}${p}`, { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403, `${p} is private (tags, note lines)`);
+  // a body over 64 KB is refused (the connection may be cut before the answer)
+  const big = await post('/api/notes', { session: sid, text: 'x'.repeat(70 * 1024) }).then((r) => r.status, () => 'cut');
+  assert.ok(big === 413 || big === 'cut', String(big));
   // local only: not in diagnostics, nor in what the leaderboard or AI coach would get
   for (const p of ['/api/diagnostics?format=text', '/api/diagnostics', '/api/board/status']) assert.ok(!(await get(p)).includes('smoke-note-text'), `${p}`);
   const c = (await json('/api/overview')).combos[0];
@@ -334,10 +338,24 @@ test('setup guide API: an existing driver is not sent to it; skips are recorded;
   const post = (body) => fetch(base + '/api/onboarding', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   let o = await json('/api/onboarding');
   assert.equal(o.hasData, true);
-  assert.equal(o.show, false, 'laps exist: never opened by itself');
+  assert.equal('show' in o, false, 'the guide never opens by itself (OD-PL-24 c)');
   assert.ok(o.comparison.href?.startsWith('#/compare?laps='));
   o = await (await post({ action: 'skip', step: 'online' })).json();
   assert.deepEqual(o.skipped, ['online']);
+  // skipping game mods switches off the automatic HUD + loader install (the existing flags); undo switches it on
+  const flags = () => ['hud-removed', 'loader-removed'].map((n) => fs.existsSync(path.join(env.ACEVO_DATA, n)));
+  assert.deepEqual(flags(), [false, false], 'on by default');
+  o = await (await post({ action: 'skip', step: 'mods' })).json();
+  assert.deepEqual(flags(), [true, true]);
+  assert.equal(o.hud.removed, true);
+  assert.equal((await json('/api/mods/hud')).removed, true);
+  o = await (await post({ action: 'unskip', step: 'mods' })).json();
+  assert.deepEqual(flags(), [false, false]);
+  const auto = (on) => fetch(`${base}/api/mods/hud/auto`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+  assert.equal((await (await auto(false)).json()).removed, true);
+  assert.equal((await auto('yes')).status, 400);
+  await auto(true);
+  assert.deepEqual(flags(), [false, false]);
   assert.equal((await json('/api/settings')).boardShare, false, 'skipping changes no setting');
   assert.equal((await post({ action: 'nope' })).status, 400);
   o = await (await post({ action: 'done' })).json();

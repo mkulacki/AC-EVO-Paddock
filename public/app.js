@@ -153,15 +153,9 @@ async function render() {
   }
 }
 window.addEventListener('hashchange', render);
-// PL5: a new driver (no laps, the setup guide never finished or put away; src/onboarding.js) starts on the guide,
-// everyone else on Home. Only when Paddock is opened without a page in the address.
-async function start() {
-  if (!location.hash || location.hash === '#') {
-    try { if ((await api('/api/onboarding')).show) { location.replace('#/welcome'); return; } } catch { /* Home, as before */ }
-  }
-  render();
-}
-queueMicrotask(start); // after all module-level declarations are initialised
+// Paddock always opens on Home; the setup guide (#/welcome) never opens by itself (OD-PL-24 (c)): Home's empty state,
+// Settings and Ctrl+K offer it.
+queueMicrotask(render); // after all module-level declarations are initialised
 
 events.addEventListener('lap', () => { forgetCompare(); window.dispatchEvent(new Event('paddock:lapsaved')); }); // a new lap can change the best and the ideal lap
 initShortcuts(); // sidebar, command palette (Ctrl+K), keyboard shortcuts (public/palette.js)

@@ -134,6 +134,12 @@ test('next step rules: no report -> a longer session; no gap -> progress; nothin
   assert.equal(svc.nextStep({ ...s, laps: 5, validLaps: 0 }, []).kind, 'longer', 'no valid lap: no report possible');
   const withReport = { ...s, report: { weakest: ['T1'] } };
   assert.equal(svc.nextStep(withReport, [{ key: 't|l|c', bestMs: 60000, idealMs: 60000, bestLapId: 1 }]).kind, 'progress', 'best = ideal: nothing to compare');
+  assert.match(svc.nextStep(withReport, [{ key: 't|l|c', bestMs: 60000, idealMs: 60000, bestLapId: 1 }]).evidence, /matches your ideal/);
+  // review: no ideal lap known -> never claims best = ideal
+  const noIdeal = svc.nextStep(withReport, [{ key: 't|l|c', bestMs: 60000, idealMs: null, bestLapId: 1 }]);
+  assert.equal(noIdeal.kind, 'progress');
+  assert.doesNotMatch(noIdeal.evidence, /matches/);
+  assert.match(noIdeal.evidence, /no ideal lap/);
   const c = svc.nextStep(withReport, [{ key: 't|l|c', bestMs: 60500, idealMs: 60000, bestLapId: 7 }]);
   assert.equal(c.kind, 'corner');
   assert.equal(c.href, '#/compare?laps=7&ref=ideal&c=T1');

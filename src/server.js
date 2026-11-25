@@ -319,7 +319,8 @@ const readBody = (req, max = 50e6) => new Promise((resolve, reject) => {
   req.on('end', () => resolve(Buffer.concat(chunks)));
   req.on('error', reject);
 });
-const readJson = async (req) => { const b = await readBody(req); return b.length ? JSON.parse(b.toString()) : {}; };
+const readJson = async (req, max) => { const b = await readBody(req, max); return b.length ? JSON.parse(b.toString()) : {}; };
+const NOTES_BODY = 64 * 1024; // a note (4000 characters) and its tags fit many times over
 
 const MIME = { '.wav': 'audio/wav', '.woff2': 'font/woff2', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
 function serveStatic(res, file) {
@@ -338,7 +339,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding)/;
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard)/; // overview + dashboard carry tags and note lines (PL5)
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -449,13 +450,18 @@ async function route(req, res) {
       mock: mockIdx >= 0, aceFound: fs.existsSync(ACE), game: g,
       telemetry: { ...recorder.state, source: source.name, packetAgeMs: lastPacket == null ? null : Date.now() - lastPacketChange, stale },
       perf: perf.summary(), hud: safe(() => hudInstall.status({ quick: true })), channels: channels.list({ car: liveCar() }), checkContext: channels.context(),
-      board: safe(() => board.health()), updates: safe(() => updates.status()),
+      board: safe(() => board.health()), updates: safe(() => updates.status()), dbBlocked: db.blocked,
     }));
   }
   // the setup guide (PL5, src/onboarding.js): what it shows, and the driver's choices in it (skips change nothing else)
   if (p === '/api/onboarding') {
     if (m === 'POST') {
-      try { settings.update({ onboarding: onboarding.nextState(settings.get().onboarding, await readJson(req)) }); } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
+      try {
+        const b = await readJson(req, 4096);
+        settings.update({ onboarding: onboarding.nextState(settings.get().onboarding, b) });
+        // skipping game mods switches off the automatic HUD + App Loader install (OD-PL-22 (b)); undo switches it on again
+        if (b.step === 'mods' && (b.action === 'skip' || b.action === 'unskip')) hudInstall.setAutoInstall(b.action === 'unskip');
+      } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
     }
     const safe = (fn) => { try { return fn(); } catch { return null; } };
     return send(res, 200, onboarding.build({ settings: settings.get(), aceFound: fs.existsSync(ACE), contentFound: !!safe(() => trackdata.archive()?.file),
@@ -572,6 +578,8 @@ async function route(req, res) {
   if (p === '/api/mods' && m === 'GET') return send(res, 200, { mods: mods.list(), running: game.isRunningNow(), hud: hudInstall.status() });
   // the Paddock HUD shipped with this Paddock: installed / outdated? (Mods tab prompt, nav badge)
   if (p === '/api/mods/hud' && m === 'GET') return send(res, 200, hudInstall.status());
+  // Settings → In-game HUD: the automatic install on or off (the existing hud-removed / loader-removed flags)
+  if (p === '/api/mods/hud/auto' && m === 'POST') { const { on } = await readJson(req, 1024); if (typeof on !== 'boolean') return send(res, 400, { error: 'on must be true or false' }); return send(res, 200, hudInstall.setAutoInstall(on)); }
   if (p === '/api/mods/hud' && m === 'POST') {
     try { return send(res, 200, hudInstall.install()); } catch (e) { return send(res, e.code || 500, { error: e.message }); }
   }
@@ -746,6 +754,7 @@ async function route(req, res) {
     const warnings = [];
     const add = (level, text, href, label) => warnings.push({ level, text, href, label });
     const safe = (fn) => { try { return fn(); } catch { return null; } };
+    if (db.blocked) add('warning', db.blocked.message, '#/game', 'Game → Integration health');
     if (backup.pending()) add('warning', 'A restore is waiting for Paddock to restart.', '#/settings', 'Settings → Backup and restore');
     if (db.restoreResult && !db.restoreResult.ok) add('warning', `The last restore did not complete: ${db.restoreResult.error}`, '#/settings', 'Settings → Backup and restore');
     if (!fs.existsSync(ACE)) add('warning', "AC EVO's game files folder was not found, so the HUD, mods and setups are not available.", '#/settings', 'Settings → Game files folder');
@@ -827,12 +836,12 @@ async function route(req, res) {
     return send(res, 200, svc.compare(laps, url.searchParams.get('ref') || 'best'));
   }
 
-  // the driver's own session notes, tags and corner bookmarks (PL5, src/notes.js): local only
+  // the driver's own session notes, tags and corner bookmarks (PL5, src/notes.js): local only; bodies capped (64 KB)
   if (p.startsWith('/api/notes')) {
     try {
       if (p === '/api/notes' && m === 'GET') return send(res, 200, notes.forSession(url.searchParams.get('session')));
-      if (p === '/api/notes' && m === 'POST') { const b = await readJson(req); return send(res, 200, notes.save(b.session, { text: b.text, tags: b.tags })); }
-      if (p === '/api/notes/bookmark' && m === 'POST') { const b = await readJson(req); return send(res, 200, notes.addBookmark(b.session, { corner: b.corner, note: b.note })); }
+      if (p === '/api/notes' && m === 'POST') { const b = await readJson(req, NOTES_BODY); return send(res, 200, notes.save(b.session, { text: b.text, tags: b.tags })); }
+      if (p === '/api/notes/bookmark' && m === 'POST') { const b = await readJson(req, NOTES_BODY); return send(res, 200, notes.addBookmark(b.session, { corner: b.corner, note: b.note })); }
       if (p === '/api/notes/bookmark' && m === 'DELETE') return send(res, 200, notes.forSession(notes.removeBookmark(url.searchParams.get('id'))));
       if (p === '/api/notes/index' && m === 'GET') return send(res, 200, { tags: notes.allTags(), bookmarks: notes.recentBookmarks(), sessions: Object.fromEntries(notes.summaries()) });
       return send(res, 404, { error: 'not found' });

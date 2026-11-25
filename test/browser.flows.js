@@ -480,14 +480,20 @@ async function tabTo(sel, n = 40) {
   throw new Error(`Tab never reached ${sel}`);
 }
 
-test('setup guide: a new driver starts on it; every step by keyboard; AI, online and mods skipped; Finish -> Home (PL5)', { skip }, async () => {
+test('setup guide: a new driver opens it from Home (never by itself); every step by keyboard; AI, online and mods skipped; Finish -> Home (PL5)', { skip }, async () => {
   const f = await freshServer();
   const settingsOf = () => fetch(`${f.base}/api/settings`).then((r) => r.json());
   const ob = () => fetch(`${f.base}/api/onboarding`).then((r) => r.json());
   try {
-    assert.equal((await ob()).show, true, 'no laps: a new driver');
+    assert.equal((await ob()).hasData, false, 'no laps: a new driver');
     await openAt(`${f.base}/`);
-    await waitFor("location.hash.startsWith('#/welcome') && document.querySelector('#wzTitle')", 'opened on the guide');
+    await sleep(300);
+    assert.equal(await js('location.hash'), '', 'Paddock opens on Home, not on the guide (OD-PL-24 c)');
+    // Home's empty state offers it: reached by keyboard
+    await js('window.__rendered = 0; document.activeElement?.blur(); 1');
+    await tabTo('#view a[href="#/welcome"]', 60);
+    await press('Enter');
+    await waitFor("location.hash.startsWith('#/welcome') && document.querySelector('#wzTitle')", 'the guide from Home');
     assert.match(await js("document.querySelector('#wzTitle').textContent"), /Find AC EVO/);
     assert.match(await js("document.querySelector('.wz-steps [aria-current=step]').textContent.trim()"), /^1/);
     // step 1 -> 2 by keyboard only: Tab to Next, Enter; focus goes to the new step's title
@@ -535,7 +541,9 @@ test('setup guide: a new driver starts on it; every step by keyboard; AI, online
     await press('Enter');
     await waitFor("location.hash === '#/home' && window.__rendered > 0", 'Home after Finish');
     const st = await ob();
-    assert.equal(st.state, 'done'); assert.equal(st.show, false);
+    assert.equal(st.state, 'done');
+    // game mods skipped: the automatic HUD install is off (the existing flags)
+    assert.ok(fs.existsSync(path.join(f.data, 'hud-removed')) && fs.existsSync(path.join(f.data, 'loader-removed')));
     // opened again without an address: Home, not the guide
     await openAt(`${f.base}/`);
     await sleep(300);
@@ -549,7 +557,7 @@ test('setup guide: a new driver starts on it; every step by keyboard; AI, online
 });
 
 test('setup guide: "Skip the guide" puts it away; an existing driver is never sent to it but finds it in Ctrl+K and Settings (PL5)', { skip }, async () => {
-  assert.equal((await api('/api/onboarding')).body.show, false, 'seeded laps: an existing driver');
+  assert.equal((await api('/api/onboarding')).body.hasData, true, 'seeded laps: an existing driver');
   await openAt(`${base}/`);
   await sleep(300);
   assert.equal(await js("location.hash === '' || location.hash === '#/home'"), true, 'opens on Home');

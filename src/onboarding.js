@@ -1,10 +1,9 @@
-// First-run guide (PL5): what the setup guide (#/welcome) shows, and whether Paddock opens on it.
+// First-run guide (PL5): what the setup guide (#/welcome) shows.
 // Steps: locate the game -> check the connections (/api/health) -> privacy and optional services -> drive a first
-// session -> open a useful comparison. The AI, online accounts and game mods can each be skipped: skipping only
-// records the choice and moves on; it never switches anything on or off.
-// Paddock opens on the guide by itself only for a new driver: no own lap yet and the guide never finished or put
-// away. A driver with laps (or a Gemini key or leaderboard sign-in from before) is never sent to it; it stays one
-// click away in Settings and the command palette (Ctrl+K).
+// session -> open a useful comparison. The AI, online accounts and game mods can each be skipped.
+// The guide never opens by itself (user decision OD-PL-24 (c)): Home's empty state (no laps yet), Settings and the
+// command palette (Ctrl+K) offer it. Skipping game mods also switches off the automatic HUD install (OD-PL-22 (b),
+// src/server.js); the other skips only record the choice.
 // Its state lives in settings.json: onboarding = {state: 'done' | 'dismissed', at, skipped: ['ai'|'online'|'mods']}.
 import { raw as db } from './db.js';
 
@@ -59,16 +58,15 @@ export function firstComparison() {
 
 /**
  * Everything the guide page needs. x: {settings (raw), aceFound, contentFound, hud (hudinstall status, quick), board (status)}
- * show = open the guide by itself (a new driver only).
+ * hasData = a driver from before (laps, a key or a sign-in).
  */
 export function build(x) {
   const s = x.settings || {};
   const st = normState(s.onboarding);
   const laps = lapCounts();
-  // data from before the guide existed: a driver with laps, a key or a sign-in is not new, whatever the guide's state
   const hasData = laps.any > 0 || !!s.geminiApiKey || !!s.boardToken;
   return {
-    show: !hasData && !st.state, hasData, ...st,
+    hasData, ...st,
     game: { aceFound: !!x.aceFound, contentFound: !!x.contentFound, gamePathSet: !!s.gamePath, aceDirSet: !!s.aceDir },
     services: { ai: !!s.geminiApiKey, boardShare: !!s.boardShare, signedIn: !!s.boardToken, updateCheck: s.updateCheck !== false },
     hud: x.hud ? { state: x.hud.state ?? null, removed: !!x.hud.removed } : null,

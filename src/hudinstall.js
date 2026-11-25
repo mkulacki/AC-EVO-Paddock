@@ -94,7 +94,7 @@ export function autoUpdate(why = 'check') {
   try {
     s = status({ quick: true });
     if (s.state !== 'missing' && s.state !== 'outdated') return s;
-    if (s.state === 'missing' && fs.existsSync(REMOVED_FLAG)) return s;
+    if (fs.existsSync(REMOVED_FLAG)) return s; // switched off (removed, or skipped in the setup guide): left alone, no install or update
     if (isRunningNow()) return s; // next time the game is closed
     s = install();
     console.log(`[hud] ${why}: Paddock HUD ${s.installed} installed automatically`);
@@ -106,6 +106,19 @@ export function autoUpdate(why = 'check') {
   return s;
 }
 export const lastAutoInstall = () => lastAuto;
+/**
+ * The automatic install of the HUD and the App Loader, on or off: the same `hud-removed` / `loader-removed` flags the
+ * Mods tab and the tray's Remove set (no other switch). Off installs and updates nothing; files already in the game
+ * folder stay (the Mods tab removes them). On lets the next check install what is missing. Settings and the setup
+ * guide use it (OD-PL-22 (b)).
+ */
+export function setAutoInstall(on) {
+  if (on) fs.rmSync(REMOVED_FLAG, { force: true });
+  else fs.writeFileSync(REMOVED_FLAG, String(Date.now()));
+  loader.setRemoved(!on);
+  return status({ quick: true });
+}
+export const autoInstallOn = () => !fs.existsSync(REMOVED_FLAG);
 export function startAuto() {
   autoUpdate('Paddock started');
   setInterval(() => autoUpdate('game closed'), AUTO_MS).unref?.();

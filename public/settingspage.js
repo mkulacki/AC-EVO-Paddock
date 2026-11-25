@@ -80,6 +80,8 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
       <div class="hint">Saved on this computer straight away. "System" follows the Windows light / dark setting. Text size: <kbd>Ctrl</kbd> <kbd>+</kbd> / <kbd>Ctrl</kbd> <kbd>−</kbd>, <kbd>Ctrl</kbd> <kbd>0</kbd> for normal.</div>
       <label>Setup guide</label><div class="row"><a href="#/welcome" id="openGuide"><button class="small" tabindex="-1">Open the setup guide</button></a></div>
       <div class="hint">Find the game, check the connections, choose the optional services, drive a first session and open a first comparison.</div>
+      <label for="hudAuto">In-game HUD</label><div class="row"><label class="row"><input type="checkbox" id="hudAuto"> Install and update the Paddock HUD and the ACE UI App Loader in AC EVO's folder by themselves</label></div>
+      <div class="hint" id="hudAutoMsg" role="status">While AC EVO is closed. Off: Paddock puts nothing into the game folder (a HUD already there stays; the <a href="#/mods">Mods</a> tab removes it).</div>
       <label>Driver name</label><input id="driverName" value="${esc(s.driverName)}" placeholder="defaults to the name from the game">
       <label>Gemini API key</label><input id="geminiApiKey" value="${esc(s.geminiApiKey)}" placeholder="paste key" autocomplete="off">
       <div class="hint">Free key: <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>. Only a compact per-corner summary is sent, never raw telemetry.</div>
@@ -228,6 +230,12 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
     setTimeout(spShowState, 300);
   };
   bindFileNotices($('#fileNoticesBox'));
+  // the automatic HUD install (the Mods tab's hud-removed flag; skipping game mods in the setup guide turns it off)
+  api('/api/mods/hud').then((h) => { const cb = $('#hudAuto'); if (cb) cb.checked = !h.removed; }).catch(() => {});
+  $('#hudAuto').onchange = async (e) => {
+    try { await post('/api/mods/hud/auto', { on: e.target.checked }); $('#hudAutoMsg').textContent = e.target.checked ? 'On: Paddock installs the HUD the next time AC EVO is closed.' : 'Off: Paddock puts nothing into the game folder.'; }
+    catch (err) { e.target.checked = !e.target.checked; $('#hudAutoMsg').textContent = `Not changed: ${err.message}`; }
+  };
   // settings.json could not be read at start: saving is refused by the server (src/settings.js), so the button says so
   if (s.canSave === false) {
     $('#save').disabled = true;

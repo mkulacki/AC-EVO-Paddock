@@ -1,7 +1,8 @@
 // Setup guide (#/welcome, PL5): find the game -> check the connections -> privacy and optional services -> drive a
 // first session -> open a useful comparison. Every step can be passed by; the AI, online accounts and game mods can
-// each be skipped (the choice is only recorded: nothing is switched on or off). Nothing here needs an account.
-// Paddock opens on it by itself only for a new driver (src/onboarding.js); otherwise it is in Settings and Ctrl+K.
+// each be skipped. Skipping the AI or online only records the choice; skipping game mods also switches off the
+// automatic HUD install (OD-PL-22 (b)). Nothing here needs an account. It never opens by itself (OD-PL-24 (c)):
+// Home (no laps yet), Settings and Ctrl+K offer it.
 import { esc, api, post, prettyName } from './util.js';
 import { healthItemsHtml } from './game.js';
 
@@ -47,7 +48,7 @@ export async function viewWelcome(view, params, cleanup) {
           <p class="muted s">Sign in with Steam to send your best lap per car and track (and, if you choose, its light telemetry) to the Paddock leaderboard. Off unless you turn it on.</p></div>
         <div class="row"><a href="#/leaderboard"><button class="small">Leaderboards</button></a>${skipBtn('online', 'Skip online')}</div></div>
       <div class="wz-opt"><div><b>Game mods: the Paddock HUD</b> ${o.hud ? `<span class="badge">${esc(hudText(o.hud))}</span>` : ''}
-          <p class="muted s">The in-game HUD (with the ACE UI App Loader it needs) is copied into AC EVO's folder while the game is closed. Skipping here changes nothing; to turn the HUD off, use the Mods tab.</p></div>
+          <p class="muted s">The in-game HUD (with the ACE UI App Loader it needs) is copied into AC EVO's folder while the game is closed. Skip it and Paddock puts nothing into the game folder (a HUD already there stays; the Mods tab removes it). Turn it on again in Settings → In-game HUD.</p></div>
         <div class="row"><a href="#/mods"><button class="small">Mods</button></a>${skipBtn('mods', 'Skip game mods')}</div></div>
       <p class="muted s" style="margin:10px 0 0">Also: ${o.services.updateCheck ? 'once a day Paddock asks GitHub whether a newer version is out (nothing about you is sent; switch it off in Settings → Updates).' : 'the daily update check is off.'}</p>`,
     drive: () => `<p>Start AC EVO, drive a few laps (3 or more give a full session report). Every lap you finish is saved when you cross the line.</p>
@@ -112,6 +113,6 @@ export async function viewWelcome(view, params, cleanup) {
 
 const lapsText = (l) => (l.own ? `${l.own} lap${l.own === 1 ? '' : 's'} recorded so far, ${l.valid} valid. Go on to the next step when you are ready.` : 'No lap recorded yet. You can go on and come back to this guide later (Settings or Ctrl+K).');
 function hudText(h) {
-  if (h.removed) return 'Off (Mods tab)';
+  if (h.removed) return 'Off: not installed by Paddock';
   return { current: 'Installed', outdated: 'Update waiting', missing: 'Installed when the game is closed', 'no-game': 'Waits for AC EVO', newer: 'Installed (newer)' }[h.state] || 'Not known';
 }

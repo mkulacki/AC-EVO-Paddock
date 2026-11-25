@@ -133,22 +133,18 @@ test('setup guide state: skips are recorded and change nothing else; unknown act
   assert.deepEqual(onboarding.normState({ state: 'weird', skipped: ['ai', 'nope', 'ai'], at: 'x' }), { state: null, at: null, skipped: ['ai'] });
 });
 
-test('setup guide: opens by itself only for a new driver; existing data is never sent through it', () => {
-  // this database has laps: never shown by itself, whatever the state
+test('setup guide: never opens by itself (OD-PL-24 c); hasData tells a driver from before', () => {
   const b = onboarding.build({ settings: {}, aceFound: false });
   assert.equal(b.hasData, true);
-  assert.equal(b.show, false);
+  assert.equal('show' in b, false, 'no auto-open flag any more');
   assert.equal(b.laps.own, 2);
-  // the rule without laps
   const raw = db.raw;
   raw.exec('BEGIN');
   try {
     raw.exec('DELETE FROM laps');
-    assert.equal(onboarding.build({ settings: {} }).show, true, 'new driver');
-    assert.equal(onboarding.build({ settings: { onboarding: { state: 'dismissed' } } }).show, false, 'put away');
-    assert.equal(onboarding.build({ settings: { onboarding: { state: 'done' } } }).show, false, 'finished');
-    assert.equal(onboarding.build({ settings: { geminiApiKey: 'k' } }).show, false, 'a key from before: not new');
-    assert.equal(onboarding.build({ settings: { boardToken: 't' } }).show, false, 'a sign-in from before: not new');
+    assert.equal(onboarding.build({ settings: {} }).hasData, false, 'new driver');
+    assert.equal(onboarding.build({ settings: { geminiApiKey: 'k' } }).hasData, true, 'a key from before');
+    assert.equal(onboarding.build({ settings: { boardToken: 't' } }).hasData, true, 'a sign-in from before');
     assert.equal(onboarding.firstComparison().href, null);
   } finally { raw.exec('ROLLBACK'); }
 });
