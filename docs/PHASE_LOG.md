@@ -566,3 +566,17 @@
 - **Review round (2026-11-25):** 0003 cannot run twice on D1, so the backfill moved to `0004_backfill_keys.sql` (updates only) and the Worker fills missing keys itself; `RATE_SALT` required (sign-in 503 without it); account deletion limited; Hide/Show fall back to `/admin/hide` on an older server, other new actions say the server is too old, a missing tier shows "–" (D-PL10-7 corrected, D-PL10-8, -9). Fixes `d3f3a93`. Tests: check 155/155, test 439/439, test:browser 26/26.
 - **Open decisions:** OD-PL-64 … 73, OPEN (operator), recommended defaults applied; the user reviews them in the app. D-PL10-1 … 7 to confirm.
 - **User approval:** pending. Push/merge/deploy not done.
+
+## PL11: Data ownership and extensibility
+
+- **Started / finished:** 2026-11-25 · branch `platform/pl11-data-ownership` (from `d97a278`, the PL10 merge) · scope in `docs/platform/BACKLOG.md` (PL11); report `docs/platform/PL11-report.md`; built features in `docs/platform/DATA_OWNERSHIP.md`; design only in `docs/platform/EXTENSIBILITY_DESIGN.md`
+- **Objectives:** scheduled verified backups with retention and a storage forecast; crash recovery of partial sessions; self-contained report files; a replayable demo kept apart from real data; local API, plugins, sync, signed updates and animation export as design only; local only, no schema change, no new dependency.
+- **Changes:**
+  - `src/autobackup.js`, `src/backupverify.js` (scheduled backups, verification in a worker), `src/recovery.js` (session journal), `src/reportexport.js` (offline HTML), `src/demo.js` (`--demo`, `data\demo`), `src/db.js` (`DEMO`), `src/server.js`, `desktop/main.cjs` (Quit ends a session, demo relaunch), `public/system.js`, `public/reports.js`, `public/app.js`, `public/style.css`.
+  - Commits: `201122f`, `14441b1`, `2a32a25`, `604ee48`, `b08f8cd`, plus the report commit.
+- **Findings:** saved laps survive a hard kill (WAL, runtime test); a crash lost the session's end (report, conditions) and the desktop Quit lost a lap waiting for its official time (both fixed); backups had no free-space check (scheduled ones now do).
+- **Tests:** `npm run check` 155/155 → 164/164; `npm test` 439/439 → 462/462 (Node 22.23.4); `npm run test:electron` 462/462 (Node 24.22.2); `npm run test:browser` 26/26; `npm run smoke:packaged -- --build` passed; packaged exe with `--demo` checked on a scratch folder.
+- **Known limitations:** the lap in progress at a crash is not kept (OD-PL-79); full disks and cloud folders simulated; nothing checked in AC EVO; the demo relaunch from Settings not clicked through in the desktop app.
+- **Needs approval:** push/merge; everything in `EXTENSIBILITY_DESIGN.md`.
+- **Open decisions:** OD-PL-74 … 82, OPEN (operator), recommended defaults applied; the user reviews them in the app. D-PL11-1 … 4 to confirm.
+- **User approval:** pending. Push/merge not done.

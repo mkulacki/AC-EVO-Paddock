@@ -108,6 +108,7 @@ Tests: one failing regression test per verified finding before its fix, plus the
 
 - Implement: scheduled verified backups (idle only; reuse `src/backup.js` and the PL1 inventory), retention, storage forecast, partial-session recovery, self-contained report export, replayable demo sessions (from `src/mock.js`).
 - Design only: local read-only API, plugins, sync, signed releases/updates, animation export.
+- **Done 2026-11-25** (`docs/platform/PL11-report.md`, `docs/platform/DATA_OWNERSHIP.md`, design in `docs/platform/EXTENSIBILITY_DESIGN.md`): no schema change (journal file for recovery, separate `data\demo` folder for the demo); OD-PL-74 … 82 applied as operator defaults. Follow-ups: the lap in progress at a crash is not kept (OD-PL-79); a backups folder of the driver's choice (OD-PL-77 (c)); the local API as the first extensibility step, after approval.
 
 ## RB: research reports
 
