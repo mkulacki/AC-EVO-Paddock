@@ -933,3 +933,74 @@ test('setup experiment: created from Setup history, past sessions and live stint
   await waitFor("!document.querySelector('.palette-back') && window.__rendered > 0 && location.hash.startsWith('#/experiments')", 'Ctrl+K -> Setup experiments');
   assert.deepEqual(errors, []);
 });
+
+// ---------------------------------------------------------------- PL9: kill switch, HUD layouts and context profiles
+test('kill switch: Alt+Q and Ctrl+K switch the HUD and cues off and on; the HUD data says off and carries nothing live (PL9)', { skip }, async () => {
+  await go('#/home');
+  await waitFor("document.querySelector('#assistBtn') && !document.querySelector('#assistBtn').hidden", 'the sidebar switch');
+  await js('document.activeElement?.blur(); 1');
+  await press('q', { alt: true });
+  await waitFor("document.querySelector('#assistBtn').classList.contains('off')", 'Alt+Q -> off');
+  assert.equal((await api('/api/assist')).body.off, true);
+  const hud = (await api('/api/hud')).body;
+  assert.equal(hud.off, true);
+  for (const k of ['lap', 'delta', 'cue']) assert.equal(hud[k], null, k);
+  for (const k of ['ahead', 'times', 'sectors', 'board', 'target']) assert.equal(hud[k], undefined, k);
+  assert.ok(hud.cfg?.parts, 'the look still travels');
+  // the settings page shows the same switch
+  await go('#/settings', "document.querySelector('#asOff')");
+  assert.equal(await js("document.querySelector('#asOff').checked"), true);
+  // Ctrl+K: the command is named for what it will do
+  await js('document.activeElement?.blur(); 1');
+  await press('k', { ctrl: true });
+  await waitFor("document.querySelector('.palette input') === document.activeElement", 'the palette, focused');
+  await cdp('Input.insertText', { text: 'hud and cues' });
+  await waitFor("document.querySelector('.palette-list li[role=option]')", 'palette results');
+  assert.match(await js("document.querySelector('.palette-list li.sel').textContent"), /switch on again/);
+  await press('Enter');
+  await waitFor("!document.querySelector('#assistBtn').classList.contains('off')", 'Ctrl+K -> on');
+  await waitFor("!document.querySelector('.palette-back')", 'the palette closes');
+  assert.equal(await js("document.querySelector('#asOff').checked"), false);
+  assert.equal((await api('/api/assist')).body.off, false);
+  assert.equal((await api('/api/hud')).body.off, undefined);
+  // other sites cannot flip it
+  assert.equal((await api('/api/assist', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, body: JSON.stringify({ off: true }) })).status, 403);
+  assert.equal((await api('/api/assist', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ off: 'yes' }) })).status, 400);
+  assert.deepEqual(errors, []);
+});
+
+test('HUD layouts: apply a built-in one, save the look under a name, context profiles on; cue timing in Settings (PL9)', { skip }, async () => {
+  await go('#/settings', "document.querySelector('#hlPick option')");
+  assert.deepEqual(await js("[...document.querySelectorAll('#hlPick option')].map((o) => o.value)"), ['Default', 'Minimal', 'Race']);
+  assert.equal(await js("document.querySelector('#hlAuto').checked"), false);
+  await js("document.querySelector('#hlPick').value = 'Minimal'; document.querySelector('#hlApply').click(); 1");
+  await waitFor("/applied/.test(document.querySelector('#hlMsg').textContent)", 'applied');
+  let s = (await api('/api/settings')).body;
+  assert.equal(s.hud.parts.best, false);
+  assert.equal(s.hud.parts.delta, true);
+  assert.equal(await js("document.querySelector('[data-part=best]').checked"), false);
+  await js("document.querySelector('#hlName').value = 'My minimal'; document.querySelector('#hlSave').click(); 1");
+  await waitFor("[...document.querySelectorAll('#hlPick option')].some((o) => o.value === 'My minimal')", 'saved layout listed');
+  await js("{ const c = document.querySelector('#hlAuto'); c.checked = true; c.dispatchEvent(new Event('change')); } 1");
+  await waitFor("!document.querySelector('[data-hltype=\"1\"]').disabled", 'profile selects enabled');
+  await js("{ const x = document.querySelector('[data-hltype=\"1\"]'); x.value = 'My minimal'; x.dispatchEvent(new Event('change')); } 1");
+  await waitFor("/Saved/.test(document.querySelector('#hlMsg').textContent)", 'profile saved');
+  const v = (await api('/api/hudlayouts')).body;
+  assert.equal(v.auto, true);
+  assert.equal(v.byType['1'], 'My minimal');
+  assert.deepEqual(v.list.map((l) => l.name), ['My minimal']);
+  // cue result time and the spotter's quiet time are on the page and saved
+  await js("{ const r = document.querySelector('#hudCueHold'); r.value = 4000; r.dispatchEvent(new Event('input')); } 1");
+  await waitFor("document.querySelector('#hudCueHoldV').textContent === '4 s'", 'cue hold shown');
+  await js("{ const r = document.querySelector('#spCool'); r.value = 1000; r.dispatchEvent(new Event('input')); } 1");
+  await sleep(600);
+  s = (await api('/api/settings')).body;
+  assert.equal(s.hud.cueHoldMs, 4000);
+  assert.equal(s.spotter.cooldownMs, 1000);
+  // back to how it was, for the flows after this one
+  await api('/api/hudlayouts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'contexts', auto: false }) });
+  await api('/api/hudlayouts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'apply', name: 'Default' }) });
+  await api('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ spotter: { cooldownMs: 0 } }) });
+  assert.equal((await api('/api/hudlayouts', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, body: JSON.stringify({ action: 'apply', name: 'Race' }) })).status, 403);
+  assert.deepEqual(errors, []);
+});
