@@ -191,6 +191,24 @@ test('laps on another game version do not count towards a drill; replace closes 
   assert.equal(db.drillEvents().get(d1.id), undefined);
 });
 
+test('two pages working the drills out at once record "met" once and announce it once', async () => {
+  // the newest laps are on game version 2.0: the drill's "before" is those laps only (5 good ones so far, so 6 more
+  // with the hold first, or it would already be reached)
+  drive(6, T0 + 11e6, BAD_T2, '2.0');
+  const d = await drills.create({ combo: COMBO, corner: 'T2', key: 'holdMs', replace: true }, T0 + 11.5e6);
+  assert.equal(d.prescription.evidence.game, '2.0');
+  assert.equal(d.prescription.before.n, 11);
+  drive(5, T0 + 12e6, GOOD_T2, '2.0');
+  const told = [];
+  drills.setOnMet((x) => told.push(x.id));
+  const [a, b] = await Promise.all([drills.list({ combo: COMBO }), drills.list({ combo: COMBO })]);
+  assert.equal(a.drills.find((x) => x.id === d.id).state, 'met');
+  assert.equal(b.drills.find((x) => x.id === d.id).state, 'met');
+  assert.deepEqual(db.drillEvents().get(d.id).map((e) => e.kind), ['met']);
+  assert.deepEqual(told, [d.id]);
+  drills.setOnMet(() => {});
+});
+
 test('the practice loop works with AI off: no AI module in it, and no AI key set', () => {
   for (const f of ['src/practice.js', 'src/drills.js', 'public/practice.js']) {
     const src = fs.readFileSync(path.join(ROOT, f), 'utf8');

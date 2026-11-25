@@ -54,11 +54,12 @@ async function evaluateOne(g, events, { superseded = false } = {}) {
   e.compat = compat.mix(svc.lapProvenance([...(p.baselineIds || []), ...r.passes.map((x) => x.lapId)]));
   out.state = e.state; out.eval = e;
   if (e.state === 'met') {
-    db.setGoalMet(g.id, { at: e.met.at, sessionId: e.met.sessionId, lapId: e.met.lapId, value: e.share });
-    db.addDrillEvent(g.id, 'met', e, e.met.at);
+    // stored once: two pages working it out at the same moment both see it met, only the first one records it
+    const first = Number(db.setGoalMet(g.id, { at: e.met.at, sessionId: e.met.sessionId, lapId: e.met.lapId, value: e.share }).changes) === 1;
+    if (first) db.addDrillEvent(g.id, 'met', e, e.met.at);
     out.active = false;
     out.met = { at: e.met.at, sessionId: e.met.sessionId, lapId: e.met.lapId, value: e.share };
-    try { onMet(out); } catch (err) { console.log(`[drill] ${err.message}`); }
+    if (first) { try { onMet(out); } catch (err) { console.log(`[drill] ${err.message}`); } }
   }
   return out;
 }
@@ -85,7 +86,10 @@ export async function masteryFor(combo, drills) {
   return practice.mastery(a.corners, drills.filter((d) => same(d.combo, combo)));
 }
 
-const activeOf = (combo) => db.listDrills().find((g) => same(g.combo, combo) && !g.met && !(db.drillEvents().get(g.id) || []).some((e) => e.kind === 'stopped' || e.kind === 'replaced'));
+function activeOf(combo) {
+  const events = db.drillEvents();
+  return db.listDrills().find((g) => same(g.combo, combo) && !g.met && !(events.get(g.id) || []).some((e) => e.kind === 'stopped' || e.kind === 'replaced'));
+}
 
 function comboOf(b) {
   const c = b?.combo || b || {};
