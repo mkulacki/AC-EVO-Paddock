@@ -13,7 +13,9 @@
 | `513c867` | `src/experiments.js` (options from the P7 setup history and this track's saved files, create, stints live or by session, journal, feedback, review, reopen, archive, restore, delete, warnings for edited/missing files and game updates); `/api/experiments` (private GET); `src/setups.js` ancestry (`basedOnRel`, `lineage`, renames carry it); lifecycle and `.carsetup` round-trip tests |
 | `64a38a8` | `public/experiments.js` pages `#/experiments` and `#/experiment`, card on Setup history, Ctrl+K entries, styles; browser flow (create, run, review, archive) |
 | `c093f31` | `docs/platform/EXPERIMENTS.md`, DECISIONS (D-PL8-1 … 8, OD-PL-42 … 53), inventory, architecture, backlog, changelog; "counted by stint only" row |
-| (this commit) | this report, `docs/PHASE_LOG.md`, `docs/DEVELOPMENT_STATE.md` |
+| `9aefbc0` | this report, `docs/PHASE_LOG.md`, `docs/DEVELOPMENT_STATE.md` |
+| `ea78bdf` | Review fixes 1–7 (see "Review round" below) with regression tests |
+| (this commit) | review-round docs |
 
 ## Verified findings / rejected assumptions / unresolved
 
@@ -71,6 +73,10 @@ OD-PL-42 … 53, each **OPEN (operator), recommended default applied, user revie
 - A renamed setup file breaks the link between an experiment and its laps recorded after the rename (said in a warning; laps recognised as "another file" are left out).
 - Fuel and tyre state per stint are not observable; only stated as a confound.
 - Experiments are not visible to the AI setup engineer (by choice, D-PL8-7).
+
+## Review round (2026-11-25)
+
+An independent review found: (1) identical lap times gave a 0 ms interval, so a 1 ms gap read as a difference: interval floor ±50 ms (D-PL8-9); (2) overlapping stints were accepted and a lap went to the first matching stint: overlaps refused, each lap in one stint, order-independent (D-PL8-10); (3) warm-up was per stint, so the cold lap after a restart inside a stint counted: warm-up per run (session or 5-minute pause, D-PL8-11); (4) no successful `.carsetup` import was tested: import → export → copy now tested byte-identical with a test catalogue (`setups.useCatalogs`, D-PL8-14); (5) laps without recorded conditions could give a clean "difference": now inconclusive with the reason in the verdict (OD-PL-46 refinement, operator default); (6) prototype keys (`constructor`) passed enum lookups and could break the list page: own-key checks (D-PL8-12); (7) a session stint whose laps were deleted showed as driven: "no laps", not counted (D-PL8-13). Fixed in `ea78bdf`. Tests after the review: check 149/149, test 397/397 (Node 22), test:electron 397/397 (Node 24), test:browser 24/24.
 
 ## Recommended next phase
 

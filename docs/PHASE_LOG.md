@@ -531,5 +531,6 @@
 - **Findings:** saved setups named their parent only (now with its path); setup recognition cannot decide A/B on its own while unverified (stints decide, OD-PL-42); `compat.classify` serves as the matched-condition filter with setup and version neutralised.
 - **Tests:** `npm run check` 144/144 → 149/149; `npm test` 369/369 → 388/388 (Node 22.23.4); `npm run test:electron` 388/388 (Node 24.22.2); `npm run test:browser` 23/23 → 24/24 (×2).
 - **Known limitations:** thresholds on synthetic laps only; fuel, tyres and traffic not observable; packaged smoke not run (port 8080 in use by the user's app).
-- **Open decisions:** OD-PL-42 … 53, OPEN (operator), recommended defaults applied; the user reviews them in the app.
+- **Review round (2026-11-25):** interval floor ±50 ms; overlapping stints refused, one stint per lap; warm-up per run; a real `.carsetup` import/export/copy round trip; no clean difference on laps without recorded conditions (OD-PL-46 refinement); own-key enum checks; empty stints not driven. Fixed in `ea78bdf` with regression tests (D-PL8-9 … 14). Tests: check 149/149, test 397/397, test:electron 397/397, test:browser 24/24.
+- **Open decisions:** OD-PL-42 … 53 and the OD-PL-46 refinement, OPEN (operator), recommended defaults applied; the user reviews them in the app.
 - **User approval:** pending. Push/merge not done.

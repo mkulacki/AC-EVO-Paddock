@@ -30,7 +30,7 @@ _Last updated: 2026-11-25 (PL8)_
 | PL5 | Onboarding and usability | Done 2026-11-25, review fixes applied (`5395369`, `9abd626`) |
 | PL6 | Actionable lap analysis | Done 2026-11-25, review fixes applied (`76bb4ec`) (`docs/platform/PL6-report.md`) |
 | PL7 | Structured practice | Done 2026-11-25, review fixes applied (`d0097a2`) (`docs/platform/PL7-report.md`) |
-| PL8 | Setup experiments | Done 2026-11-25, awaiting review (`docs/platform/PL8-report.md`) |
+| PL8 | Setup experiments | Done 2026-11-25, review fixes applied (`ea78bdf`), awaiting the user's review (`docs/platform/PL8-report.md`) |
 | PL9–PL11 | Platform plan | Not started; see `docs/platform/BACKLOG.md` |
 
 ## Current task
@@ -56,7 +56,7 @@ None in progress. PL8 is committed on `platform/pl8-setup-experiments`: report `
 - PL4 (2026-11-25, `platform/pl4-compatibility`): `npm run check` 124/124; `npm test` 272/272 (Node 22.23.4); `npm run test:electron` 272/272 (Node 24.22.2); `npm run test:browser` 16/16. After the review fixes: check 124/124, test 279/279, test:electron 279/279, test:browser 16/16.
 - PL5 (2026-11-25, `platform/pl5-onboarding`): baseline at `4d25a15` check 124/124, test 280/280; after: `npm run check` 130/130; `npm test` 299/299 (Node 22.23.4); `npm run test:electron` 299/299 (Node 24.22.2); `npm run test:browser` 21/21 (4 runs). After the review fixes: check 131/131, test 306/306, test:electron 306/306, test:browser 21/21 (3 runs).
 - PL6 (2026-11-25, `platform/pl6-analysis`): baseline at `c65fa65` check 131/131, test 307/307, test:browser 21/21; after: `npm run check` 138/138; `npm test` 337/337 (Node 22.23.4); `npm run test:electron` 337/337 (Node 24.22.2); `npm run test:browser` 22/22 (2 runs). Lap analysis of 30 laps: longest hold 12.7 ms. After the review fixes: check 138/138, test 346/346, test:electron 346/346, test:browser 22/22 (2 runs).
-- PL8 (2026-11-25, `platform/pl8-setup-experiments`): baseline at `87b3131` check 144/144, test 369/369, test:browser 23/23; after: `npm run check` 149/149; `npm test` 388/388 (Node 22.23.4); `npm run test:electron` 388/388 (Node 24.22.2); `npm run test:browser` 24/24 (2 runs). Packaged smoke not run (port 8080 in use).
+- PL8 (2026-11-25, `platform/pl8-setup-experiments`): baseline at `87b3131` check 144/144, test 369/369, test:browser 23/23; after: `npm run check` 149/149; `npm test` 388/388 (Node 22.23.4); `npm run test:electron` 388/388 (Node 24.22.2); `npm run test:browser` 24/24 (2 runs). Packaged smoke not run (port 8080 in use). After the review fixes: check 149/149, test 397/397, test:electron 397/397, test:browser 24/24.
 - PL7 (2026-11-25, `platform/pl7-practice`): baseline at `ff85248` check 138/138, test 346/346, test:browser 22/22; after: `npm run check` 143/143; `npm test` 365/365 (Node 22.23.4); `npm run test:electron` 365/365 (Node 24.22.2); `npm run test:browser` 23/23. After the review fixes: check 144/144, test 369/369, test:electron 369/369, test:browser 23/23.
 
 ## Pending user decisions
