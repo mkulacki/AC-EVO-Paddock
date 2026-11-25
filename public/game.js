@@ -12,6 +12,20 @@ export const STATUS_TEXT = {
 const HEALTH_TEXT = { ok: 'OK', warn: 'Needs a look', bad: 'Not working', off: 'Off', unknown: 'Not known' };
 const HEALTH_TAG = { ok: 'All good', warn: 'Needs a look', bad: 'Something is not working', unknown: 'Not known' };
 
+/** The health checks as list items (Game page, setup guide). open: ids of rows to keep open. */
+export function healthItemsHtml(h, open = new Set()) {
+  const item = (c) => {
+    const more = c.details.length || c.steps.length || c.href;
+    const head = `<span class="hdot" aria-hidden="true"></span><b>${esc(c.label)}</b><span class="hstate">${HEALTH_TEXT[c.state] || esc(c.state)}</span><span class="hsum">${esc(c.summary)}</span>`;
+    return `<li class="health-item st-${esc(c.state)}" data-check="${esc(c.id)}">${!more ? `<div class="hhead">${head}</div>` : `<details data-id="${esc(c.id)}" ${open.has(c.id) || (!open.size && (c.state === 'bad' || c.state === 'warn') && c.steps.length) ? 'open' : ''}>
+      <summary class="hhead">${head}</summary><div class="hbody">
+      ${c.details.map((d) => `<p>${esc(d)}</p>`).join('')}
+      ${c.steps.length ? `<p class="hsteps-h">What to do</p><ol class="hsteps">${c.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
+      ${c.href ? `<a href="${esc(c.href)}">${esc(c.hrefLabel || 'Open')}</a>` : ''}</div></details>`}</li>`;
+  };
+  return h.checks.map(item).join('');
+}
+
 // ================================================================== GAME
 export async function viewGame(view, cleanup) {
   view.innerHTML = `<div class="card"><div class="row"><h1 style="margin:0">AC EVO</h1><span class="spacer"></span>
@@ -43,17 +57,8 @@ export async function viewGame(view, cleanup) {
     try { h = await api('/api/health'); } catch (e) { box.innerHTML = `<h2 style="margin-top:0">Integration health</h2><p class="g-bad">${esc(e.message)}</p>`; return; }
     if (!box.isConnected) return;
     const open = new Set([...box.querySelectorAll('details[open][data-id]')].map((d) => d.dataset.id)); // redrawn every 2 s: keep open ones open
-    const item = (c) => {
-      const more = c.details.length || c.steps.length || c.href;
-      const head = `<span class="hdot" aria-hidden="true"></span><b>${esc(c.label)}</b><span class="hstate">${HEALTH_TEXT[c.state] || esc(c.state)}</span><span class="hsum">${esc(c.summary)}</span>`;
-      return `<li class="health-item st-${esc(c.state)}" data-check="${esc(c.id)}">${!more ? `<div class="hhead">${head}</div>` : `<details data-id="${esc(c.id)}" ${open.has(c.id) || (!open.size && (c.state === 'bad' || c.state === 'warn') && c.steps.length) ? 'open' : ''}>
-        <summary class="hhead">${head}</summary><div class="hbody">
-        ${c.details.map((d) => `<p>${esc(d)}</p>`).join('')}
-        ${c.steps.length ? `<p class="hsteps-h">What to do</p><ol class="hsteps">${c.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
-        ${c.href ? `<a href="${esc(c.href)}">${esc(c.hrefLabel || 'Open')}</a>` : ''}</div></details>`}</li>`;
-    };
     box.innerHTML = `<div class="row"><h2 style="margin:0">Integration health</h2><span class="spacer"></span><span class="health-tag st-${esc(h.worst)}">${HEALTH_TAG[h.worst] || ''}</span></div>
-      <ul class="health-list">${h.checks.map(item).join('')}</ul>
+      <ul class="health-list">${healthItemsHtml(h, open)}</ul>
       <p class="hint" style="margin:8px 0 0">From what Paddock already knows: nothing is sent over the internet to fill this in. For a bug report, copy <a href="#/settings">Settings → Diagnostics</a>.</p>`;
   }
 

@@ -14,6 +14,7 @@ import { viewSetups } from './setups.js';
 import { initSpotter } from './spotter.js';
 import { viewSessions } from './sessions.js';
 import { viewHome } from './home.js';
+import { viewWelcome } from './welcome.js';
 import { viewCompare } from './compare.js';
 import { viewGame, STATUS_TEXT } from './game.js';
 import { viewSettings } from './settingspage.js';
@@ -115,13 +116,14 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/home').split('?'); // Paddock opens on Home; #/ is Sessions
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/coach': 'coach', '/development': 'development', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/cars': 'cars', '/car': 'car', '/report': 'report', '/leaderboard': 'leaderboard' }[path] || 'laps';
-  const navKey = currentRoute === 'track' ? 'tracks' : currentRoute === 'car' ? 'cars' : ['home', 'settings', 'game', 'mods', 'race', 'setups', 'tracks', 'cars', 'development', 'leaderboard'].includes(currentRoute) ? currentRoute : 'laps';
+  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/coach': 'coach', '/development': 'development', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/cars': 'cars', '/car': 'car', '/report': 'report', '/leaderboard': 'leaderboard', '/welcome': 'welcome' }[path] || 'laps';
+  const navKey = currentRoute === 'track' ? 'tracks' : currentRoute === 'car' ? 'cars' : ['home', 'settings', 'game', 'mods', 'race', 'setups', 'tracks', 'cars', 'development', 'leaderboard', 'welcome'].includes(currentRoute) ? currentRoute : 'laps';
   if (navKey === 'laps') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
   if (navKey === 'development') document.querySelector('nav a[data-nav=development] .nav-dot')?.remove();
   document.querySelectorAll('nav a[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
   try {
     if (currentRoute === 'home') await viewHome(view, mine);
+    else if (currentRoute === 'welcome') await viewWelcome(view, params, mine);
     else if (currentRoute === 'game') await viewGame(view, mine);
     else if (currentRoute === 'mods') await viewMods(view, mine);
     else if (currentRoute === 'leaderboard') await viewLeaderboard(view, mine, params);
@@ -151,7 +153,15 @@ async function render() {
   }
 }
 window.addEventListener('hashchange', render);
-queueMicrotask(render); // after all module-level declarations are initialised
+// PL5: a new driver (no laps, the setup guide never finished or put away; src/onboarding.js) starts on the guide,
+// everyone else on Home. Only when Paddock is opened without a page in the address.
+async function start() {
+  if (!location.hash || location.hash === '#') {
+    try { if ((await api('/api/onboarding')).show) { location.replace('#/welcome'); return; } } catch { /* Home, as before */ }
+  }
+  render();
+}
+queueMicrotask(start); // after all module-level declarations are initialised
 
 events.addEventListener('lap', () => { forgetCompare(); window.dispatchEvent(new Event('paddock:lapsaved')); }); // a new lap can change the best and the ideal lap
 initShortcuts(); // sidebar, command palette (Ctrl+K), keyboard shortcuts (public/palette.js)

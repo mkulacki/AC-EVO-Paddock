@@ -77,7 +77,9 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
   view.innerHTML = `<div class="card"><h1 id="settingsTitle" tabindex="-1">Settings</h1><p class="muted">Stored locally in <code>data/settings.json</code>.</p><div id="fileNoticesBox">${fileNoticesHtml(s.fileNotices)}</div>
     <div class="form">
       <label>Theme</label><div class="row"><span class="seg" id="theme">${THEMES.map(([k, label]) => `<button class="small" data-theme="${k}">${label}</button>`).join('')}</span></div>
-      <div class="hint">Saved on this computer straight away. "System" follows the Windows light / dark setting.</div>
+      <div class="hint">Saved on this computer straight away. "System" follows the Windows light / dark setting. Text size: <kbd>Ctrl</kbd> <kbd>+</kbd> / <kbd>Ctrl</kbd> <kbd>−</kbd>, <kbd>Ctrl</kbd> <kbd>0</kbd> for normal.</div>
+      <label>Setup guide</label><div class="row"><a href="#/welcome" id="openGuide"><button class="small" tabindex="-1">Open the setup guide</button></a></div>
+      <div class="hint">Find the game, check the connections, choose the optional services, drive a first session and open a first comparison.</div>
       <label>Driver name</label><input id="driverName" value="${esc(s.driverName)}" placeholder="defaults to the name from the game">
       <label>Gemini API key</label><input id="geminiApiKey" value="${esc(s.geminiApiKey)}" placeholder="paste key" autocomplete="off">
       <div class="hint">Free key: <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>. Only a compact per-corner summary is sent, never raw telemetry.</div>
