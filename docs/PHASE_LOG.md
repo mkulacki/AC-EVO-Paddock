@@ -486,3 +486,18 @@
 - **Review round (2026-11-25):** orphaned notes after deleting a session's laps (D-PL5-15, user: deleted with the last lap, leftovers cleaned at start); a newer database (`user_version` 3) was opened and written, now left untouched with an in-memory database and a message, restores checked against `SCHEMA_VERSION` (D-PL5-16); `/api/overview` and `/api/dashboard` private, 64 KB notes bodies, early tag-list check (D-PL5-17); truthful Progress fallback; pre-v2 copy for any user rows. User decisions: OD-PL-19/20/21/23 (a); OD-PL-22 → (b) skipping game mods switches off the automatic HUD/loader install via the existing flags, Settings → In-game HUD (D-PL5-18); OD-PL-24 → (c) the guide never opens by itself; D-PL5-1 … 14 confirmed. Commits `5395369`, `9abd626` + docs. Tests: check 131/131, test 306/306, test:electron 306/306, test:browser 21/21 ×3.
 - **Open decisions:** none.
 - **User approval:** pending. Push/merge not done.
+
+## PL6: Actionable lap analysis
+
+- **Started / finished:** 2026-11-25 · branch `platform/pl6-analysis` (from `c65fa65`, the PL5 merge) · scope in `docs/platform/BACKLOG.md` (PL6); report `docs/platform/PL6-report.md`; algorithms in `docs/platform/ANALYSIS.md`
+- **Objectives:** ranked corner opportunities with entry/apex/exit split, brake release, throttle hesitation and delayed acceleration, gear choice, corner distributions, PB explanation, multi-session trends, a repeatability target lap next to the ideal; deterministic, minimum samples, PL4 classes, no fabricated channels.
+- **Changes:**
+  - `src/stats.js` (quantiles, median interval, Theil–Sen); `src/analysis.js` `holdMs`, `phaseTimes`, `channelPresence`; `src/opportunities.js` (pure aggregation, `RULES`).
+  - `src/service.js` `lapAnalysisAsync` in slices with per-lap numbers in the PL3 cache, anchor = newest valid lap (incompatible laps left out and listed, mix labelled, optional same game version / setup), `GET /api/analysis`.
+  - `public/analysis.js` Lap analysis page: top three cards (headline, confidence, phase bar, "What was measured" apart from "What it may mean", links to Compare at the corner), all corners with distribution strips and details, target lap, PB card, trends; links from Sessions, Consistency, Ctrl+K.
+  - Commits: `a288182`, `271bcb7`, `3a95dfc`, `afe65c2`, `6dddedb`, `76cd6c2`, `197737f`, plus the docs commit.
+- **Findings:** the report and Consistency compare with a single fastest pass (`src/report.js:44`, `public/consistency.js:42`); missing channels resample as zeros (`src/analysis.js:17`); no brake pressure and no per-lap automatic-gearbox record (labelled); the first version held the loop 41 ms with cached traces (fixed, 12.7 ms); the browser import flow re-imported the oldest lap overall (now a mock lap).
+- **Tests:** `npm run check` 131/131 → 138/138; `npm test` 307/307 → 337/337 (Node 22.23.4); `npm run test:electron` 337/337 (Node 24.22.2); `npm run test:browser` 21/21 → 22/22 (×2).
+- **Known limitations:** thresholds tuned on synthetic and mock laps only (no game here); associations, not causes; packaged smoke and bench not rerun (port 8080 busy; loop unchanged); no DB change.
+- **Open decisions:** OD-PL-25 … 31 (conservative defaults built); D-PL6-1 … 9 made without asking.
+- **User approval:** pending. Push/merge not done.
