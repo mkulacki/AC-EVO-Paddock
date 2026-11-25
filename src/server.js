@@ -33,6 +33,7 @@ import * as carreport from './carreport.js';
 import * as setuphistory from './setuphistory.js';
 import * as coach from './coach.js';
 import * as goals from './goals.js';
+import * as drills from './drills.js';
 import * as weekends from './weekends.js';
 import * as achievements from './achievements.js';
 import * as channels from './channels.js';
@@ -196,6 +197,13 @@ goals.setOnMet((g) => {
   broadcast('goal', { id: g.id, text: g.text, challenge: g.challenge });
   globalThis.__paddockNotify?.({ title: `${what}: ${g.combo.track} · ${g.combo.car}`, body: g.text, hash: '#/development' });
 });
+// a practice drill met for the first time (noticed when the practice data is worked out: Development, Lap analysis)
+drills.setOnMet((d) => {
+  const text = `${d.corner}: ${d.label}`;
+  console.log(`[drill] Drill met: ${text}`);
+  broadcast('goal', { id: d.id, text: `Drill met: ${text}`, challenge: false });
+  globalThis.__paddockNotify?.({ title: `Drill met: ${d.combo.track} · ${d.combo.car}`, body: text, hash: '#/development' });
+});
 let knownAchievements = null; // ids unlocked so far (null until first worked out: nothing is announced at start)
 // goals + achievements, worked out once per change (laps, goals, launches, the live session) and at most once a minute
 // otherwise (challenge deadlines pass with time): Home and Development reuse it
@@ -341,7 +349,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review)
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7)
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -1042,6 +1050,27 @@ async function route(req, res) {
       devChanged();
       return send(res, 200, { goal: g });
     } catch (e) { return send(res, e.status || 500, { error: e.message }); }
+  }
+  // ---- Structured practice (PL7): drills from the lap analysis, checked on the passes driven afterwards (no AI)
+  if (p === '/api/practice' && m === 'GET') {
+    const q = url.searchParams;
+    const combo = q.get('track') != null && q.get('car') != null ? { track: q.get('track'), layout: q.get('layout') ?? '', car: q.get('car') } : null;
+    const out = await drills.list({ combo });
+    if (combo) out.mastery = await drills.masteryFor(combo, out.drills);
+    return send(res, 200, out);
+  }
+  if (p === '/api/practice' && m === 'POST') {
+    const q = await readJson(req);
+    try {
+      let out;
+      if (q.action === 'create') out = { drill: await drills.create(q) };
+      else if (q.action === 'keep') out = { drill: await drills.keep(Number(q.id)) };
+      else if (q.action === 'stop') out = { drill: await drills.stop(Number(q.id)) };
+      else if (q.action === 'remove') out = await drills.remove(Number(q.id));
+      else return send(res, 400, { error: 'Unknown action' });
+      devChanged();
+      return send(res, 200, out);
+    } catch (e) { return send(res, e.status || 500, { error: e.message, ...(e.code === 'active' ? { code: e.code, active: e.active } : {}) }); }
   }
   if (p === '/api/achievements/seen' && m === 'POST') { achievements.markSeen(); return send(res, 200, { ok: true }); }
   // session planner: a driven car + track, a Race tab preset (or a quick / 30-minute practice), optionally for a goal

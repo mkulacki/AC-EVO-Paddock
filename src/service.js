@@ -419,12 +419,7 @@ function* analysisSteps(combo, info, { window, match }) {
   // the automatic gearbox per lap (laps.aids.assists, from the Paddock HUD): 'auto' laps are left out of gear
   // comparisons, 'unknown' ones are labelled; assist readings marked as wrong count as unknown (review fix 2)
   const assistsWrong = channels.status('assists', { car: combo.car }) === 'mismatch';
-  const gearboxOf = (l) => {
-    if (assistsWrong) return 'unknown';
-    let a = null; try { a = typeof l.aids === 'string' ? JSON.parse(l.aids) : l.aids; } catch { /* old row */ }
-    const g = a?.assists?.gearbox;
-    return g === true ? 'auto' : g === false ? 'manual' : 'unknown';
-  };
+  const gearboxOf = (l) => gearboxOfLap(l, assistsWrong);
   let set = valid.filter((l) => {
     const k = compat.classify(prov(l), anchor);
     if (k.level !== 'incompatible') return true;
@@ -515,6 +510,75 @@ export function lapAnalysisAsync(combo, opts = {}) {
   })().finally(() => { if (analysisRuns.get(key) === run) analysisRuns.delete(key); });
   analysisRuns.set(key, run);
   return run;
+}
+
+// ---------------------------------------------------------------- practice drills (PL7)
+// The passes of one corner for a practice drill (src/drills.js, src/practice.js): the drill's metric and the corner
+// time of each valid own lap, from the same per-lap numbers as the lap analysis (lapPasses, kept per lap), worked out
+// in slices. The corner is found again by its apex (the corners come from the best lap, which can change).
+const APEX_MATCH_M = 40;
+/** Index of the corner whose apex is nearest want.apex (within APEX_MATCH_M; the same name wins a tie), or -1. */
+export function matchCorner(corners, want) {
+  let best = -1, bestD = Infinity;
+  corners.forEach((c, k) => {
+    const d = Math.abs(c.apex - want.apex);
+    if (d <= APEX_MATCH_M && (d < bestD || (d === bestD && c.name === want.name))) { best = k; bestD = d; }
+  });
+  return best;
+}
+const gearboxOfLap = (l, assistsWrong) => {
+  if (assistsWrong) return 'unknown';
+  let a = null; try { a = typeof l.aids === 'string' ? JSON.parse(l.aids) : l.aids; } catch { /* old row */ }
+  const g = a?.assists?.gearbox;
+  return g === true ? 'auto' : g === false ? 'manual' : 'unknown';
+};
+function* drillSteps(combo, info, spec, opts) {
+  const none = (reason) => ({ found: false, reason, passes: [], excluded: [] });
+  if (channels.evaluate('core', { car: combo.car }).state === 'unsupported') return none('The speed, pedal and gear readings are marked as not matching the game: drills cannot be checked.');
+  const bestR = getResampled(info.best.id)?.R;
+  if (!bestR) return none('The best lap was deleted meanwhile: try again.');
+  const refN = bestR.n;
+  const k = matchCorner(info.corners.map((c) => ({ name: c.name, apex: Math.round(bestR.d[c.apexIdx]) })), spec.corner);
+  if (k < 0) return none(`${spec.corner.name} is not found on this track's corner list any more (the corners come from your best lap, which changed).`);
+  const assistsWrong = channels.status('assists', { car: combo.car }) === 'mismatch';
+  let laps = db.lapsForCombo(combo.track, combo.layout, combo.car, true).filter((l) => l.valid);
+  if (opts.ids) { const want = new Set(opts.ids); laps = laps.filter((l) => want.has(l.id)); }
+  if (opts.since != null) laps = laps.filter((l) => l.recorded_at >= opts.since);
+  laps.sort((a, b) => a.recorded_at - b.recorded_at || a.id - b.id);
+  if (opts.newest) laps = laps.slice(-opts.newest);
+  const excluded = [], passes = [];
+  const sig = `pl6|${PASS_REV}|${cornerSig.get(info)}`;
+  for (const l of laps) {
+    // a game update can change grip and braking: before / after across versions is not a fair check (OD-PL-34)
+    let game = null; try { game = JSON.parse(l.cond || 'null')?.game ?? null; } catch { /* old row */ }
+    if (opts.game && game && game !== opts.game) { excluded.push({ id: l.id, reason: 'another game version' }); continue; }
+    if (!hasLapPoints(l.id, sig)) yield;
+    const p = lapPasses(info, l.id);
+    if (!p) continue; // deleted meanwhile
+    if (p.n !== refN) { excluded.push({ id: l.id, reason: 'recorded on another track length' }); continue; }
+    const c = p.c[k];
+    let v = c?.[spec.key];
+    if (spec.channel === 'brake' && p.has.brake === false) v = null;
+    if (spec.channel === 'throttle' && p.has.throttle === false) v = null;
+    if (spec.channel === 'gear' && (p.has.gear === false || gearboxOfLap(l, assistsWrong) === 'auto' || !(v > 0))) v = null;
+    if (v == null || !Number.isFinite(v) || !Number.isFinite(c.timeMs)) { excluded.push({ id: l.id, reason: `no ${spec.channel || 'usable'} reading at this corner` }); continue; }
+    passes.push({ lapId: l.id, sessionId: l.session_id ?? null, at: l.recorded_at, v, timeMs: Math.round(c.timeMs) });
+  }
+  return { found: true, corner: info.corners[k].name, passes, excluded };
+}
+/**
+ * A drill's corner passes: spec {corner: {name, apex}, key, channel}; opts {ids, since, newest, game}.
+ * -> {found, reason?, corner, passes: [{lapId, sessionId, at, v, timeMs}], excluded: [{id, reason}]}
+ */
+export async function drillPassesAsync(combo, spec, opts = {}) {
+  const info = await comboInfoAsync(combo);
+  if (!info.best) return { found: false, reason: 'No valid laps for this track/car any more.', passes: [], excluded: [] };
+  return runInSlices(drillSteps(combo, info, spec, opts));
+}
+/** The provenance of laps (PL4), for the mix of a drill's before and after laps. */
+export function lapProvenance(ids) {
+  const types = new Map(db.listSessions().map((s) => [s.id, s.session_type]));
+  return ids.map((id) => db.getLapMeta(id)).filter(Boolean).map((l) => compat.provenance(l, { sessionType: types.get(l.session_id) ?? null }));
 }
 
 // ---------------------------------------------------------------- home dashboard

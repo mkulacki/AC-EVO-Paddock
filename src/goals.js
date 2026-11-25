@@ -38,6 +38,7 @@ export function describe(g) {
   if (g.kind === 'consistency') return `Consistency score of ${g.target} or more in a session`;
   if (g.kind === 'streak') return `${g.target} valid laps in a row in one session`;
   if (g.kind === 'window') return `${g.target} laps in one session within ${secs(g.extra.windowMs)} of ${fmt(g.extra.refMs)}`;
+  if (g.kind === 'drill') return g.extra?.criterion?.text || 'Practice drill'; // PL7 (src/drills.js)
   return g.kind;
 }
 
@@ -139,20 +140,24 @@ export function status(g, now = Date.now()) {
   return out;
 }
 
+// practice drills (PL7) are goals rows too, but they have their own page section and checks (src/drills.js): the goal
+// lists, Home, achievements, the session planner and suggestions see only the P9 kinds
+const goalsOnly = () => db.listGoals().filter((g) => g.kind !== 'drill');
+
 /** All goals and challenges with their state, open first. */
 export function list(now = Date.now()) {
   const order = { open: 0, met: 1, missed: 2 };
-  return db.listGoals().map((g) => status(g, now)).sort((a, b) => order[a.state] - order[b.state] || b.createdAt - a.createdAt);
+  return goalsOnly().map((g) => status(g, now)).sort((a, b) => order[a.state] - order[b.state] || b.createdAt - a.createdAt);
 }
 
 /** After a lap: the goals of its track + car that are met for the first time. */
 export function checkAfterLap(combo, now = Date.now()) {
-  return db.listGoals().filter((g) => !g.met && same(g.combo, combo)).map((g) => status(g, now)).filter((g) => g.fresh);
+  return goalsOnly().filter((g) => !g.met && same(g.combo, combo)).map((g) => status(g, now)).filter((g) => g.fresh);
 }
 
 export function create(body, now = Date.now()) {
   const g = validate(body, now);
-  const open = db.listGoals().find((x) => !x.met && same(x.combo, g.combo) && x.kind === g.kind && x.target === g.target && (x.dueAt == null || x.dueAt > now));
+  const open = goalsOnly().find((x) => !x.met && same(x.combo, g.combo) && x.kind === g.kind && x.target === g.target && (x.dueAt == null || x.dueAt > now));
   if (open) throw bad('You already have this goal');
   return status(db.getGoal(db.addGoal(g)), now);
 }
@@ -189,7 +194,7 @@ export function suggest(now = Date.now(), plans = () => null) {
   const laps = db.listLaps().filter((l) => l.source === 'local');
   const recent = new Map();
   for (const l of laps) if (now - l.recorded_at < RECENT_MS) recent.set(keyOf(l), (recent.get(keyOf(l)) || 0) + 1);
-  const open = db.listGoals().filter((g) => !g.met && (g.dueAt == null || g.dueAt > now));
+  const open = goalsOnly().filter((g) => !g.met && (g.dueAt == null || g.dueAt > now));
   const has = (combo, kind) => open.some((g) => same(g.combo, combo) && g.kind === kind);
   const out = [];
   for (const [key] of [...recent].sort((a, b) => b[1] - a[1]).slice(0, SUGGEST_COMBOS)) {
