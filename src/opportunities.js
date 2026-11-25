@@ -210,6 +210,7 @@ function cornerRow(c, k, laps) {
   row.typical = T; row.fast = F;
   row.gears = gearsOf(passes, k);
   const gTyp = clearGear(passes, k), gFast = clearGear(fast, k);
+  row.gearChoice = { typ: gTyp, fast: gFast }; // the clear gears behind a gear finding (a PL7 gear drill quotes them)
   row.findings = differences(T, F, { gear: gTyp != null && gFast != null ? { typ: gTyp, fast: gFast } : null });
   // the laps to open: a typical pass (the median one, the slower of two middles) and a representative fast pass
   const byTime = [...passes].sort((a, b) => a.c[k].timeMs - b.c[k].timeMs);

@@ -2,7 +2,8 @@
 // WebSocket, against a mock server on scratch data. `npm run test:browser` (also part of `npm run verify`).
 // Covers: open a session, compare two laps, import a valid / duplicate / broken lap file, change a setting, keyboard
 // navigation (Alt+digit, Ctrl+K palette, ?, Esc), the damaged-file notice in Settings (PL1D, OD-PL-5), comparison
-// caveats and the incompatible-pair gate, and the integration health panel (PL4). Every page must
+// caveats and the incompatible-pair gate, the integration health panel (PL4), the lap analysis (PL6) and a practice drill
+// made from it and met (PL7). Every page must
 // load without a JavaScript error.
 // Skipped when no Edge/Chrome is found (set PADDOCK_BROWSER to the browser's .exe to choose one).
 // No game, no network, no AI key: the server runs with --mock on a free port, the browser has a scratch profile.
@@ -83,14 +84,15 @@ before(async () => {
   // the laps' own conditions, as the app records them after each lap (the seed does not): similar temperatures that are
   // not checked against the game, for the combined "not confirmed" line on Compare (D-PL4-12)
   { const d = new DatabaseSync(path.join(env.ACEVO_DATA, 'telemetry.db')); d.exec(`UPDATE laps SET cond = '{"airC":20,"roadC":28}'`); d.close(); }
-  // PL6: 12 synthetic laps with known patterns on another car and track (test/lapfixtures.js), dated 1970 so every
+  // PL6: 12 synthetic laps with known patterns on another car and track (test/lapfixtures.js; game version 1.0 for
+  // the PL7 drill flow, which counts only laps of a known, matching version), dated 1970 so every
   // other flow still sees the mock laps first; the lap analysis page must rank their T2 and T1
   execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', `
     const db = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/db.js')).href)});
     const { insertLap, COMBO } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/lapfixtures.js')).href)});
     const params = (i) => ({ brake: [i % 3 !== 0 ? 0.75 : 1, 1, 1], hold: [0, i % 3 !== 1 ? 50 : 0, 0], gear: [0, i % 3 !== 1 ? 1 : 0, 0] });
     const s = [0, 1, 2].map((k) => db.createSession({ ...COMBO, sessionType: 0, driver: 'Me', startedAt: 1e9 + k * 1e6 }));
-    for (let i = 1; i <= 12; i++) insertLap(db, { sessionId: s[Math.floor((i - 1) / 4)], lapNumber: i, recordedAt: 1e9 + i * 1e5, params: params(i) });`],
+    for (let i = 1; i <= 12; i++) db.setLapCond(insertLap(db, { sessionId: s[Math.floor((i - 1) / 4)], lapNumber: i, recordedAt: 1e9 + i * 1e5, params: params(i) }), { game: "1.0" });`],
   { env: childEnv, cwd: ROOT, stdio: 'ignore' });
   // a damaged setup-meta.json: the server keeps it aside at start and the Settings page must say so (OD-PL-5)
   fs.writeFileSync(path.join(env.ACEVO_DATA, 'setup-meta.json'), '{"files": {"x": {"notes": "half');
@@ -737,6 +739,75 @@ test('lap analysis: the top opportunities read without a chart, observations apa
   await cdp('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
   try {
     await go(`#/analysis?combo=${encodeURIComponent(key)}`, "document.querySelector('#anTop .opp-card')");
+    await sleep(250);
+    const [sw, iw] = await js('[document.documentElement.scrollWidth, innerWidth]');
+    assert.ok(sw <= iw + 1, `${sw} px wide in a ${iw} px window`);
+  } finally { await cdp('Emulation.clearDeviceMetricsOverride'); }
+  assert.deepEqual(errors, []);
+});
+
+// PL7: the last flow, because it adds the newest laps of all (the drill's laps, dated now)
+test('practice drill: Practise this on a Lap analysis card makes a drill with every part of the prescription; laps driven after it meet it; Development shows before and now (PL7)', { skip }, async () => {
+  const key = 'fixture_ring|gp|fixture_gt';
+  // D-PL7-13: a newest lap without a recorded game version: Practise this is disabled, the reason and a link to
+  // Integration health are shown (keyboard: the link takes focus); once the lap has its version, drills can be made
+  const lapFile = (code) => execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', `
+    const db = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/db.js')).href)});
+    const { insertLap, COMBO } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/lapfixtures.js')).href)});
+    ${code}`], { env: childEnv, cwd: ROOT, stdio: 'ignore' });
+  lapFile(`const s = db.createSession({ ...COMBO, sessionType: 0, driver: 'Me', startedAt: Date.now() - 5000 });
+    insertLap(db, { sessionId: s, lapNumber: 30, recordedAt: Date.now() - 4000, params: { brake: [0.75, 1, 1], hold: [0, 50, 0] } });`);
+  await go(`#/analysis?combo=${encodeURIComponent(key)}`, "document.querySelector('#anTop .opp-card [data-practise-off]')");
+  assert.equal(await js("document.querySelector('[data-practise]')"), null, 'no enabled Practise this');
+  assert.equal(await js("document.querySelector('[data-practise-off]').disabled"), true);
+  assert.equal(await js("document.querySelector('[data-practise-off]').getAttribute('aria-describedby')"), 'anNoVersion');
+  assert.equal(await js("document.getElementById('anNoVersion').textContent"), "This lap has no recorded game version, so a drill can't be checked. Integration health ›");
+  await js("document.querySelector('#anNoVersion a').focus(); 1");
+  assert.equal(await js("document.activeElement.getAttribute('href')"), '#/game');
+  lapFile("db.raw.prepare(\"UPDATE laps SET cond = '{\\\"game\\\":\\\"1.0\\\"}' WHERE cond IS NULL AND track = 'fixture_ring'\").run();");
+  await go(`#/analysis?combo=${encodeURIComponent(key)}`, "document.querySelector('#anTop .opp-card [data-practise]')");
+  assert.match(await js("document.querySelector('#anDrill').textContent"), /Practise this/);
+  const n0 = dialogs.length;
+  // T2's "throttle held part-way" finding becomes the drill (no other drill: no confirm)
+  await js(`window.__rendered = 0; [...document.querySelectorAll('[data-practise]')].find((b) => JSON.parse(b.dataset.practise).join() === 'T2,holdMs').click(); 1`);
+  await waitFor("window.__rendered > 0 && document.querySelector('#anDrill .drill')", 'the drill card').catch((e) => { throw new Error(`${e.message}; dialogs: ${dialogs.slice(n0).join(' | ')}`); });
+  assert.equal(dialogs.length, n0, 'no dialog');
+  const rx = await js("Object.fromEntries([...document.querySelectorAll('#anDrill [data-rx]')].map((e) => [e.dataset.rx, e.textContent.trim()]))");
+  assert.deepEqual(Object.keys(rx), ['issue', 'evidence', 'exercise', 'criterion', 'minimum', 'review', 'hypothesis']);
+  assert.match(rx.issue, /^T2: Your typical pass holds the throttle part-way/);
+  assert.match(rx.evidence, /^1[23] valid passes of T2/);
+  assert.match(rx.exercise, /^In T2, after the slowest point/);
+  assert.match(rx.criterion, /^At least half of your newest 10 passes of T2/);
+  assert.match(rx.hypothesis, /may[\s\S]*a possibility, not a proven cause/);
+  assert.equal(await js("document.querySelector('#anDrill [data-drill-state]').dataset.drillState"), 'collecting');
+  assert.match(await js("document.querySelector('#anDrill [data-drill-line]').textContent"), /^0 of 5 passes so far/);
+  // the finding is marked as the drill, the corner row says Practising
+  assert.match(await js("document.querySelector('.opp-card').textContent"), /your drill/);
+  assert.equal(await js("document.querySelector('#an-T2 [data-mastery]').dataset.mastery"), 'practising');
+
+  // five laps driven after it, without the part-throttle hold at T2 (written as the recorder would, from another process)
+  execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', `
+    const db = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/db.js')).href)});
+    const { insertLap, COMBO } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/lapfixtures.js')).href)});
+    const t = Date.now() + 1000, s = db.createSession({ ...COMBO, sessionType: 0, driver: 'Me', startedAt: t });
+    for (let i = 1; i <= 5; i++) db.setLapCond(insertLap(db, { sessionId: s, lapNumber: 40 + i, recordedAt: t + i * 1000, params: { hold: [0, 0, 0] } }), { game: "1.0" });`],
+  { env: childEnv, cwd: ROOT, stdio: 'ignore' });
+
+  // evaluated: met, and Development shows the result before against now
+  await go('#/development', "document.querySelector('#dvPractice')");
+  assert.ok(await js("!!document.querySelector('#dvPractice [data-drill-state=\"met\"]')"), 'met');
+  assert.match(await js("document.querySelector('#dvPracticeCounts').textContent"), /1 met/);
+  assert.match(await js("document.querySelector('#dvPractice').textContent"), /T2: part-throttle time on the exit \(fixture ring · fixture gt\): 3[13] % of 1[23] passes before → 100 % of 5 after reached the target/);
+  const d = (await api('/api/practice')).body.drills[0];
+  assert.equal(d.state, 'met');
+  assert.equal(d.eval.judged, 5);
+  // a private GET: refused cross-site
+  assert.equal((await api('/api/practice', { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
+  // 200 % zoom: the drill cards fit without sideways scrolling
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
+  try {
+    await go('#/development', "document.querySelector('#dvPractice')");
+    await js("document.querySelectorAll('#dvPractice details').forEach((x) => { x.open = true; }); 1");
     await sleep(250);
     const [sw, iw] = await js('[document.documentElement.scrollWidth, innerWidth]');
     assert.ok(sw <= iw + 1, `${sw} px wide in a ${iw} px window`);

@@ -86,6 +86,7 @@ Tests: one failing regression test per verified finding before its fix, plus the
 ## PL7: Structured practice (P2)
 
 - Prescriptions (issue, evidence, exercise, success criterion, minimum evidence, review point) on top of P8 `training_plans` and P9 `goals`; works with AI off.
+- **Done 2026-11-25** (`docs/platform/PL7-report.md`, rules in `docs/platform/PRACTICE.md`): practice drills as P9 goals of kind `drill` with schema v3 `drill_events`; "Practise this" on Lap analysis cards; Development Practice section; no AI; review fixes `d0097a2`. Follow-ups: OD-PL-32 … 41 decided (a); thresholds unchecked on real laps; the HUD could show the active drill (PL9); drills are worked out on demand only.
 
 ## PL8: Setup experiments (P2)
 

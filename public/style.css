@@ -1031,3 +1031,18 @@ details.an-row > .an-sum { cursor: pointer; }
 .an-detail { padding: 4px 0 12px; }
 button.linklike { background: none; border: 0; padding: 0; color: var(--accent-text); font: inherit; cursor: pointer; text-decoration: underline; }
 @media (max-width: 760px) { .an-sum { grid-template-columns: 1fr 1fr; } .an-strip { grid-column: 1 / -1; } }
+
+/* practice drills (PL7): public/practice.js */
+.drill { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin: 8px 0; background: var(--surface-2); min-width: 0; }
+.drill .row { flex-wrap: wrap; gap: 6px 10px; }
+.drill-rx { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 10px 0 6px; }
+.drill-rx dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); padding-top: 2px; }
+.drill-rx dd { margin: 0; overflow-wrap: anywhere; }
+.drill-bar { position: relative; height: 8px; border-radius: 4px; background: var(--surface-3); overflow: hidden; margin: 8px 0 4px; max-width: 420px; }
+.drill-bar > span { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.drill-bar > i { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: var(--text); opacity: .6; }
+.drill-progress p { margin: 4px 0; }
+.drill-actions { margin-top: 8px; }
+.drill-revisit { margin: 0 0 8px; }
+@media (max-width: 760px) { .drill-rx { grid-template-columns: 1fr; } .drill-rx dt { padding-top: 6px; } }
+.drill-noversion { flex-basis: 100%; margin: 4px 0 0; color: var(--text-secondary); }

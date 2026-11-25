@@ -281,3 +281,37 @@ Operator decisions, **all DECIDED (user, 2026-11-25): (a)**, as built:
 - **D-PL6-12, a trend needs a minimum change:** "faster" / "slower" only when the first and latest sessions' median intervals do not overlap **and** the change is at least 100 ms (lap) or 30 ms (corner) (`RULES.trendMinMs`).
 - **D-PL6-13, numbers shown only as precise as they are:** median intervals only for corners with 5 or more passes; counts (brake re-applications, re-lifts) as whole numbers (the median rounded down); the target lap's ± is a rough range from each corner's first-quartile interval (distribution-free, from the order of its passes), labelled "rough".
 - **D-PL6-14, no stale analysis:** a run during which the car + track's laps changed is worked out again before it answers (up to 3 times); what the core, setup and assist readings are worth is part of the cache key, so a changed check gives a new result. `/api/analysis` is a private GET (refused cross-site).
+
+## 2026-11-25: Platform plan PL7, structured practice
+
+Made in PL7 without asking (rules in `docs/platform/PRACTICE.md`); **D-PL7-1 … 7 confirmed by the user on 2026-11-25**:
+
+- **D-PL7-1, drills are P9 goals:** a `goals` row of kind `drill` (prescription in `extra`, `met_*` when met) plus a new `drill_events` table (schema v3, one pre-upgrade copy). The P9 goal lists, Home, achievements, suggestions and the session planner ignore drills (`src/goals.js` `goalsOnly`); the P8 training plan is unchanged.
+- **D-PL7-2, target from recent repeatability:** the quicker quarter's median of the metric in the newest 30 valid laps; tolerance half of the analysis's naming threshold (`RULES.diff`), so a pass must close at least half the gap; counts aim at 0, gears at the quicker passes' clear gear. Refused when half of the "before" passes already reach it.
+- **D-PL7-3, drills only from ranked opportunities and from the default analysis view** (newest laps, any game version or setup), so the server can look the finding up again; numbers are never taken from the request.
+- **D-PL7-4, the corner is found again by its apex** (within 40 m) when the best lap and its corner list change; otherwise "cannot be checked".
+- **D-PL7-5, the corner time is context, not the criterion:** before → now with the analysis-trend rule (intervals apart and ≥ 30 ms).
+- **D-PL7-6, "Renew target from my latest laps"** at a review point = a new drill on the same corner and behaviour from the newest analysis, replacing the old one; **Delete** removes a drill and its history; the newest 30 drills are listed.
+- **D-PL7-7, wording:** "Practise this", "Practice drills", the six labelled parts (Observed issue, Evidence, Exercise, Success when, Minimum evidence, Review point) plus "Why it may help … (a possibility, not a proven cause)".
+
+Operator decisions, **all DECIDED (user, 2026-11-25): (a)**, as built:
+
+- **OD-PL-32, the success criterion. DECIDED (user, 2026-11-25): (a).** Options: (a) at least half of the newest 10 passes reach the target, judged from 5 passes (built); (b) the median of every pass since the start; (c) stricter: 70 % of the newest 10.
+- **OD-PL-33, the review point. DECIDED (user, 2026-11-25): (a).** Options: (a) after 10 passes without meeting it, with Keep practising / Renew target / Stop (built); (b) at the end of each session; (c) after 20 passes.
+- **OD-PL-34, laps on another game version. DECIDED (user, 2026-11-25): (a).** Options: (a) left out of the drill and its "before" (built; since the review round a lap whose version was not recorded is left out too, D-PL7-9); (b) counted with a caveat.
+- **OD-PL-35, how many drills at a time. DECIDED (user, 2026-11-25): (a).** Options: (a) one active drill per car + track; a new one asks to replace it (built); (b) up to three per car + track; (c) one overall.
+- **OD-PL-36, where drills are offered. DECIDED (user, 2026-11-25): (a).** Options: (a) "Practise this" next to the findings of the top three Lap analysis cards only (built); (b) also in every ranked corner's details; (c) Paddock proposes one drill by itself (still started by the driver).
+- **OD-PL-37, Home and achievements. DECIDED (user, 2026-11-25): (a).** Options: (a) unchanged: drills are not goals for Home's objective, next step (OD-PL-31), goal lists or the goal achievements (built); (b) the active drill becomes Home's practice objective; (c) met drills count for the Goals achievements.
+- **OD-PL-38, when a met drill counts as slipping. DECIDED (user, 2026-11-25): (a).** Options: (a) fewer than 25 % of the newest 10 passes (at least 5) after it was met reach the target (built); (b) fewer than 50 %; (c) no revisit suggestions.
+- **OD-PL-39, corner mastery labels. DECIDED (user, 2026-11-25): (a).** Options: (a) Not enough passes / Time to find / Practising / Revisit / Steady, no "mastered" (built); (b) add "Mastered" for a steady corner with high confidence and a met drill; (c) no mastery badges.
+- **OD-PL-40, AI and drills. DECIDED (user, 2026-11-25): (a).** Options: (a) no AI in the practice loop; drills are not sent to the AI coach (built); (b) the coach context gets the active drill's prescription and numbers, listed under "What is sent" before anything is sent (no new provider).
+- **OD-PL-41, when drills are worked out. DECIDED (user, 2026-11-25): (a).** Options: (a) on demand, when Development or Lap analysis opens; the met time is the pass's own time (built); (b) also after each lap in the background, with a "drill met" notice while driving.
+
+**PL7 review round (2026-11-25)**, fixes made without a new product choice:
+
+- **D-PL7-8, a drill follows its corner by where it is:** corner names are positions (`T1`, `T2` … from the start line, `src/analysis.js` `detectCorners`), so a new best lap with one more corner renames the ones after it. A drill keeps the apex distance of its corner and is matched to the current corners by apex (within 40 m) everywhere: its passes, the name shown ("T3 (T2 when the drill started)"), mastery, "your drill", superseded drills and Renew / Practise again. A corner not found any more shows its old name and cannot be renewed.
+- **D-PL7-9, unknown game version never matches (OD-PL-34 applied strictly):** a lap without a recorded version counts neither in the "before" nor in the drill; how many analysed laps were left out is written in the evidence; a drill cannot be made when the newest lap has no version.
+- **D-PL7-10, safe against an older Paddock:** Paddock 0.7.0 has no newer-database guard; it can delete a drill's goals row and leave its events, and goals ids are reused. Events of goals that are gone are removed at every start, and a new drill's id starts with no events.
+- **D-PL7-11, "met" is recorded in turn with Stop, Keep and new drills** (one queue), so a drill is never both met and stopped.
+- **D-PL7-12, sample sizes beside the shares:** before → after reads "33 % of 12 passes before → 100 % of 5 after".
+- **D-PL7-13, saying why a drill cannot be made. DECIDED (user, 2026-11-25).** The strict rule stays (laps without a recorded game version never count). When the newest lap has no recorded version, **Practise this** (Lap analysis) and **Renew target** / **Practise again** (drill cards) are disabled, with the visible reason "This lap has no recorded game version, so a drill can't be checked" (referenced by the control's `aria-describedby`) and a link to Integration health on the Game page. `GET /api/practice` returns `ready` for a car + track and `versionOk` per drill (`src/drills.js` `versionReady`).

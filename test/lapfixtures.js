@@ -11,6 +11,7 @@
 //   hold:  metres of part throttle (50 %, half the acceleration) after the corner, before full throttle
 //   gear:  gears added at the corner (a taller gear than the speed suggests; does not change the speed)
 // noGear: write gear 0 everywhere (a lap file without a gear channel).
+// dip: {at, kmh}: slow to kmh at metre `at` (a lift on a straight; PL7 review: a best lap with one more corner).
 export const COMBO = { track: 'fixture_ring', layout: 'gp', car: 'fixture_gt' };
 const LAYOUT = [[500, 18, 150], [350, 60, -90], [350, 40, 120], [300, 0, 0]];
 
@@ -28,11 +29,12 @@ function buildTrack() {
 const TRACK = buildTrack();
 export const LENGTH = TRACK.length;
 
-export function lapData({ brake = [1, 1, 1], hold = [0, 0, 0], gear = [0, 0, 0], noGear = false } = {}) {
+export function lapData({ brake = [1, 1, 1], hold = [0, 0, 0], gear = [0, 0, 0], noGear = false, dip = null } = {}) {
   const n = TRACK.length, G = 9.81, muG = 1.7 * G, vTop = 72, aDec = 27;
   const vlim = TRACK.map((p) => (p.curv ? Math.sqrt(muG / Math.abs(p.curv)) : vTop));
   const v = vlim.slice();
   v[0] = 60;
+  if (dip) v[dip.at] = Math.min(v[dip.at], dip.kmh / 3.6); // a lift on a straight: one more speed minimum (an extra "corner" on a best lap)
   // braking: backwards from each corner, at the deceleration of the corner ahead
   for (let i = n - 2; i >= 0; i--) {
     const k = TRACK[i + 1].k;

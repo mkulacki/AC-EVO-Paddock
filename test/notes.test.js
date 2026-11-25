@@ -35,23 +35,23 @@ const notes = await import('../src/notes.js');
 const onboarding = await import('../src/onboarding.js');
 const lapfile = await import('../src/lapfile.js');
 
-test('v1 (0.7.0) -> v2: a copy first, data kept, schema version 2, no existing table changed', () => {
+test('v1 (0.7.0) -> v2 (and on to v3, PL7): one copy first, data kept, no existing table changed', () => {
   const copies = fs.readdirSync(ACEVO_DATA).filter((f) => /^telemetry\.backup-v1-\d+\.db$/.test(f));
   assert.equal(copies.length, 1, 'one copy made before the upgrade');
   const c = new DatabaseSync(path.join(ACEVO_DATA, copies[0]), { readOnly: true });
   assert.equal(c.prepare('PRAGMA user_version').get().user_version, 1, 'the copy is the old file');
   assert.equal(c.prepare('SELECT COUNT(*) AS n FROM laps').get().n, 2);
   c.close();
-  assert.equal(db.raw.prepare('PRAGMA user_version').get().user_version, 2);
-  assert.equal(db.SCHEMA_VERSION, 2);
+  assert.equal(db.raw.prepare('PRAGMA user_version').get().user_version, db.SCHEMA_VERSION);
+  assert.equal(db.SCHEMA_VERSION, 3);
   assert.equal(db.listLaps().length, 2);
   assert.equal(db.listGoals().length, 1);
   assert.equal(db.coachMessages({ track: 'trk', layout: 'gp', car: 'car' }).length, 1);
   // an older Paddock still opens the file: every table it knows has exactly its old columns (only new tables were added)
   const after = tableInfo(db.raw);
   for (const [t, cols] of Object.entries(before)) assert.equal(after[t], cols, `table ${t} unchanged`);
-  assert.deepEqual(Object.keys(after).filter((t) => !(t in before)).sort(), ['corner_bookmarks', 'session_notes', 'session_tags']);
-  assert.equal(db.counts().schema, 2);
+  assert.deepEqual(Object.keys(after).filter((t) => !(t in before)).sort(), ['corner_bookmarks', 'drill_events', 'session_notes', 'session_tags']);
+  assert.equal(db.counts().schema, 3);
 });
 
 test('notes: saved and read back; tags cleaned, de-duplicated and stored in lower case', () => {

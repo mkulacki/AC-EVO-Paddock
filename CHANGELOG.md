@@ -4,6 +4,13 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
+### Practice drills (platform phase PL7)
+
+- **Practise this** next to a finding on the Lap analysis cards turns one behaviour in one corner into a practice drill: what was observed, the numbers behind it, one exercise, a measurable target ("at least half of your newest 10 passes … at 309.5 m from the line or later"), the minimum evidence (5 passes) and a review point (10 passes). The target is what your quicker passes already do, so it moves with your latest laps.
+- A drill is met by what you do in the corner, not by time or laps driven; only valid laps driven after it started, with the reading it needs and on the same recorded game version, count (laps whose version was not recorded are left out, and the drill says how many; if your newest lap has none, Practise this is disabled and says why, with a link to Integration health). A drill follows its corner by where it is, also when a new best lap renumbers the corners ("T3 (T2 when the drill started)"). Development shows your drills (one at a time per car and track), where each stands, the share of passes reaching the target before and now with the number of passes behind each, the corner time as context, and drills that may be slipping (**Revisit**, **Practise again**). At the review point: keep practising, renew the target from your latest laps, or stop.
+- Lap analysis corner rows show a badge: Not enough passes, Time to find, Practising, Revisit or Steady. No AI is involved anywhere in drills.
+- The laps database is upgraded once (schema v3, one new table); a copy of the old file is kept as `telemetry.backup-v2-<time>.db`. Drills are stored as goals; Home, achievements and the goal lists are unchanged.
+
 ### Lap analysis (platform phase PL6)
 
 - **Lap analysis** page for every car and track (Sessions → **Analysis**, the Consistency page, or Ctrl+K "analysis"): where your time is, worked out from your own valid laps without AI. The three biggest opportunities come first, each readable on its own: how much a lap you can gain by driving the corner as you already do in 1 pass out of 4, whether it goes on the entry, around the apex or on the exit, what your quicker passes did differently (braking point, brake release, speed at the apex, throttle, hesitation on the throttle, exit speed, gear), kept apart from what that may mean, and links to Compare at that corner.

@@ -90,6 +90,7 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | Achievements | Done (P9) | 28 milestones recomputed from the data (D3 = yes) |
 | Challenges | Done (P9) | goals with a deadline; suggested from the last 30 days |
 | Training plans | Done (P8) | see AI coach; the plan's lap target is offered as a goal |
+| Practice drills | Done (PL7) | one behaviour in one corner from a Lap analysis finding: exercise, measurable target, minimum evidence, review point; met by behaviour; revisit when slipping; corner mastery badges; no AI |
 | Session planner | Done (P9) | combo + goal + Race tab preset / hotlap / practice, started in game |
 | Race weekend history | Done (P9) | weekends started from Paddock, sessions grouped by time, car and track |
 | Progress tracking | Done | Progress + report target checks |
@@ -131,7 +132,7 @@ How the platform plan PL1–PL11 (a local operator plan, not in the repo; phase 
 | PL4 compatibility and provenance | P2 `src/channels.js`, laps `cond` (game + Paddock version + reader) | Done (PL4): version-aware checks (verified / unverified / unsupported), comparison classes on Compare with caveats and an incompatible gate, "Mixed laps" on Consistency/Progress, integration health panel on the Game page |
 | PL5 onboarding | P4 shell + palette, P5 Home | Done (PL5): setup guide `#/welcome` (opens by itself only for a new driver; AI, online and mods skippable), Home "now" row (last session, practice objective, recent progress, next step with evidence), session notes, tags and corner bookmarks (schema v2, local only), tag filter on Sessions, palette finds tags and bookmarks, accessible colours (contrast test), focus rings on fields, empty states with actions |
 | PL6 actionable analysis | P6 technique metrics, report, Consistency | Done (PL6): Lap analysis page with the top three opportunities (entry/apex/exit split, braking, brake release, throttle hesitation, gear), corner distributions, repeatable target lap next to the ideal, PB explanation, session trends; `docs/platform/ANALYSIS.md` |
-| PL7 structured practice | P8 training plans, P9 goals/challenges/planner | Partial: no prescriptions with evidence + success criterion + review point |
+| PL7 structured practice | P9 goals, P8 training plans, PL6 findings | Done (PL7): practice drills (goals of kind `drill`, schema v3) with the six-part prescription, before/after evaluation, review point, revisit suggestions, corner mastery and a progress summary on Development; `docs/platform/PRACTICE.md` |
 | PL8 setup experiments | P7 setup history and comparison | Partial: no experiment/A-B object, no matched-condition filter |
 | PL9 HUD and live assistance | `src/live.js`, `src/gamebridge.js`, `mod/trainerhud` 0.14.0, `src/spotter.js` | Partial: fixed layouts (parts on/off, scale, opacity); no freshness indicator; no bridge stress test |
 | PL10 leaderboard integrity | `leaderboard/worker.js` `checkLap`, rate limit, reports + moderator hide | Partial: no written trust model, no verification tiers or audit trail |

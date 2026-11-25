@@ -3,6 +3,7 @@
 // achievements and the race weekends you started from Paddock. Data: /api/development (src/goals.js,
 // src/achievements.js, src/weekends.js).
 import { esc, api, post, fmt, prettyName, emptyHtml, SESSION_TYPES } from './util.js';
+import { drillHtml, wireDrills } from './practice.js';
 
 const day = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -19,7 +20,8 @@ export function parseLap(s) {
 }
 
 export async function viewDevelopment(view, cleanup) {
-  const d = await api('/api/development');
+  // practice drills (PL7) come separately: the page still works if they cannot be worked out
+  const [d, pr] = await Promise.all([api('/api/development'), api('/api/practice').catch(() => null)]);
   const head = `<div class="race-head"><div><h1>Development</h1><div class="sub">Goals, challenges, achievements and race weekends, from your own laps.</div></div></div>`;
   if (!d.combos.length) {
     view.innerHTML = head + emptyHtml('Drive a few laps first', 'Goals and challenges are set per car and track and checked against the laps you drive. Achievements come with your laps too.',
@@ -28,6 +30,7 @@ export async function viewDevelopment(view, cleanup) {
   }
   const open = d.goals.filter((g) => g.state === 'open'), done = d.goals.filter((g) => g.state !== 'open');
   view.innerHTML = `${head}
+    ${practiceCard(pr)}
     <div class="dev-grid">
       <div class="card" id="dvGoals"><div class="row"><h2 style="margin:0">Goals and challenges</h2><span class="spacer"></span><button class="small" id="dvNew">New goal</button></div>
         <p class="muted s" style="margin:4px 0 10px">Checked automatically against the laps you drive after setting one. A challenge is a goal with a deadline.</p>
@@ -58,6 +61,7 @@ export async function viewDevelopment(view, cleanup) {
   // the shell draws the page again (its own cleanup runs first)
   function rerender() { if (view.isConnected) window.dispatchEvent(new HashChangeEvent('hashchange')); }
 
+  if (pr) wireDrills(view.querySelector('#dvPractice'), pr.drills, rerender);
   drawPlanner(view.querySelector('#dvPlan'), d);
   drawAchievements(view.querySelector('#dvAch'), d.achievements);
   drawWeekends(view.querySelector('#dvWeekends'), d.weekends);
@@ -69,6 +73,20 @@ export async function viewDevelopment(view, cleanup) {
   cleanup.push(() => clearTimeout(evT));
   window.addEventListener('paddock:development', onEv);
   cleanup.push(() => window.removeEventListener('paddock:development', onEv));
+}
+
+// ---- practice drills (PL7): the active ones, what to revisit, and the results so far
+function practiceCard(pr) {
+  if (!pr) return '<div class="card" id="dvPractice"><h2>Practice drills</h2><p class="muted" style="margin:0">Your drills could not be worked out just now.</p></div>';
+  const s = pr.summary, active = pr.drills.filter((x) => x.active), done = pr.drills.filter((x) => !x.active);
+  const counts = [s.active && plural(s.active, 'active drill'), s.met && `${s.met} met`, s.stopped && `${s.stopped} stopped`, s.revisit && `${s.revisit} to revisit`].filter(Boolean).join(' · ');
+  const results = s.results.filter((r) => r.shareBefore != null && r.shareAfter != null);
+  return `<div class="card" id="dvPractice"><div class="row"><h2 style="margin:0">Practice drills</h2><span class="spacer"></span><span class="muted s" id="dvPracticeCounts">${esc(counts)}</span></div>
+    <p class="muted s" style="margin:4px 0 10px">One behaviour in one corner at a time, from the Lap analysis (<b>Practise this</b> on a corner card). A drill is met by what you do in the corner (at least half of your newest passes reach its target, after ${pr.rules.minPasses} passes or more), not by time or laps driven. No AI is involved.</p>
+    ${pr.revisits.length ? `<div class="drill-revisit"><b>Revisit</b><ul class="s">${pr.revisits.map((r) => `<li>${esc(r.corner)}: ${esc(r.label)} at ${esc(prettyName(r.combo.track))} · ${esc(prettyName(r.combo.car))}: only ${Math.round(r.share * 100)} % of your newest ${r.n} passes still reach the target. <button type="button" class="linklike" data-scroll="drill-${r.id}">See the drill</button></li>`).join('')}</ul></div>` : ''}
+    ${active.length ? active.map((x) => drillHtml(x)).join('') : `<p class="muted" style="margin:0">No active drill. Open the <a href="#/analysis">Lap analysis</a> of a car and track and choose <b>Practise this</b> on one of its findings.</p>`}
+    ${results.length ? `<h3 class="s" style="margin:12px 0 4px">Progress</h3><ul class="s">${results.map((r) => `<li>${esc(r.corner)}: ${esc(r.label)} (${esc(prettyName(r.combo.track))} · ${esc(prettyName(r.combo.car))}): ${Math.round(r.shareBefore * 100)} % of ${r.nBefore} passes before → ${Math.round(r.shareAfter * 100)} % of ${r.nAfter} after reached the target${r.time ? `; corner time ${esc(r.time.verdict)}` : ''}.</li>`).join('')}</ul>` : ''}
+    ${done.length ? `<details class="goal-done"><summary>Finished drills (${done.length})</summary>${done.map((x) => drillHtml(x)).join('')}</details>` : ''}</div>`;
 }
 
 function goalHtml(g) {
