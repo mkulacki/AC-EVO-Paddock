@@ -102,12 +102,13 @@ export function build(x) {
     const b = x.bridge;
     if (b && b.windows) {
       const issues = [];
-      if (b.slowWrites) issues.push(`${b.slowWrites} slow write${b.slowWrites === 1 ? '' : 's'} (longest ${Math.round(b.maxWriteMs)} ms; writing paused for a second after each)`);
+      if (b.slowWrites) issues.push(`${b.slowWrites} slow write${b.slowWrites === 1 ? '' : 's'} over 60 ms (longest ${Math.round(b.maxWriteMs)} ms)`);
+      if (b.backoffs) issues.push(`writing paused for a second ${b.backoffs} time${b.backoffs === 1 ? '' : 's'} after a write that came too close to the game's read`);
       if (b.lateWrites) issues.push(`${b.lateWrites} write${b.lateWrites === 1 ? '' : 's'} that ended inside the HUD's read window`);
       if (b.errors) issues.push(`${b.errors} failed write${b.errors === 1 ? '' : 's'}${b.lastError ? ` (last: ${noPaths(String(b.lastError))})` : ''}`);
       if (b.missedWindows) issues.push(`${b.missedWindows} window${b.missedWindows === 1 ? '' : 's'} skipped while Paddock was held up (longest gap ${Math.round(b.maxGapMs)} ms)`);
       if (issues.length) details.push(`Data feed since Paddock started: ${issues.join('; ')}. The HUD labels data that is too old.`);
-      if ((b.lateWrites || b.slowWrites > 10) && state === 'ok') state = 'warn';
+      if ((b.lateWrites || b.backoffs || b.slowWrites > 10) && state === 'ok') state = 'warn';
     }
     add({ id: 'hud', label: 'Paddock HUD', state, summary, details, steps, href: '#/mods', hrefLabel: 'Mods' });
   }

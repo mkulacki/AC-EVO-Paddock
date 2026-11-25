@@ -17,9 +17,15 @@
 // PL9 audit (docs/platform/HUD_BRIDGE.md): the protocol above is unchanged. What the writer adds:
 //   - stats (windows written, missed windows after a stall, write times, writes that ended inside or after their
 //     slot's read window, errors): Integration health and Diagnostics show them;
-//   - a back-off: a slot write slower than SLOW_WRITE_MS (a disk or antivirus stall) pauses writing for BACKOFF_MS, so
-//     a slow disk makes the HUD's data old (and labelled so) instead of putting writes next to the game's reads.
-//     Not writing can never collide with a read; a write that is already running cannot be stopped.
+//   - which slot: in window w the writer writes slot w+4 as before, or w+5 (read 250 ms ahead, last read 150 ms ago)
+//     when w+5 is behind and w+4 is not: w+5 still holds a state from before a change of the kill switch or the look
+//     (stateKey), or was not written for 9 windows. With one write per window that is always w+4, the old schedule; when windows are skipped (slow writes, stalls) no slot is
+//     left behind, so the HUD keeps getting fresh data and every slot gets the new state within 8 writes (review fix);
+//   - a back-off: a write that ended less than GUARD_MS before its slot's read window (it came near the real safety
+//     margin of at least 150 ms; a disk or antivirus stall) pauses writing for BACKOFF_MS. Not writing can never
+//     collide with a read; a write that is already running cannot be stopped. A disk that is only a little slow
+//     (e.g. 70 ms a write) is not paused (review fix: pausing it made the data seconds old). The pause runs on a
+//     monotonic clock, so a system clock step does not stretch it.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -31,8 +37,11 @@ export const SLOTS = 8;
 export const WINDOW_MS = 50;
 export const AHEAD = 4;        // Paddock writes the slot AHEAD windows ahead
 export const READ_PHASE_MS = 20; // the HUD only starts a read in the first 20 ms of a window
-export const SLOW_WRITE_MS = 60; // a slot write is normally well under 5 ms; this is a stall (the margin is >= 150 ms)
-export const BACKOFF_MS = 1000;  // after a slow write, no slot is written for this long
+export const SLOW_WRITE_MS = 60; // counted as slow (a slot write is normally well under 5 ms); not paused for by itself
+export const GUARD_MS = 30;      // a write that ends closer than this to its slot's read window starts the back-off
+export const BACKOFF_MS = 1000;  // after such a write, no slot is written for this long
+// the parts of the payload whose change must reach every slot (the kill switch, the look); see write()
+export const stateKey = (snap) => `${snap?.off === true}|${JSON.stringify(snap?.cfg ?? null)}`;
 // AC EVO's user folder (mods, setups, logs, HUD files). Windows lets people move "Saved Games" (e.g. to
 // I:\JMC\Parties enregistrées), so ask Windows for the real place instead of assuming <home>\Saved Games.
 // Order: ACE_DIR env, the "Game files folder" setting, the Saved Games known folder, <home>\Saved Games.
@@ -78,18 +87,20 @@ export function padLive(json, size = LIVE_SIZE) {
 export class GameBridge {
   // appDir / logDir / now / writeSlot / log: for tests (scratch folders, a simulated clock, slow or failing writes)
   constructor({ snapshot, onCommand, onLaunchEvent, onCatalogue, appDir = APP_DIR, logDir = LOG_DIR, now = Date.now,
-    writeSlot = (file, buf) => fs.writeFileSync(file, buf), log = console }) {
+    mono = () => performance.now(), writeSlot = (file, buf) => fs.writeFileSync(file, buf), log = console }) {
     this.snapshot = snapshot;
     this.onCommand = onCommand;
     this.onLaunchEvent = onLaunchEvent || (() => {});
     this.onCatalogue = onCatalogue || (() => {});
-    this.appDir = appDir; this.logDir = logDir; this.now = now; this.writeSlot = writeSlot; this.out = log;
+    this.appDir = appDir; this.logDir = logDir; this.now = now; this.mono = mono; this.writeSlot = writeSlot; this.out = log;
+    this.slotAt = new Array(SLOTS).fill(-Infinity); // when each slot was last written (wall clock)
+    this.slotKey = new Array(SLOTS).fill(null);     // the stateKey each slot holds
     this.log = { file: null, offset: 0, rest: '' };
     this.seen = new Set();
     this.lastErr = null;
     this.lastWindow = -1;
     this.pauseUntil = 0;
-    this.st = { windows: 0, writes: 0, errors: 0, missedWindows: 0, maxGapMs: 0, slowWrites: 0, maxWriteMs: 0, lateWrites: 0,
+    this.st = { windows: 0, writes: 0, errors: 0, missedWindows: 0, maxGapMs: 0, slowWrites: 0, backoffs: 0, maxWriteMs: 0, lateWrites: 0, aheadWrites: 0,
       pausedWindows: 0, lastWriteAt: 0, lastError: null, commands: 0, badLines: 0, staleCommands: 0, logSwitches: 0, logResets: 0 };
   }
 
@@ -104,7 +115,7 @@ export class GameBridge {
   stop() { clearInterval(this.writeTimer); clearInterval(this.logTimer); }
 
   /** What the writer and the log reader have seen since Paddock started (PL9; Integration health, Diagnostics). */
-  stats() { return { ...this.st, pausedNow: this.now() < this.pauseUntil, windowMs: WINDOW_MS, slots: SLOTS, ahead: AHEAD }; }
+  stats() { return { ...this.st, pausedNow: this.mono() < this.pauseUntil, windowMs: WINDOW_MS, slots: SLOTS, ahead: AHEAD }; }
 
   // once per window: write the slot AHEAD windows ahead (never one the game may be reading around now)
   write() {
@@ -121,22 +132,31 @@ export class GameBridge {
     // the HUD's folder: checked every 2 s (never created here: only the installer makes it, with every file in it)
     if (t - (this.dirCheckedAt || 0) > 2000) { this.dirCheckedAt = t; this.dirOk = fs.existsSync(this.appDir); }
     if (!this.dirOk) return;
-    if (t < this.pauseUntil) { this.st.pausedWindows++; return; } // backing off after a slow write
-    const slot = (w + AHEAD) % SLOTS;
+    if (this.mono() < this.pauseUntil) { this.st.pausedWindows++; return; } // backing off after a write near its read window
     try {
-      const buf = padLive(JSON.stringify({ ...this.snapshot(), slot, window: w + AHEAD }));
+      const snap = this.snapshot(), key = stateKey(snap);
+      // slot w+4, as always, unless w+5 is behind and w+4 is not: w+5 still holds an older state, or was not written
+      // for more than one round of the slots (8 windows) plus one window. In a steady run w+4 is always taken.
+      const behind = (slot) => (this.slotKey[slot] !== key ? 2 : t - this.slotAt[slot] > (SLOTS + 1) * WINDOW_MS ? 1 : 0);
+      const s4 = (w + AHEAD) % SLOTS, s5 = (w + AHEAD + 1) % SLOTS;
+      const pick = behind(s5) > behind(s4) ? { k: AHEAD + 1, slot: s5 } : { k: AHEAD, slot: s4 };
+      const slot = pick.slot, readAt = (w + pick.k) * WINDOW_MS;
+      const buf = padLive(JSON.stringify({ ...snap, slot, window: w + pick.k }));
       const t0 = this.now();
       this.writeSlot(slotFile(slot, this.appDir), buf);
       const t1 = this.now(), ms = t1 - t0;
-      // the write must finish well before the HUD may read this slot ((w + AHEAD) * WINDOW_MS); if the process stalled
-      // before it started, w is simply the window it runs in, so the margin is there again
+      // the write must finish well before the HUD may read this slot (readAt); if the process stalled before it
+      // started, w is simply the window it runs in, so the margin is there again
       this.st.writes++; this.st.lastWriteAt = t1;
+      if (pick.k !== AHEAD) this.st.aheadWrites++;
+      this.slotAt[slot] = t1; this.slotKey[slot] = key;
       if (ms > this.st.maxWriteMs) this.st.maxWriteMs = ms;
-      if (t1 >= (w + AHEAD) * WINDOW_MS) this.st.lateWrites++;
-      if (ms > SLOW_WRITE_MS) {
-        this.st.slowWrites++;
-        this.pauseUntil = t1 + BACKOFF_MS;
-        if (this.st.slowWrites === 1 || this.st.slowWrites % 100 === 0) this.out.error(`[hud] live slot write took ${Math.round(ms)} ms: writes paused for ${BACKOFF_MS} ms (${this.st.slowWrites} slow so far)`);
+      if (t1 >= readAt) this.st.lateWrites++;
+      if (ms > SLOW_WRITE_MS) this.st.slowWrites++;
+      if (t1 > readAt - GUARD_MS) {
+        this.st.backoffs++;
+        this.pauseUntil = this.mono() + BACKOFF_MS;
+        if (this.st.backoffs === 1 || this.st.backoffs % 100 === 0) this.out.error(`[hud] live slot write took ${Math.round(ms)} ms, too close to the game's read: writes paused for ${BACKOFF_MS} ms (${this.st.backoffs} so far)`);
       }
       this.lastErr = null;
     } catch (e) {
