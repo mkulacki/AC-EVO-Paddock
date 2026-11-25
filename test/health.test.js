@@ -96,3 +96,15 @@ test('online services: from the last known state only; sign-in and errors explai
   const u = by(build(base({ updates: { enabled: true, checkedAt: NOW - 60e3, error: 'GitHub did not answer in time' } })), 'online');
   assert.match(u.details[0], /Update check: failed/);
 });
+
+test('error texts lose their folder paths, also with spaces in them; the file name stays (review 9)', async () => {
+  const { noPaths } = await import('../src/health.js');
+  const win = String.raw`EPERM: operation not permitted, open 'C:\Users\Jan Kowalski\Saved Games\ACE\mods\x.json'`;
+  assert.equal(noPaths(win), "EPERM: operation not permitted, open 'x.json'");
+  assert.equal(noPaths('ENOENT: no such file, mkdir /home/jan/ACE/Video'), 'ENOENT: no such file, mkdir Video');
+  assert.equal(noPaths('the leaderboard server did not answer'), 'the leaderboard server did not answer');
+  const h = build(base({ hud: { state: 'missing', installed: null, bundled: '0.14.0', autoError: win, loaderInfo: { state: 'current' } } }));
+  assert.ok(!JSON.stringify(h).includes('Kowalski'));
+  assert.match(by(h, 'hud').details.join(' '), /x\.json/);
+  assert.ok(!JSON.stringify(build(base({ hud: { error: win } }))).includes('Users'));
+});

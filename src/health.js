@@ -9,6 +9,14 @@
 
 const ago = (ms) => (ms == null ? 'never' : ms < 1500 ? 'just now' : ms < 90e3 ? `${Math.round(ms / 1000)} s ago` : ms < 5400e3 ? `${Math.round(ms / 60e3)} min ago` : `${Math.round(ms / 3600e3)} h ago`);
 const IN_SESSION = ['live', 'pause', 'replay'];
+/** An error message without folder paths (they can hold the Windows user name): only the file name is kept. */
+// Node's fs errors quote the path ('C:\Users\Jan Kowalski\...'), which may hold spaces: a quoted path is replaced as a
+// whole first, then any unquoted one (up to a space).
+const lastPart = (p) => p.split(/[\\/]/).filter(Boolean).pop() || '';
+export const noPaths = (s) => (s == null ? s : String(s)
+  .replace(/(['"`])([^'"`]*[\\/][^'"`]*)\1/g, (_, q, p) => `${q}${lastPart(p)}${q}`)
+  .replace(/(?:[A-Za-z]:)?(?:[\\/]+[^\\/\s'"`]+)+[\\/]?/g, lastPart)
+  .slice(0, 300));
 
 /**
  * inputs: {now, mock, game: {running, version, hudVersion, liveAgeMs}, telemetry: {source, status, connected, lastFrameAt,
@@ -70,7 +78,7 @@ export function build(x) {
   }
 
   // 4. HUD and App Loader compatibility
-  const hud = x.hud, loader = x.loader || hud?.loaderInfo;
+  const hud = x.hud ? { ...x.hud, error: noPaths(x.hud.error), autoError: noPaths(x.hud.autoError) } : x.hud, loader = x.loader || hud?.loaderInfo;
   if (!hud || hud.error) add({ id: 'hud', label: 'Paddock HUD', state: 'unknown', summary: `The HUD install could not be read${hud?.error ? `: ${hud.error}` : ''}.`, href: '#/mods', hrefLabel: 'Mods' });
   else {
     const steps = [], details = [];
@@ -105,7 +113,7 @@ export function build(x) {
     href: '#/setups', hrefLabel: 'Setups → Setup recognition' });
 
   // 6. online services: only what Paddock already knows from its own last requests
-  const b = x.board, u = x.updates;
+  const b = x.board ? { ...x.board, lastError: noPaths(x.board.lastError) } : x.board, u = x.updates ? { ...x.updates, error: noPaths(x.updates.error) } : x.updates;
   if (b) {
     const details = [];
     if (u) details.push(!u.enabled ? 'Update check: off.' : u.error ? `Update check: failed ${ago(u.checkedAt ? now - u.checkedAt : null)} (${u.error}).` : u.checkedAt ? `Update check: done ${ago(now - u.checkedAt)}${u.latest ? `, ${u.latest.version} is out` : ', up to date'}.` : 'Update check: not done yet.');

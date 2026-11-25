@@ -426,9 +426,10 @@ function channelChecks(list, open, ctx) {
       <div class="chan-head">${prov(g.status)} <b>${esc(g.label)}</b></div>
       <div class="muted chan-hint">${esc(g.check || '')}</div>
       ${g.reason && (g.record || g.needsRecheck) ? `<div class="chan-reason${g.needsRecheck ? ' again' : ''}">${esc(g.reason)}</div>` : ''}
+      ${g.confirmBlock && g.status !== 'verified' ? `<div class="chan-reason again" data-block>${esc(g.confirmBlock)}</div>` : ''}
       <div class="row chan-btns">${g.status === 'verified' || (g.status === 'mismatch' && !g.needsRecheck)
         ? `<button class="small ghost" data-group="${esc(g.id)}" data-ok="reset">Undo</button>`
-        : `<button class="small" data-group="${esc(g.id)}" data-ok="1">${g.needsRecheck ? 'Still matches' : 'Matches the game'}</button><button class="small ghost" data-group="${esc(g.id)}" data-ok="0">Doesn't match</button>${g.record ? `<button class="small ghost" data-group="${esc(g.id)}" data-ok="reset">Forget</button>` : ''}`}</div>
+        : `<button class="small" data-group="${esc(g.id)}" data-ok="1" ${g.confirmBlock ? `disabled title="${esc(g.confirmBlock)}"` : ''}>${g.needsRecheck ? 'Still matches' : 'Matches the game'}</button><button class="small ghost" data-group="${esc(g.id)}" data-ok="0">Doesn't match</button>${g.record ? `<button class="small ghost" data-group="${esc(g.id)}" data-ok="reset">Forget</button>` : ''}`}</div>
     </div>`).join('')}
     <details class="chan-fixed"><summary class="muted">Readings that cannot be checked here (${fixed.length})</summary>
       ${fixed.map((g) => `<div class="chan"><div class="chan-head">${prov(g.status)} <b>${esc(g.label)}</b></div><div class="muted chan-hint">${esc(g.note || '')}</div></div>`).join('')}

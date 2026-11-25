@@ -87,10 +87,11 @@ function cleanRecord(r) {
   return { ok: r.ok, game: str(r.game), adapter: str(r.adapter), at: Number.isFinite(r.at) ? r.at : null,
     method: str(r.method, 60) || LEGACY_METHOD, car: str(r.car, 120), ...(r.legacy ? { legacy: true } : {}) };
 }
+const rawChecks = () => { const c = settings.get().channelChecks; return c && typeof c === 'object' && !Array.isArray(c) ? c : {}; };
 /** The driver's checks: {group: record}. Booleans from before PL4 (and the 0.5 switch) become legacy records. */
 export function records() {
   const s = settings.get();
-  const raw = s.channelChecks && typeof s.channelChecks === 'object' && !Array.isArray(s.channelChecks) ? s.channelChecks : {};
+  const raw = rawChecks();
   const out = {};
   for (const [k, v] of Object.entries(raw)) { if (!GROUPS[k]) continue; const r = cleanRecord(v); if (r) out[k] = r; }
   // before 0.6 one switch ("Readings match the game") covered the pit-box readings and the temperatures
@@ -100,10 +101,23 @@ export function records() {
 /** Writes old boolean checks out as records once (at start), so settings.json says what they are. */
 export function migrate() {
   const raw = settings.get().channelChecks;
-  const old = (raw && typeof raw === 'object' && Object.values(raw).some((v) => typeof v === 'boolean')) || (settings.get().probeConfirmed && !raw);
+  const old = (raw && typeof raw === 'object' && Object.entries(raw).some(([k, v]) => GROUPS[k] && typeof v === 'boolean')) || (settings.get().probeConfirmed && !raw);
   if (!old) return false;
-  settings.update({ channelChecks: records() });
+  settings.update({ channelChecks: toSave(records()) });
   return true;
+}
+
+/** What to write: the records, plus entries for groups this Paddock does not know, as they were (a newer one wrote them). */
+function toSave(recs) {
+  const out = {};
+  for (const [k, v] of Object.entries(rawChecks())) if (!GROUPS[k]) out[k] = v;
+  return Object.assign(out, recs);
+}
+/** Why "matches the game" cannot be recorded now (null = it can): a check needs the game version and the reader. */
+export function confirmBlock(id) {
+  if (!currentGame()) return "The game version is not known yet (it is read from AC EVO's log): start AC EVO once, then check again.";
+  if (!adapterOf(id)) return 'The Paddock HUD is not installed, so these readings are not read: wait until Paddock has installed it (with AC EVO closed), then check again.';
+  return null;
 }
 
 const fmtWhen = (at) => (at ? new Date(at).toISOString().slice(0, 10) : 'an unknown date');
@@ -121,7 +135,8 @@ export function evaluate(id, { car = null } = {}) {
   const game = currentGame(), adapter = adapterOf(id);
   const made = `${r.game ? `on AC EVO ${r.game}` : 'on an unknown game version'}${r.at ? `, ${fmtWhen(r.at)}` : ''}`;
   // what would make an old check no longer count (the same for "matches" and "does not match")
-  const stale = r.legacy || !r.game ? 'It was checked before Paddock recorded the game version: check it again.'
+  const stale = r.legacy ? 'It was checked before Paddock recorded the game version: check it again.'
+    : !r.game ? 'It was checked while the game version was not known: check it again.'
     : !game ? `Checked ${made}, but the game version now is not known (AC EVO's log not found): it counts once the version is known again.`
       : r.game !== game ? `Checked ${made}; the game is now ${game}: check it again.`
         : !r.adapter || r.adapter !== adapter ? `Checked ${made} with ${r.adapter || 'an unknown reader'}; Paddock now reads it with ${adapter || 'an unknown reader'}: check it again.`
@@ -142,7 +157,8 @@ export const list = (opts) => Object.entries(GROUPS).map(([id, g]) => {
   const e = evaluate(id, opts);
   return { id, label: g.label, status: e.status, state: e.state, reason: e.reason, needsRecheck: e.needsRecheck,
     record: e.record ? { game: e.record.game, adapter: e.record.adapter, at: e.record.at, method: e.record.method, car: e.record.car } : null,
-    confirmable: !!g.confirmable, perCar: !!g.perCar, via: g.via, note: g.note, check: g.check || null };
+    confirmable: !!g.confirmable, perCar: !!g.perCar, via: g.via, note: g.note, check: g.check || null,
+    confirmBlock: g.confirmable ? confirmBlock(id) : null };
 });
 export const summary = (opts) => Object.fromEntries(Object.keys(GROUPS).map((id) => [id, status(id, opts)]));
 /** What the checks are measured against now (Diagnostics, health panel). */
@@ -152,12 +168,16 @@ export const context = () => ({ game: currentGame(), parser: `shm r${PARSER_REV}
 export function confirm(id, ok, { car = null } = {}) {
   if (!GROUPS[id]?.confirmable) throw new Error(`"${id}" cannot be checked against the game`);
   if (ok !== true && ok !== false && ok !== null) throw new Error('ok must be true, false or null');
+  // "matches" counts only with a known game version and reader: refused (with the reason) rather than stored uncountable.
+  // "does not match" is the cautious state and is always recorded.
+  if (ok === true) { const why = confirmBlock(id); if (why) { const e = new Error(why); e.code = 409; throw e; } }
   // write the old switch's meaning out first, so changing one of its two groups does not undo the other
   const c = records();
   if (ok === null) delete c[id];
   else c[id] = { ok, game: currentGame(), adapter: adapterOf(id), at: Date.now(), method: METHOD, car: GROUPS[id].perCar ? str(car, 120) : null };
-  const patch = { channelChecks: c };
-  // keep the old switch in step, so going back to an older Paddock still shows the same state
+  const patch = { channelChecks: toSave(c) };
+  // keep the 0.5 switch in step for the pit-box readings. Going back to Paddock 0.7 or older: it reads these records as
+  // "not checked" (it only knows true / false), so a "does not match" is shown there as unconfirmed, not left out.
   if (id === 'setupProbe') patch.probeConfirmed = ok === true;
   settings.update(patch);
   return status(id, { car });

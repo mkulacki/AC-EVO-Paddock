@@ -135,13 +135,15 @@ function setupTelemetry(setup, trackId, layout) {
   try {
     // left out when the driver marked setup recognition as wrong (PL4: never used silently)
     out.by_setup = channels.usable('setupProbe') ? setuphistory.forAi(combos, setup.rel ?? null) : 'left out: setup recognition known to be wrong';
+    // what by_setup's setup names and temperatures (air_c, track_c: left out when marked wrong) are worth
+    out.by_setup_data_quality = channels.forAi(['setupProbe', 'conditions']);
     out.by_setup_note = `Setups are recognised from pit-box readings (${channels.trusted('setupProbe') ? 'checked against the game' : 'not checked against the game yet'}). this_setup = the laps driven with this setup's current values; this_setup_other_values = the same file with other (older) or unknown values. "Standard" = no saved setup matched; "Not recorded" = no setup recorded for those laps.`;
   } catch (e) { out.by_setup_note = `not available: ${e.message}`; }
   // what the car did in the latest session with car data (tyres, brakes, suspension, balance)
   for (const sid of [...new Set(laps.map((l) => l.session_id).filter(Boolean))].slice(0, 5)) {
     try {
       const r = carreport.build(sid);
-      if (r.available) { out.car_behaviour_latest_session = { session_laps: r.laps, setup_driven: laps.find((l) => l.session_id === sid)?.setup_name ?? 'unknown', ...carreport.forAi(r) }; break; }
+      if (r.available) { out.car_behaviour_latest_session = { session_laps: r.laps, setup_driven: channels.usable('setupProbe') ? laps.find((l) => l.session_id === sid)?.setup_name ?? 'unknown' : 'left out: setup recognition known to be wrong', ...carreport.forAi(r) }; break; }
     } catch { /* skip */ }
   }
   if (best) {
@@ -334,7 +336,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export)/;
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health)/;
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -665,7 +667,7 @@ async function route(req, res) {
     try {
       for (const g of group ? [group] : ['setupProbe', 'conditions']) channels.confirm(g, ok, { car: liveCar() });
       return send(res, 200, { confirmed: channels.trusted('setupProbe'), channels: channels.list({ car: liveCar() }), checkContext: channels.context() });
-    } catch (e) { return send(res, 400, { error: e.message }); }
+    } catch (e) { return send(res, e.code === 409 ? 409 : 400, { error: e.message }); }
   }
   // what each telemetry reading is worth: checked against the game or not (src/channels.js)
   if (p === '/api/channels') return send(res, 200, channels.list({ car: liveCar() }));

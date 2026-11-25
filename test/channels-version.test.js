@@ -71,16 +71,40 @@ test('after a game update a check no longer counts (needs checking again); back 
   assert.equal(channels.status('tyres'), 'verified');
 });
 
-test('an unknown game version now counts as not checked; a check made then never counts', () => {
+test('an unknown game version now counts as not checked; "matches" is refused then with the reason, "does not match" is kept (review 3)', () => {
   setGame(null);
   assert.equal(channels.status('tyres'), 'unverified');
   assert.match(channels.evaluate('tyres').reason, /not known/);
-  channels.confirm('brakes', true);
-  assert.equal(saved().brakes.game, null);
+  assert.throws(() => channels.confirm('brakes', true), (e) => e.code === 409 && /game version is not known yet/.test(e.message));
+  assert.equal(saved().brakes.ok, false, 'nothing changed');
+  assert.match(channels.list().find((g) => g.id === 'brakes').confirmBlock, /start AC EVO once/);
+  assert.equal(channels.confirm('suspension', false), 'mismatch', 'the cautious answer is always recorded');
   setGame('0.6.1');
-  assert.equal(channels.status('brakes'), 'unverified', 'made on an unknown version');
+  assert.equal(channels.list().find((g) => g.id === 'brakes').confirmBlock, null);
   assert.equal(channels.status('tyres'), 'verified');
-  channels.confirm('brakes', null);
+  // a record without a game version that is not a legacy one (made by an earlier PL4 build) says so plainly
+  settings.update({ channelChecks: { ...channels.records(), conditions: { ok: true, game: null, adapter: 'shm r1', at: 1, method: channels.METHOD, car: null } } });
+  assert.match(channels.evaluate('conditions').reason, /while the game version was not known/);
+  assert.doesNotMatch(channels.evaluate('conditions').reason, /before Paddock recorded/);
+  channels.confirm('suspension', null); channels.confirm('conditions', null);
+});
+
+test('a HUD reading cannot be confirmed while no HUD is installed (review 3)', () => {
+  hud = null;
+  assert.throws(() => channels.confirm('aids', true), /Paddock HUD is not installed/);
+  hud = '0.14.0';
+});
+
+test('channelChecks keys of groups this Paddock does not know are kept on every write (review 6)', () => {
+  settings.update({ channelChecks: { ...channels.records(), futureGroup: { ok: true, game: '9.9', extra: 1 } } });
+  channels.confirm('tyres', true);
+  assert.deepEqual(saved().futureGroup, { ok: true, game: '9.9', extra: 1 });
+  assert.equal(channels.migrate(), false, 'an unknown key is not an old check');
+  settings.update({ channelChecks: { ...saved(), oldFuture: true, tyres: true } });
+  assert.equal(channels.migrate(), true);
+  assert.equal(saved().oldFuture, true, 'kept as it was'); assert.equal(saved().tyres.legacy, true);
+  assert.ok(!('futureGroup' in channels.records()));
+  channels.confirm('tyres', true);
 });
 
 test('a reader change (HUD update for aids, layout revision for shared memory) needs a new check', () => {
