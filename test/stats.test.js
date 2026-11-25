@@ -43,3 +43,11 @@ test('apart: only when the intervals of the medians do not overlap', () => {
   assert.equal(apart(a, c), false);
   assert.equal(apart(a, null), false);
 });
+
+test('quantileRange: a distribution-free interval of a quantile from the order of the values (PL6 review fix 6)', async () => {
+  const { quantileRange } = await import('../src/stats.js');
+  // n = 12, p = 0.25: ranks 3 ± 1.96·√2.25 = 0.06 .. 5.94 -> 1-based ranks 0 (clipped to 1) .. 6
+  assert.deepEqual(quantileRange([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 0.25), { lo: 1, hi: 6 });
+  assert.deepEqual(quantileRange([5], 0.25), { lo: 5, hi: 5 });
+  assert.equal(quantileRange([], 0.5), null);
+});

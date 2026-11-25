@@ -141,3 +141,48 @@ test('a new personal best is explained against the previous best: the corner, it
   db.deleteLap(id);
   svc.invalidate(COMBO);
 });
+
+// ---- PL6 review fixes
+const channels = await import('../src/channels.js');
+
+test('review fix 2: laps with the automatic gearbox (laps.aids.assists) are left out of gear comparisons', async () => {
+  for (const id of ids.slice(0, 6)) db.setLapAids(id, { cls: 'assisted', assists: { gearbox: true } });
+  for (const id of ids.slice(6)) db.setLapAids(id, { cls: 'pro', assists: { gearbox: false } });
+  svc.invalidate(COMBO);
+  const r = await svc.lapAnalysisAsync(COMBO);
+  assert.deepEqual(r.gearbox, { auto: 6, unknown: 0 });
+  assert.equal(r.corners[1].gears.groups.reduce((a, g) => a + g.passes, 0), 6, 'only the manual-gearbox laps');
+  assert.equal(r.corners[1].gears.unknownGearbox, 0);
+  for (const id of ids) db.setLapAids(id, null);
+  svc.invalidate(COMBO);
+});
+
+test('review fix 3: "same setup" follows setup recognition: marked as wrong = not applied (said), not checked = labelled', async () => {
+  const set = (id, snap) => db.raw.prepare('UPDATE laps SET setup_info = ? WHERE id = ?').run(JSON.stringify({ snap }), id);
+  ids.forEach((id, i) => set(id, i < 6 ? 'aaa' : 'bbb'));
+  svc.invalidate(COMBO);
+  const unchecked = await svc.lapAnalysisAsync(COMBO, { match: 'setup' });
+  assert.equal(unchecked.sample.laps, 6, 'the newest lap\'s setup');
+  assert.match(unchecked.note, /not checked against the game yet/);
+  channels.confirm('setupProbe', false);
+  const wrong = await svc.lapAnalysisAsync(COMBO, { match: 'setup' });
+  assert.notEqual(wrong, unchecked, 'a changed check gives a new result (review fix 7)');
+  assert.equal(wrong.sample.laps, 12, 'no lap counts as the same setup');
+  assert.match(wrong.note, /marked as not matching the game.*filter is not applied/);
+  channels.confirm('setupProbe', null);
+  ids.forEach((id) => db.raw.prepare('UPDATE laps SET setup_info = NULL WHERE id = ?').run(id));
+  svc.invalidate(COMBO);
+});
+
+test('review fix 7: laps changed while the analysis runs: callers get the result with the change, not a stale one', async () => {
+  const other = { ...COMBO, car: 'fixture_gt_stale' };
+  const s = db.createSession({ ...other, sessionType: 0, driver: 'Me', startedAt: 1e9 });
+  for (let i = 1; i <= 8; i++) insertLap(db, { sessionId: s, recordedAt: 1e9 + i, params: params(i), combo: other });
+  svc.invalidate();
+  const running = svc.lapAnalysisAsync(other);
+  await new Promise((r) => setImmediate(r)); // it has started and yielded
+  insertLap(db, { sessionId: s, recordedAt: 1e9 + 99, params: params(1), combo: other });
+  svc.invalidate(other); // as the server does after a lap
+  const r = await running;
+  assert.equal(r.sample.laps, 9);
+});

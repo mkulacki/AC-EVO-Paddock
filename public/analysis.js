@@ -47,13 +47,13 @@ export async function viewAnalysis(view, params) {
       <div class="card stat"><span class="k">Sessions</span><span class="v">${d.sample.sessions}</span></div>
       <div class="card stat" title="Your best valid lap among the laps analysed"><span class="k">Best lap</span><span class="v">${fmt(d.target.bestMs)}</span></div>
       <div class="card stat" title="The median of the laps analysed"><span class="k">Typical lap</span><span class="v">${fmt(d.target.typicalMs)}</span></div>
-      <div class="card stat" title="${esc('Repeatable target: for every corner, the time you reach in at least 1 of 4 passes (the first quartile), added up. Approximate: corners are treated as independent.')}"><span class="k">Target lap (repeatable)</span><span class="v" id="anTarget">${d.target.targetMs != null ? `${fmt(d.target.targetMs)}<small class="muted"> ±${(d.target.uncertaintyMs / 1000).toFixed(1)} s</small>` : '–'}</span></div>
+      <div class="card stat" title="${esc('Repeatable target: for every corner, the time you reach in at least 1 of 4 passes (the first quartile), added up. The ± is a rough range: the first quartile of each corner has a ~95 % interval from the order of its passes, and these are added as if the corners were independent.')}"><span class="k">Target lap (repeatable)</span><span class="v" id="anTarget">${d.target.targetMs != null ? `${fmt(d.target.targetMs)}<small class="muted"> ±${(d.target.uncertaintyMs / 1000).toFixed(1)} s, rough</small>` : '–'}</span></div>
       <div class="card stat" title="Your best pass of every corner put together, from all your valid laps here (the ideal lap of Compare)"><span class="k">Ideal lap (theoretical)</span><span class="v">${fmt(d.idealMs)}</span></div>
     </div>
     ${d.target.targetMs == null ? `<div class="card"><span class="muted">No target lap yet: ${esc(d.target.reason)}</span></div>` : ''}
-    ${ex.length || d.noGear ? `<details class="card"><summary><b>Laps left out or limited</b> <span class="muted s">${ex.length} left out${d.noGear ? `, ${d.noGear} without gear data` : ''}</span></summary>
+    ${ex.length || d.noGear || d.gearbox?.auto ? `<details class="card"><summary><b>Laps left out or limited</b> <span class="muted s">${ex.length} left out${d.noGear ? `, ${d.noGear} without gear data` : ''}${d.gearbox?.auto ? `, ${d.gearbox.auto} with the automatic gearbox` : ''}</span></summary>
       <ul class="s">${ex.slice(0, 30).map((e) => `<li>Lap #${e.id}: ${esc(e.reason)}</li>`).join('')}${ex.length > 30 ? `<li>… and ${ex.length - 30} more</li>` : ''}
-      ${d.noGear ? `<li>${d.noGear} lap${d.noGear === 1 ? '' : 's'} recorded without a gear channel: left out of the gear comparisons only.</li>` : ''}</ul></details>` : ''}
+      ${d.noGear ? `<li>${d.noGear} lap${d.noGear === 1 ? '' : 's'} recorded without a gear channel: left out of the gear comparisons only.</li>` : ''}${d.gearbox?.auto ? `<li>${d.gearbox.auto} lap${d.gearbox.auto === 1 ? '' : 's'} driven with the automatic gearbox: left out of the gear comparisons only.</li>` : ''}</ul></details>` : ''}
     <section class="card" id="anTop"><h2>Where to gain time</h2>
       ${d.top.length ? `<div class="opp-grid">${d.top.map((t) => oppCard(t, d, ck)).join('')}</div>
         <p class="muted s" style="margin:10px 0 0">${esc(d.causation)}</p>` : `<p class="muted" style="margin:0">${esc(noTopText(d))}</p>`}
@@ -104,6 +104,7 @@ function oppCard(t, d, ck) {
     ${phaseBar(t.phases, t.mainPhase)}
     <h4>What was measured</h4>
     <ul class="opp-obs"><li>${esc(t.observation)}</li>${t.findings.map((f) => `<li>${esc(f.observation)}</li>`).join('')}</ul>
+    ${t.caveats?.length ? `<p class="muted s opp-cav">${t.caveats.map(esc).join(' ')}</p>` : ''}
     ${t.findings.length ? `<h4>What it may mean</h4><ul class="opp-int">${t.findings.map((f) => `<li>${esc(f.interpretation)}</li>`).join('')}</ul>` : '<p class="muted s">No single difference in braking, throttle, speed or gear stands out: compare the passes to see the line.</p>'}
     <div class="row opp-links"><a href="#/compare?laps=${t.links.typicalLapId}&ref=${t.links.fastLapId}&c=${encodeURIComponent(t.name)}">Compare a typical pass with a quick one at ${esc(t.name)} ›</a>
       <button type="button" class="linklike" data-goto="an-${esc(t.name)}">Distribution ›</button><a href="#/consistency?combo=${ck}&metric=timeMs">Spread of every corner ›</a></div>
@@ -112,7 +113,7 @@ function oppCard(t, d, ck) {
 
 // one corner: a distribution strip and, opened, the typical against the quicker passes
 const ROWS = [
-  ['brakePoint', 'Starts braking at', 'm', 0], ['brakeRelease', 'Off the brake at', 'm', 0], ['releaseMs', 'Brake release time', 's', 2], ['releaseBumps', 'Brake re-applications', '', 1],
+  ['brakePoint', 'Starts braking at', 'm', 0], ['brakeRelease', 'Off the brake at', 'm', 0], ['releaseMs', 'Brake release time', 's', 2], ['releaseBumps', 'Brake re-applications', '', 0],
   ['trailM', 'Trail braking', 'm', 0], ['minSpeed', 'Slowest point', 'km/h', 1], ['throttlePickup', 'Back on the throttle at', 'm', 0], ['pickupMs', 'Slowest point to full throttle', 's', 2],
   ['holdMs', 'Throttle hesitation', 's', 2], ['exitSpeed', 'Exit speed', 'km/h', 1],
 ];
@@ -125,14 +126,14 @@ function strip(c) {
   return `<svg class="an-strip" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${c.name}: ${c.passes} passes, median ${s2(med)}, middle half ${s2(c.dist.q1Ms)} to ${s2(c.dist.q3Ms)}`)}">
     <line x1="${W / 2}" x2="${W / 2}" y1="1" y2="${H - 1}" class="ax-line"/>
     <rect x="${X(c.dist.q1Ms)}" y="6" width="${Math.max(1, X(c.dist.q3Ms) - X(c.dist.q1Ms))}" height="${H - 12}" rx="2" class="an-box"/>
-    <rect x="${X(med - c.dist.ciMs)}" y="9" width="${Math.max(1, X(med + c.dist.ciMs) - X(med - c.dist.ciMs))}" height="${H - 18}" class="an-ci"/>
+    ${c.sufficient ? `<rect x="${X(med - c.dist.ciMs)}" y="9" width="${Math.max(1, X(med + c.dist.ciMs) - X(med - c.dist.ciMs))}" height="${H - 18}" class="an-ci"/>` : ''}
     ${c.values.map((v) => `<circle cx="${X(v.ms)}" cy="${H / 2}" r="2.6" class="an-dot"><title>Lap #${v.lapId}: ${s2(v.ms)} (${fmtGap(v.ms - med, 2)} against the median)</title></circle>`).join('')}</svg>`;
 }
 function cornerRow(c, d, ck) {
   const marked = d.bookmarks?.[c.name];
   const sum = `<span class="an-name"><b>${esc(c.name)}</b>${c.rank ? ` <span class="badge bad" title="Opportunity rank">#${c.rank}</span>` : ''}${marked ? ' <span class="badge accent">Bookmarked</span>' : ''}</span>
     ${strip(c)}
-    <span class="an-num" title="Typical (median) corner time ± the interval of the median">${c.dist ? `${s2(c.dist.medianMs)} <small class="muted">±${(c.dist.ciMs / 1000).toFixed(2)}</small>` : ''}</span>
+    <span class="an-num" title="Typical (median) corner time ± the interval of the median">${c.dist ? `${s2(c.dist.medianMs)}${c.sufficient ? ` <small class="muted">±${(c.dist.ciMs / 1000).toFixed(2)}</small>` : ''}` : ''}</span>
     <span class="an-num" title="Realistic gain (typical against 1 pass in 4) · up to (against your fastest pass)">${c.gain ? `${s2(c.gain.realisticMs)} <small class="muted">/ ${s2(c.gain.idealMs)}</small>` : `<small class="muted">${esc(c.reason || '')}</small>`}</span>
     ${confBadge(c.confidence, c.passes)}`;
   if (!c.gain) return `<div class="an-row" id="an-${esc(c.name)}"><div class="an-sum">${sum}</div></div>`;
@@ -144,7 +145,7 @@ function cornerRow(c, d, ck) {
         <tbody>${ROWS.map(([k, label, unit, dp]) => `<tr><td>${esc(label)}</td><td>${val(c.typical[k], unit, dp)}</td><td>${val(c.fast[k], unit, dp)}</td></tr>`).join('')}
         <tr><td>Gear at the slowest point</td><td colspan="2">${g.available ? g.groups.map((x) => `${x.gear}: ${x.passes} pass${x.passes === 1 ? '' : 'es'}${x.medianMs != null ? ` (median ${s2(x.medianMs)})` : ''}`).join(' · ') : esc(g.reason)}</td></tr></tbody></table></div>
       ${g.comparison ? `<p class="s"><b>Gear:</b> ${esc(g.comparison.observation)} <span class="muted">${esc(g.comparison.interpretation)}</span></p>` : ''}
-      <p class="muted s">Gears are what the car reported; Paddock does not record whether the automatic gearbox was on. The brake channel is the pedal position, not the brake pressure.</p>
+      <p class="muted s">Gears are what the car reported, from laps with the manual gearbox only${g.auto ? ` (${g.auto} pass${g.auto === 1 ? '' : 'es'} with the automatic gearbox left out)` : ''}${g.unknownGearbox ? `; for ${g.unknownGearbox} pass${g.unknownGearbox === 1 ? '' : 'es'} the gearbox setting was not recorded (it comes from the Paddock HUD), so they may include automatic shifts` : ''}. The brake channel is the pedal position, not the brake pressure.</p>
       ${c.findings.length ? `<ul class="s">${c.findings.map((f) => `<li>${esc(f.observation)} <span class="muted">${esc(f.interpretation)}</span></li>`).join('')}</ul>` : ''}
       <div class="row opp-links"><a href="#/compare?laps=${c.links.typicalLapId}&ref=${c.links.fastLapId}&c=${encodeURIComponent(c.name)}">Compare a typical pass with a quick one ›</a>
         <a href="#/compare?laps=${c.links.typicalLapId}&ref=${c.links.fastestLapId}&c=${encodeURIComponent(c.name)}">… with your fastest pass ›</a>

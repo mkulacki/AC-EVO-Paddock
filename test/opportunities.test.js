@@ -151,3 +151,58 @@ test('differences: thresholds are inclusive and nothing is said below them', () 
   assert.equal(differences(base, { brakePoint: 104.9, minSpeed: 81.9 }).length, 0);
   assert.deepEqual(differences(base, { brakePoint: 105, minSpeed: 82 }).map((d) => d.key).sort(), ['brakePoint', 'minSpeed']);
 });
+
+// ---- PL6 review fixes
+import { clearGear, BRAKE_NOTE } from '../src/opportunities.js';
+import { quantileRange, sorted as srt } from '../src/stats.js';
+
+test('review fix 1: no gear finding from a quick group of 1-2 passes, and none on a tie', () => {
+  // 5 passes, gears [4, 3, 4, 4, 4]; the two quickest are one 4th and one 3rd
+  const one = (i, g, t) => ({ id: i, sessionId: 1, recordedAt: i, lapMs: t, has: { gear: true, brake: true, throttle: true }, c: [pass({ timeMs: t, minGear: g })] });
+  const laps = [one(1, 4, 5000), one(2, 3, 4900), one(3, 4, 5100), one(4, 4, 5100), one(5, 4, 5100)];
+  const r = analyse({ corners: CORNERS.slice(0, 1), laps });
+  assert.ok(!r.corners[0].findings.some((f) => f.key === 'minGear'), JSON.stringify(r.corners[0].findings));
+  assert.equal(clearGear(laps.slice(0, 2), 0), null, 'two passes are under the 3-pass minimum');
+  const tie = [3, 3, 3, 4, 4, 4].map((g, i) => one(i + 1, g, 5000));
+  assert.equal(clearGear(tie, 0), null, 'a tie names no gear');
+  assert.equal(clearGear([3, 3, 3, 4].map((g, i) => one(i + 1, g, 5000)), 0), 3);
+});
+
+test('review fix 2: laps with the automatic gearbox are left out of gear comparisons; top cards carry the channel caveats', () => {
+  const auto = LAPS.map((l) => ({ ...l, gearbox: l.id <= 4 ? 'auto' : 'manual' }));
+  const t2 = run(auto).corners[1];
+  assert.equal(t2.gears.auto, 4);
+  assert.deepEqual(t2.gears.groups.map((g) => g.gear), [3], 'the 2nd-gear passes were all automatic');
+  assert.ok(!t2.findings.some((f) => f.key === 'minGear'));
+  // with the gear finding on a card, its caveat says where the gears come from; a braking finding says "pedal position"
+  const r = run(LAPS.map((l) => ({ ...l, gearbox: 'unknown' })));
+  const c2 = r.top.find((t) => t.name === 'T2'), c3 = r.top.find((t) => t.name === 'T3');
+  assert.ok(c2.findings.some((f) => f.key === 'minGear'));
+  assert.match(c2.caveats.join(' '), /manual gearbox only.*12 passes the gearbox setting was not recorded/);
+  assert.ok(c3.caveats.includes(BRAKE_NOTE));
+});
+
+test('review fix 4: a trend verdict needs a minimum change, not just non-overlapping intervals', () => {
+  // three sessions of identical laps, the last 1 ms slower: zero spread makes the intervals not overlap
+  const tl = [1, 2, 3].flatMap((s) => [0, 1, 2].map((j) => ({ id: s * 10 + j, sessionId: s, recordedAt: s * 10 + j, lapMs: 90000 + (s === 3 ? 1 : 0), dts: [5000 + (s === 3 ? 1 : 0)] })));
+  const tr = analyse({ corners: CORNERS.slice(0, 1), laps: [], trend: tl }).trends;
+  assert.equal(tr.lap.verdict, 'no clear change');
+  assert.equal(tr.corners[0].verdict, 'no clear change');
+  assert.equal(RULES.trendMinMs.lap, 100);
+});
+
+test('review fix 5: counts are whole numbers (no "1.5×")', () => {
+  // typical passes: re-applications 1 and 2 alternate (median 1.5), quick ones 0
+  const laps = LAPS.map((l) => ({ ...l, c: l.c.map((p, k) => (k === 2 ? { ...p, releaseBumps: l.id >= 5 && l.id <= 8 ? 0 : 1 + (l.id % 2) } : p)) }));
+  const t3 = run(laps).corners[2];
+  assert.equal(t3.typical.releaseBumps, 1);
+  const f = t3.findings.find((x) => x.key === 'releaseBumps');
+  assert.match(f.observation, /releasing it \(once\)/);
+  assert.ok(!/\d\.\d×/.test(JSON.stringify(t3.findings)));
+});
+
+test('review fix 6: the target lap range comes from the first quartiles, not the medians', () => {
+  const r = run();
+  const half = (k) => { const q = quantileRange(srt(LAPS.map((l) => l.c[k].timeMs)), 0.25); return (q.hi - q.lo) / 2; };
+  assert.equal(r.target.uncertaintyMs, Math.round(Math.sqrt([0, 1, 2, 3, 4].reduce((a, k) => a + half(k) ** 2, 0))));
+});

@@ -716,14 +716,18 @@ test('lap analysis: the top opportunities read without a chart, observations apa
   const href = await js("document.querySelector('.opp-card .opp-links a[href^=\"#/compare\"]').getAttribute('href')");
   assert.match(href, /^#\/compare\?laps=\d+&ref=\d+&c=T2$/);
   // the target lap is shown next to the ideal; trends and the PB card are there
-  assert.match(await js("document.querySelector('#anTarget').textContent"), /^\d:\d\d\.\d{3} ±\d\.\d s$/);
+  assert.match(await js("document.querySelector('#anTarget').textContent"), /^\d:\d\d\.\d{3} ±\d\.\d s, rough$/);
+  // review fix 2: a card with a gear or brake finding says what that reading is (gearbox setting, pedal position)
+  const cav = await js("[...document.querySelectorAll('.opp-card .opp-cav')].map((p) => p.textContent).join(' ')");
+  assert.match(cav, /pedal position, not the brake pressure/); // T1's braking finding
+  // (T2's gear finding is its 4th, so not on the card: the corner row below carries the gearbox note)
   assert.match(await js("document.querySelector('#view').textContent"), /What made your personal best faster|Your personal best/); // the fixture's best is its first lap: the card says there is no earlier best
   // "Distribution" opens the corner's row by keyboard, without leaving the page
   await js("document.querySelector('.opp-card [data-goto]').focus(); 1");
   await press('Enter');
   await waitFor("document.getElementById('an-T2')?.open === true", 'the T2 row opened');
   assert.match(await js('location.hash'), /^#\/analysis/);
-  assert.match(await js("document.getElementById('an-T2').textContent"), /Quicker quarter[\s\S]*Throttle hesitation/);
+  assert.match(await js("document.getElementById('an-T2').textContent"), /Quicker quarter[\s\S]*Throttle hesitation[\s\S]*manual gearbox only[\s\S]*gearbox setting was not recorded/);
   // the window switch reloads with the other window
   await js("window.__rendered = 0; const s = document.querySelector('#anWindow'); s.value = 'all'; s.dispatchEvent(new Event('change')); 1");
   await waitFor("window.__rendered > 0 && location.hash.includes('window=all') && document.querySelector('#anTop')", 'all laps');

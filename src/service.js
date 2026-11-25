@@ -415,7 +415,16 @@ function* analysisSteps(combo, info, { window, match }) {
   const excluded = [];
   // the newest lap is the anchor: a lap that cannot be compared with it is left out and listed (PL4 classes)
   const anchor = valid.length ? prov(valid[valid.length - 1]) : null;
-  let notes0 = null;
+  const notes0 = [];
+  // the automatic gearbox per lap (laps.aids.assists, from the Paddock HUD): 'auto' laps are left out of gear
+  // comparisons, 'unknown' ones are labelled; assist readings marked as wrong count as unknown (review fix 2)
+  const assistsWrong = channels.status('assists', { car: combo.car }) === 'mismatch';
+  const gearboxOf = (l) => {
+    if (assistsWrong) return 'unknown';
+    let a = null; try { a = typeof l.aids === 'string' ? JSON.parse(l.aids) : l.aids; } catch { /* old row */ }
+    const g = a?.assists?.gearbox;
+    return g === true ? 'auto' : g === false ? 'manual' : 'unknown';
+  };
   let set = valid.filter((l) => {
     const k = compat.classify(prov(l), anchor);
     if (k.level !== 'incompatible') return true;
@@ -423,11 +432,16 @@ function* analysisSteps(combo, info, { window, match }) {
     return false;
   });
   // optional: only laps that match the newest lap's game version or setup (not known on the newest lap: not applied)
+  // setups follow compat.classify (review fix 3): pit-box readings marked as wrong = every setup unknown (never a match);
+  // not checked yet = the filter is applied and labelled
+  const probe = channels.status('setupProbe', { car: combo.car });
   if (match !== 'any') {
-    const key = match === 'game' ? (p) => p.game : (p) => p.setup?.id ?? null;
+    const key = match === 'game' ? (p) => p.game : (p) => (probe === 'mismatch' ? null : p.setup?.id ?? null);
     const want = key(anchor);
-    if (want == null) notes0 = `Your newest lap has no recorded ${match === 'game' ? 'game version' : 'setup'}: every lap is used.`;
-    else set = set.filter((l) => { const ok = key(prov(l)) === want; if (!ok) excluded.push({ id: l.id, reason: match === 'game' ? 'another game version' : 'another setup' }); return ok; });
+    if (want == null) notes0.push(match === 'setup' && probe === 'mismatch' ? 'Setup recognition is marked as not matching the game, so Paddock cannot tell setups apart: the "same setup" filter is not applied and every lap is used.'
+      : `Your newest lap has no recorded ${match === 'game' ? 'game version' : 'setup'}: the filter is not applied and every lap is used.`);
+    else if (match === 'setup' && probe !== 'verified') notes0.push('"Same setup" rests on setup recognition, which is not checked against the game yet (Setups → Setup recognition): laps on another setup may be among them.');
+    if (want != null) set = set.filter((l) => { const ok = key(prov(l)) === want; if (!ok) excluded.push({ id: l.id, reason: match === 'game' ? 'another game version' : 'another setup' }); return ok; });
   }
   const chosen = window === 'all' ? set : set.slice(-ANALYSIS_WINDOW);
   const bestR = getResampled(info.best.id)?.R;
@@ -441,7 +455,7 @@ function* analysisSteps(combo, info, { window, match }) {
     const p = lapPasses(info, l.id);
     if (!p) continue; // deleted meanwhile (the result is not kept)
     if (p.n !== refN) { excluded.push({ id: l.id, reason: 'recorded on another track length' }); continue; }
-    laps.push({ id: l.id, sessionId: l.session_id, recordedAt: l.recorded_at, lapMs: l.lap_time_ms, has: p.has, c: p.c });
+    laps.push({ id: l.id, sessionId: l.session_id, recordedAt: l.recorded_at, lapMs: l.lap_time_ms, has: p.has, gearbox: gearboxOf(l), c: p.c });
   }
   // trends: every lap of the set (not only the window), from the corner times kept per lap (PL3)
   const trend = [];
@@ -458,7 +472,7 @@ function* analysisSteps(combo, info, { window, match }) {
     const prev = before.length ? before.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a)) : null;
     const asLap = (l) => {
       const p = lapPasses(info, l.id);
-      return p && p.n === refN ? { id: l.id, sessionId: l.session_id, recordedAt: l.recorded_at, lapMs: l.lap_time_ms, has: p.has, c: p.c } : null;
+      return p && p.n === refN ? { id: l.id, sessionId: l.session_id, recordedAt: l.recorded_at, lapMs: l.lap_time_ms, has: p.has, gearbox: gearboxOf(l), c: p.c } : null;
     };
     if (!hasLapPoints(best.id, sig)) yield;
     const lapB = asLap(best);
@@ -472,25 +486,32 @@ function* analysisSteps(combo, info, { window, match }) {
   });
   const bookmarks = new Map();
   for (const b of notes.forCombo(combo)) bookmarks.set(b.corner, (bookmarks.get(b.corner) || 0) + 1);
-  return { ...base, ...result, note: notes0,
+  return { ...base, ...result, note: notes0.length ? notes0.join(' ') : null,
     compat: compat.mix(chosen.map(prov)), // what varies between the analysed laps (PL4.2)
     noGear: laps.filter((l) => !l.has.gear).length,
+    gearbox: { auto: laps.filter((l) => l.gearbox === 'auto').length, unknown: laps.filter((l) => l.gearbox === 'unknown').length },
     bookmarks: Object.fromEntries(bookmarks) };
 }
 /** The lap analysis of a track + car, worked out in slices (and kept until its laps change). */
 export function lapAnalysisAsync(combo, opts = {}) {
   const window = WINDOWS.has(opts.window) ? opts.window : 'recent', match = MATCHES.has(opts.match) ? opts.match : 'any';
-  const ck = comboKey(combo), key = `${ck}|${window}|${match}`;
+  // what the channels are worth is part of the key: a changed check (Setups, /api/channels) gives a new result (review fix 7)
+  const st = ['core', 'setupProbe', 'assists'].map((g) => channels.status(g, { car: combo.car })).join(',');
+  const ck = comboKey(combo), key = `${ck}|${window}|${match}|${st}`;
   const hit = analysisCache.get(key);
   if (hit && hit.version === version && hit.gen === (comboGen.get(ck) || 0)) return Promise.resolve(hit.value);
   if (analysisRuns.has(key)) return analysisRuns.get(key);
   const run = (async () => {
-    const v0 = version, g0 = comboGen.get(ck) || 0;
-    const info = await comboInfoAsync(combo);
-    if (!info.best) throw new Error('No valid laps for this track/car yet');
-    const value = await runInSlices(analysisSteps(combo, info, { window, match }));
-    if (version === v0 && (comboGen.get(ck) || 0) === g0) analysisCache.set(key, { version: v0, gen: g0, value });
-    return value;
+    // laps of this car + track changed while it ran: worked out again, so no caller gets a stale result (review fix 7);
+    // after 3 tries (laps changing all the time) the last result is returned, not kept
+    for (let attempt = 1; ; attempt++) {
+      const v0 = version, g0 = comboGen.get(ck) || 0;
+      const info = await comboInfoAsync(combo);
+      if (!info.best) throw new Error('No valid laps for this track/car yet');
+      const value = await runInSlices(analysisSteps(combo, info, { window, match }));
+      if (version === v0 && (comboGen.get(ck) || 0) === g0) { analysisCache.set(key, { version: v0, gen: g0, value }); return value; }
+      if (attempt >= 3) return value;
+    }
   })().finally(() => { if (analysisRuns.get(key) === run) analysisRuns.delete(key); });
   analysisRuns.set(key, run);
   return run;

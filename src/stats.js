@@ -26,6 +26,18 @@ export function summary(a) {
     sd: Math.sqrt(s.reduce((x, y) => x + (y - mean) ** 2, 0) / n), ci: (1.58 * (q3 - q1)) / Math.sqrt(n) };
 }
 
+/**
+ * A distribution-free ~95 % interval of quantile p of an already sorted list: the values at the ranks
+ * n·p ± 1.96·√(n·p·(1−p)) (normal approximation of the binomial), clipped to the list. {lo, hi}; null when empty.
+ */
+export function quantileRange(s, p) {
+  if (!s.length) return null;
+  const n = s.length, h = 1.96 * Math.sqrt(n * p * (1 - p));
+  // 1-based ranks floor(n·p − h) and ceil(n·p + h), as 0-based indexes
+  const lo = Math.max(0, Math.floor(n * p - h) - 1), hi = Math.min(n - 1, Math.ceil(n * p + h) - 1);
+  return { lo: s[lo], hi: s[Math.max(hi, lo)] };
+}
+
 /** The most frequent value (the smallest of a tie) and the counts: {mode, counts: Map(value -> n)}; null when empty. */
 export function mode(a) {
   const counts = new Map();

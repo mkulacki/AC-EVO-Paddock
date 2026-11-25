@@ -9,7 +9,7 @@
 // always worded as a possibility); a difference between faster and slower passes is an association, not a proven
 // cause; nothing is concluded from fewer than RULES.minPasses passes; every insight names its corner and links to the
 // chart that shows it; uncertainty is shown as a range and a confidence word instead of more decimals.
-import { summary, sorted, quantile, median, mode, theilSen, apart } from './stats.js';
+import { summary, sorted, quantile, quantileRange, median, mode, theilSen, apart } from './stats.js';
 
 export const RULES = {
   minPasses: 5,              // valid passes a corner needs before anything is concluded about it
@@ -21,6 +21,7 @@ export const RULES = {
   trendPassesMin: 3,         // valid laps a session needs to count in a trend
   trendSessionsMin: 3,       // sessions a trend needs
   trendSessionsMax: 10,      // newest sessions in a trend
+  trendMinMs: { lap: 100, corner: 30 }, // smallest first-to-latest change called faster / slower (review fix 4)
   diff: {                    // smallest difference worth naming (the session report's levels where they exist)
     brakePointM: 5, releasePointM: 5, releaseMs: 100, releaseRel: 0.25, minSpeedKmh: 2, exitSpeedKmh: 3,
     pickupM: 8, pickupMs: 150, pickupRel: 0.25, holdMs: 150, phaseMs: 20,
@@ -71,7 +72,7 @@ export function differences(typ, fast, { gear = null, who = PASSES } = {}) {
       d > 0 ? 'A longer, smoother release may suit this corner.' : 'A quicker release may suit this corner.');
   }
   if (has('releaseBumps') && typ.releaseBumps >= 1 && fast.releaseBumps === 0) add('releaseBumps', 'release', typ.releaseBumps,
-    `${who.Typ} ${v('presses', 'pressed')} the brake again while releasing it (${typ.releaseBumps}×); ${F.toLowerCase()} ${v('release', 'released')} it in one go.`,
+    `${who.Typ} ${v('presses', 'pressed')} the brake again while releasing it (${typ.releaseBumps === 1 ? 'once' : `${typ.releaseBumps} times`}); ${F.toLowerCase()} ${v('release', 'released')} it in one go.`,
     'A single smooth release may keep the car more settled.');
   // slowest point
   if (has('minSpeed')) {
@@ -111,18 +112,37 @@ export function differences(typ, fast, { gear = null, who = PASSES } = {}) {
 const BRAKE = ['brakePoint', 'brakeRelease', 'releaseMs', 'releaseBumps', 'trailM'];
 const THROTTLE = ['throttlePickup', 'pickupMs', 'holdMs', 'reLifts'];
 const OTHER = ['minSpeed', 'exitSpeed', 'coastM', 'timeMs', 'entryMs', 'apexMs', 'exitMs'];
+// counts (re-applications, re-lifts) are whole numbers: the median of a count is rounded down, so 1 means at least
+// half of the passes did it once or more (review fix 5: no '1.5×')
+const COUNTS = new Set(['releaseBumps', 'reLifts']);
 function medians(group, k) {
   const o = {};
-  for (const key of OTHER) o[key] = median(nth(group, k, key));
-  for (const key of BRAKE) o[key] = median(group.filter((l) => l.has?.brake !== false).map((l) => l.c[k]?.[key]));
-  for (const key of THROTTLE) o[key] = median(group.filter((l) => l.has?.throttle !== false).map((l) => l.c[k]?.[key]));
+  const med = (key, list) => { const v = median(list.map((l) => l.c[k]?.[key])); return v != null && COUNTS.has(key) ? Math.floor(v) : v; };
+  for (const key of OTHER) o[key] = med(key, group);
+  for (const key of BRAKE) o[key] = med(key, group.filter((l) => l.has?.brake !== false));
+  for (const key of THROTTLE) o[key] = med(key, group.filter((l) => l.has?.throttle !== false));
   return o;
 }
 
-/** Gear at the slowest point, per gear: passes and median corner time (only laps that hold a gear channel). */
+/** Laps whose gears say something about the driver's choice: a gear channel, and the automatic gearbox not on (review fix 2). */
+const gearLap = (l) => l.has?.gear !== false && l.gearbox !== 'auto';
+/**
+ * The gear most passes of a group used at the slowest point, only when it is clear: at least RULES.gearGroupMin passes
+ * in it and no other gear with as many (review fix 1). null otherwise.
+ */
+export function clearGear(passes, k) {
+  const m = mode(passes.filter((l) => gearLap(l) && l.c[k]?.minGear > 0).map((l) => l.c[k].minGear));
+  if (!m) return null;
+  const n = m.counts.get(m.mode);
+  if (n < RULES.gearGroupMin || [...m.counts.values()].filter((x) => x === n).length > 1) return null;
+  return m.mode;
+}
+
+/** Gear at the slowest point, per gear: passes and median corner time (laps with a gear channel and no automatic gearbox). */
 function gearsOf(passes, k) {
-  const withGear = passes.filter((l) => l.has?.gear !== false && l.c[k]?.minGear > 0);
-  if (!withGear.length) return { available: false, reason: 'No gear was recorded for these laps.' };
+  const withGear = passes.filter((l) => gearLap(l) && l.c[k]?.minGear > 0);
+  const auto = passes.filter((l) => l.gearbox === 'auto').length;
+  if (!withGear.length) return { available: false, auto, reason: auto ? 'Driven with the automatic gearbox (or no gear recorded): no gear comparison.' : 'No gear was recorded for these laps.' };
   const m = mode(withGear.map((l) => l.c[k].minGear));
   const groups = [...m.counts.entries()].sort((a, b) => a[0] - b[0]).map(([g, n]) => {
     const t = withGear.filter((l) => l.c[k].minGear === g).map((l) => l.c[k].timeMs);
@@ -136,7 +156,7 @@ function gearsOf(passes, k) {
       observation: `Passes in ${ord(a.gear)} gear: median ${s2(a.medianMs)} (${a.passes} passes); in ${ord(b.gear)}: ${s2(b.medianMs)} (${b.passes} passes).`,
       interpretation: `${ord(a.gear)} gear went with the quicker passes here. That is an association: the passes in that gear may have been quicker for other reasons.` };
   }
-  return { available: true, mode: m.mode, groups, comparison };
+  return { available: true, mode: m.mode, groups, comparison, auto, unknownGearbox: withGear.filter((l) => l.gearbox !== 'manual').length };
 }
 
 /**
@@ -176,6 +196,8 @@ function cornerRow(c, k, laps) {
   row.dist = { minMs: r0(dist.min), q1Ms: r0(dist.q1), medianMs: r0(dist.median), q3Ms: r0(dist.q3), maxMs: r0(dist.max), sdMs: r0(dist.sd), ciMs: r0(dist.ci) };
   // the passes in time order, for the distribution chart (lap id, time)
   row.values = passes.map((l) => ({ lapId: l.id, ms: r0(l.c[k].timeMs) }));
+  const qr = quantileRange(sorted(passes.map((l) => l.c[k].timeMs)), RULES.fastQuantile);
+  row.q1HalfMs = qr ? (qr.hi - qr.lo) / 2 : null;
   if (!row.sufficient) return { ...row, gain: null, reason: `Needs ${RULES.minPasses} valid passes (${n} so far).` };
   const cut = quantile(sorted(passes.map((l) => l.c[k].timeMs)), RULES.fastQuantile);
   const fast = passes.filter((l) => l.c[k].timeMs <= cut);
@@ -187,8 +209,8 @@ function cornerRow(c, k, laps) {
   row.mainPhase = row.phases[main] >= RULES.diff.phaseMs ? main : null;
   row.typical = T; row.fast = F;
   row.gears = gearsOf(passes, k);
-  const gearFast = gearsOf(fast, k);
-  row.findings = differences(T, F, { gear: row.gears.available && gearFast.available ? { typ: row.gears.mode, fast: gearFast.mode } : null });
+  const gTyp = clearGear(passes, k), gFast = clearGear(fast, k);
+  row.findings = differences(T, F, { gear: gTyp != null && gFast != null ? { typ: gTyp, fast: gFast } : null });
   // the laps to open: a typical pass (the median one, the slower of two middles) and a representative fast pass
   const byTime = [...passes].sort((a, b) => a.c[k].timeMs - b.c[k].timeMs);
   const typLap = byTime[n >> 1], fastLap = [...fast].sort((a, b) => Math.abs(a.c[k].timeMs - dist.q1) - Math.abs(b.c[k].timeMs - dist.q1))[0];
@@ -204,8 +226,21 @@ function topCard(r) {
     headline: `${r.name}: about ${s2(r.gain.realisticMs)} a lap to gain, ${phaseText(r)}.`,
     observation: `Your typical pass takes ${s2(r.dist.medianMs)}; the quicker quarter of your passes ${s2(r.dist.q1Ms)} or less (${r.fastPasses} of ${r.passes} passes), your fastest ${s2(r.dist.minMs)}.`,
     findings: r.findings.slice(0, 3),
+    caveats: caveatsOf(r, r.findings.slice(0, 3)),
     links: r.links,
   };
+}
+
+export const BRAKE_NOTE = 'The brake reading is the pedal position, not the brake pressure.';
+/** What the reader of a card must know about the channels its findings rest on (review fix 2). */
+function caveatsOf(r, findings) {
+  const out = [];
+  if (findings.some((f) => f.kind === 'braking' || f.kind === 'release')) out.push(BRAKE_NOTE);
+  if (findings.some((f) => f.kind === 'gear')) {
+    const unk = r.gears?.unknownGearbox || 0;
+    out.push(`Gears from laps with the manual gearbox only${r.gears?.auto ? ` (${r.gears.auto} pass${r.gears.auto === 1 ? '' : 'es'} with the automatic gearbox left out)` : ''}${unk ? `; for ${unk} pass${unk === 1 ? '' : 'es'} the gearbox setting was not recorded (no Paddock HUD reading), so they may include automatic shifts` : ''}.`);
+  }
+  return out;
 }
 
 /** Target lap: the sum of the time every corner is driven in at least 1 pass in 4 (q1), next to the ideal. */
@@ -216,9 +251,10 @@ function targetLap(rows, laps, idealMs) {
   const base = { bestMs: best, typicalMs: r0(typical), idealMs, laps: laps.length };
   if (!rows.length || missing.length) return { ...base, targetMs: null, reason: missing.length ? `Needs ${RULES.minPasses} valid passes of every corner (short: ${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ', …' : ''}).` : 'No corners.' };
   const sum = (key) => rows.reduce((a, r) => a + r.dist[key], 0);
+  // a rough range: each corner's first quartile has a distribution-free ~95 % interval (quantileRange); the half-widths
+  // are added as independent errors (review fix 6: the same statistic as the target, not the median's interval)
   return { ...base, targetMs: r0(sum('q1Ms')), sampleIdealMs: r0(sum('minMs')), medianSumMs: r0(sum('medianMs')),
-    // approximate: the corners' median intervals added as independent errors
-    uncertaintyMs: r0(Math.sqrt(rows.reduce((a, r) => a + r.dist.ciMs ** 2, 0))) };
+    uncertaintyMs: r0(Math.sqrt(rows.reduce((a, r) => a + r.q1HalfMs ** 2, 0))) };
 }
 
 /** Per session (with enough valid laps): median lap and median corner times; first against last session. */
@@ -233,7 +269,7 @@ function trends(corners, list) {
     .map(([id, ls]) => ({ sessionId: typeof id === 'number' ? id : null, at: ls[0].recordedAt, laps: ls }));
   const base = { sessions: sessions.map((s) => ({ sessionId: s.sessionId, at: s.at, laps: s.laps.length, medianMs: r0(median(s.laps.map((l) => l.lapMs))), bestMs: Math.min(...s.laps.map((l) => l.lapMs)) })) };
   if (sessions.length < RULES.trendSessionsMin) return { ...base, sufficient: false, reason: `Needs ${RULES.trendSessionsMin} sessions with ${RULES.trendPassesMin} or more valid laps (${sessions.length} so far).`, corners: [], lap: null };
-  const verdict = (vals) => {
+  const verdict = (vals, minMs) => {
     const first = summary(vals[0]), last = summary(vals[vals.length - 1]);
     const meds = vals.map((v) => median(v));
     // a session without a pass of this corner (e.g. a lap measured on another grid): no verdict
@@ -242,11 +278,11 @@ function trends(corners, list) {
     const slope = theilSen(xs, xs.map((i) => meds[i]));
     const change = last.median - first.median;
     return { firstMs: r0(first.median), lastMs: r0(last.median), changeMs: r0(change), slopeMs: r0(slope),
-      verdict: !apart(first, last) ? 'no clear change' : change < 0 ? 'faster' : 'slower', points: meds.map(r0) };
+      verdict: !apart(first, last) || Math.abs(change) < minMs ? 'no clear change' : change < 0 ? 'faster' : 'slower', points: meds.map(r0) };
   };
   return { ...base, sufficient: true,
-    lap: verdict(sessions.map((s) => s.laps.map((l) => l.lapMs))),
-    corners: corners.map((c, k) => ({ name: c.name, ...verdict(sessions.map((s) => s.laps.map((l) => l.dts?.[k]).filter(Number.isFinite))) })) };
+    lap: verdict(sessions.map((s) => s.laps.map((l) => l.lapMs)), RULES.trendMinMs.lap),
+    corners: corners.map((c, k) => ({ name: c.name, ...verdict(sessions.map((s) => s.laps.map((l) => l.dts?.[k]).filter(Number.isFinite)), RULES.trendMinMs.corner) })) };
 }
 
 const PB_WHO = { fast: 'Your best lap', typ: 'your previous best', Typ: 'Your previous best', plural: false };
@@ -265,7 +301,7 @@ function pbExplain(corners, { lap, prev, compat }) {
   for (const r of gains.slice(0, 3)) {
     // the PB pass plays the "faster" side: what it did differently from the previous best's pass
     const pick = (m, has) => Object.fromEntries([...OTHER, ...(has?.brake === false ? [] : BRAKE), ...(has?.throttle === false ? [] : THROTTLE)].map((key) => [key, m[key] ?? null]));
-    const gear = lap.has?.gear !== false && prev.has?.gear !== false && r.a.minGear > 0 && r.b.minGear > 0 ? { fast: r.a.minGear, typ: r.b.minGear } : null;
+    const gear = gearLap(lap) && gearLap(prev) && r.a.minGear > 0 && r.b.minGear > 0 ? { fast: r.a.minGear, typ: r.b.minGear } : null;
     r.findings = differences(pick(r.b, prev.has), pick(r.a, lap.has), { gear, who: PB_WHO }).slice(0, 3);
   }
   const clean = (r) => ({ name: r.name, deltaMs: r.deltaMs, phases: r.phases, findings: r.findings });
