@@ -158,6 +158,14 @@ nav a.active::before { content: ''; position: absolute; left: -10px; top: 6px; b
 html.side-collapsed .side-kofi { justify-content: center; padding: 9px; }
 .side-tools { display: flex; justify-content: space-between; }
 .side-tools button { padding: 4px 8px; }
+/* PL9 kill switch: quiet while on, impossible to miss while off */
+.assist-btn { display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-secondary); background: transparent; border: 1px solid var(--border); border-radius: var(--radius-ctl); cursor: pointer; text-align: left; }
+.assist-btn[hidden] { display: none; }
+.assist-btn svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.assist-btn:hover { color: var(--text-primary); background: var(--surface-2); }
+.assist-btn.off { color: #14120a; background: #f5c518; border-color: #c99d00; } /* the same in both themes: dark text on amber */
+.assist-btn.off svg path { stroke-dasharray: 2 2; }
+html.side-collapsed .assist-btn { justify-content: center; padding: 8px; }
 #sideToggle svg { transition: transform .15s; }
 html.side-collapsed #sideToggle svg { transform: rotate(180deg); }
 .status {
@@ -399,6 +407,8 @@ svg.strip circle:hover { stroke: var(--text-primary); stroke-width: 2; }
 .hud-parts label.row { gap: 8px; font-size: var(--fs-sm); cursor: pointer; }
 .hud-slider { display: grid; grid-template-columns: 80px 1fr 44px; align-items: center; gap: 8px; font-size: var(--fs-sm); }
 .hud-slider b { text-align: right; font-variant-numeric: tabular-nums; }
+.hl-types { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.hl-types select { margin-left: 6px; }
 .hud-preview { position: sticky; top: 16px; }
 .hud-preview .small-caps { font-size: var(--fs-xs); }
 .hud-preview-head { margin-bottom: 6px; }
