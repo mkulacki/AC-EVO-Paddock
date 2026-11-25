@@ -459,7 +459,7 @@ async function route(req, res) {
     try {
       if (m === 'POST') {
         const b = await readJson(req, 16384);
-        if (b.action === 'save') return send(res, 200, { ...hudLayouts.view(), saved: hudLayouts.save(b.name) && true, hud: settings.hudConfig() });
+        if (b.action === 'save') return send(res, 200, { ...hudLayouts.save(b.name), hud: settings.hudConfig() });
         if (b.action === 'apply') return send(res, 200, { ...hudLayouts.view(), hud: hudLayouts.apply(b.name) });
         if (b.action === 'delete') return send(res, 200, { ...hudLayouts.remove(b.name), hud: settings.hudConfig() });
         if (b.action === 'contexts') return send(res, 200, { ...hudLayouts.setContexts(b), hud: settings.hudConfig() });
