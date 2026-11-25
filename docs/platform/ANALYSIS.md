@@ -39,7 +39,10 @@ New in PL6:
    limited"). Laps with caveats (another game version, setup, aids, conditions, session type) are used, and what varies
    between the analysed laps is shown with `compat.mix` (the "Mixed laps" card).
 3. Optional filter "Only laps like the newest": same **game version** or same **setup** as the anchor. Laps that differ
-   are left out and listed. If the anchor has no recorded value, the filter is not applied and the page says so.
+   are left out and listed. If the anchor has no recorded value, the filter is not applied and the page says so. Setups
+   follow `compat.classify`: with the pit-box readings marked as wrong every setup counts as unknown (the filter is not
+   applied, and the page says so); while setup recognition is not checked against the game, the filter is applied and
+   labelled.
 4. **Window:** the newest `ANALYSIS_WINDOW` (30) laps of what is left (default, OD-PL-25), or all of them. Trends and the
    PB explanation always use every lap of the filtered set.
 5. A lap measured on another distance grid (another track length) is left out and listed.
@@ -55,8 +58,10 @@ Per lap, `channelPresence` checks which channels hold data (a lap file without a
 - no brake data: left out of the braking and release medians; no throttle data: left out of the throttle medians.
 
 Limits said on the page: the brake channel is the **pedal position**, not brake pressure (Paddock has no checked
-pressure reading); the gear is what the car reports, and Paddock does not record whether the automatic gearbox was on,
-so a gear difference may not be the driver's choice. G-forces and slip (unverified) are not used.
+pressure reading). The automatic gearbox setting comes with each lap from the Paddock HUD (`laps.aids.assists.gearbox`,
+`src/aids.js`): laps driven with it are left out of every gear comparison; laps without a recorded setting (no HUD
+reading, or assist readings marked as wrong) are used and labelled, since they may include automatic shifts. A top card
+with a braking or gear finding carries the matching caveat. G-forces and slip (unverified) are not used.
 
 ## Per lap, per corner (the "pass")
 
@@ -75,7 +80,7 @@ lap-points cache under the key `pl6|PASS_REV|corner signature`):
 
 With `n` = the passes of the corner (`src/opportunities.js:170` `cornerRow`):
 
-- **Distribution:** min, q1, median, q3, max, σ, and the **interval of the median** `ci = 1.58 × IQR / √n` (the box-plot
+- **Distribution:** min, q1, median, q3, max, σ, and (from 5 passes on) the **interval of the median** `ci = 1.58 × IQR / √n` (the box-plot
   notch, McGill, Tukey and Larsen 1978). Drawn as one strip per corner (dots = passes, box = middle half, dark band = the
   median's interval); each dot names its lap.
 - **Minimum samples:** fewer than `minPasses` = 5 passes: nothing is concluded ("Needs 5 valid passes (n so far)").
@@ -105,8 +110,10 @@ With `n` = the passes of the corner (`src/opportunities.js:170` `cornerRow`):
   | Gear at the slowest point | the most frequent gear differs | new |
 
   Each finding has an **observation** (numbers only, no "may") and a separate **interpretation** worded as a possibility
-  (OD-PL-30). Findings are ordered by their size relative to the threshold.
-- **Gear comparison:** passes per gear at the slowest point; when two gears each have 3 or more passes, their median
+  (OD-PL-30). Findings are ordered by their size relative to the threshold. Counts (re-applications, re-lifts) are
+  whole numbers: the median rounded down. The gear finding needs a clear gear on both sides: at least 3 passes in the
+  most used gear of the typical passes and of the quicker quarter, and no tie (`clearGear`); otherwise there is none.
+- **Gear comparison:** passes per gear at the slowest point (laps with the manual gearbox or an unknown setting); when two gears each have 3 or more passes, their median
   corner times are compared and labelled as an association.
 - **Links:** every card and row links to Compare at that corner (a typical pass, the median one or the slower of two
   middles, against a representative fast pass, the faster pass nearest q1; or against the fastest pass), to the
@@ -122,7 +129,9 @@ the causation note: the differences go together with the time but do not prove t
 ## Target lap (repeatable) next to the ideal
 
 - **Target lap** = the sum over corners of q1 (`targetLap`, `src/opportunities.js:212`), only when every corner has 5 or
-  more passes. **Uncertainty** = √(Σ ci²), the corners' median intervals added as independent errors, shown to 0.1 s.
+  more passes. **Rough range** = √(Σ h²), h = half the width of each corner's first-quartile interval
+  (`stats.quantileRange`: the values at the ranks n·p ± 1.96·√(n·p·(1−p)), distribution-free), added as independent
+  errors; shown to 0.1 s and labelled "rough".
 - Next to it: the best and the typical (median) lap of the analysed laps, and the **theoretical ideal** (the existing
   ideal lap from all valid laps, `comboInfo`). The ideal of the analysed laps only (Σ min) is in the data.
 - Limits: corners are treated as independent; the target is a sum of quartiles, not a lap that was driven.
@@ -132,7 +141,8 @@ the causation note: the differences go together with the time but do not prove t
 Sessions with 3 or more valid laps, the newest 10, oldest first (`trends`, `src/opportunities.js:225`). For the lap and
 for every corner: each session's median, the change from the first to the latest, the Theil–Sen slope per session, and a
 verdict: "faster" / "slower" only when the first and the latest session's median intervals do not overlap
-(`stats.apart`), otherwise "no clear change". Needs 3 such sessions. The Progress page (per day) is linked.
+(`stats.apart`) **and** the change is at least `RULES.trendMinMs` (100 ms for the lap, 30 ms for a corner); otherwise
+"no clear change". Needs 3 such sessions. The Progress page (per day) is linked.
 
 ## What made the personal best faster
 
@@ -146,7 +156,9 @@ when it is not "compatible". The page notes that one lap against one lap can be 
 On demand only (the page asks), never in the telemetry loop. `lapAnalysisAsync` runs `analysisSteps` with
 `runInSlices` (8 ms slices) and yields before every lap whose numbers are not kept yet; the per-lap numbers stay in the
 lap-points cache, the result per car + track + window + filter until a lap of that car + track changes
-(`svc.invalidate`). Measured on a seeded mock history (120 laps, traces in memory): 30 laps 41 ms in all with a longest
+(`svc.invalidate`). A run during which those laps change is worked out again before it answers (up to 3 times), and
+what the core, setup and assist readings are worth is part of the cache key. `/api/analysis` is a private GET (refused
+cross-site, like `/api/overview`). Measured on a seeded mock history (120 laps, traces in memory): 30 laps 41 ms in all with a longest
 hold of 12.7 ms; then all 104 valid laps 16 ms more (longest hold 5.8 ms); a repeat 0.01 ms. A lap not in the trace
 cache adds the PL3 read (~8 ms) to its slice. Budget: no hold over 33 ms.
 

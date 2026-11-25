@@ -73,7 +73,7 @@ None: no DB change (D-PL6-9), no settings change, nothing stored. Per-lap number
 
 ## Open decisions (added to DECISIONS.md)
 
-OD-PL-25 default lap window (built: newest 30 valid laps) · OD-PL-26 minimum samples and confidence words (built: 5 passes; low 5–9 / medium 10–19 / high 20+; gear groups 3; trends 3 sessions of 3+ laps, newest 10) · OD-PL-27 meaning of realistic gain / target lap (built: first quartile) · OD-PL-28 smallest gain listed (built: 30 ms) · OD-PL-29 difference thresholds (built: fixed, session-report levels where they exist) · OD-PL-30 interpretation sentences (built: shown as "What it may mean", hedged, with the causation note) · OD-PL-31 Home's next step (built: unchanged). Made without asking: D-PL6-1 … 9.
+All decided by the user on 2026-11-25: (a), as built (see the review round below). OD-PL-25 default lap window (built: newest 30 valid laps) · OD-PL-26 minimum samples and confidence words (built: 5 passes; low 5–9 / medium 10–19 / high 20+; gear groups 3; trends 3 sessions of 3+ laps, newest 10) · OD-PL-27 meaning of realistic gain / target lap (built: first quartile) · OD-PL-28 smallest gain listed (built: 30 ms) · OD-PL-29 difference thresholds (built: fixed, session-report levels where they exist) · OD-PL-30 interpretation sentences (built: shown as "What it may mean", hedged, with the causation note) · OD-PL-31 Home's next step (built: unchanged). Made without asking: D-PL6-1 … 9.
 
 ## Remaining risks
 
@@ -86,3 +86,22 @@ OD-PL-25 default lap window (built: newest 30 valid laps) · OD-PL-26 minimum sa
 ## Recommended next phase
 
 PL7 (structured practice): turn the top opportunities and their findings (corner, phase, finding key, numbers, sample size) into prescriptions with a success criterion that the next analysis can check; decide OD-PL-31 first, since it decides whether Home and PL7 get the analysis in the background.
+
+## Review round (2026-11-25)
+
+Independent review plus the user's decisions. Code fixes in `76bb4ec` (one regression test each), docs in the next commit.
+
+| # | Finding | Fix | Regression test |
+| --- | --- | --- | --- |
+| 1 | The gear finding ignored `gearGroupMin` and broke ties towards the lower gear (5 passes [4,3,4,4,4]: "faster passes mostly in 3rd") | `clearGear`: 3 passes in the most used gear on both sides, no tie (D-PL6-10) | opportunities "review fix 1" |
+| 2 | "Paddock does not record whether the automatic gearbox was on" was false: `laps.aids.assists.gearbox` (`src/aids.js:24-29`) | automatic-gearbox laps left out of gear comparisons, unknown ones labelled; caveats on the top cards for braking and gear findings; D-PL6-8 corrected | opportunities + lapanalysis "review fix 2"; browser flow |
+| 3 | "Same setup" ignored the setup-recognition status | as `compat.classify`: marked as wrong = unknown (filter not applied, said), not checked = labelled (D-PL6-11) | lapanalysis "review fix 3" |
+| 4 | Trend verdict without a minimum effect (zero spread + 1 ms = "slower") | `RULES.trendMinMs` 100 ms lap / 30 ms corner (D-PL6-12) | opportunities "review fix 4" |
+| 5 | ± shown for 1 pass; "1.5×" re-applications | intervals only from 5 passes; counts as whole numbers (D-PL6-13) | opportunities "review fix 5" |
+| 6 | Target ± built from median intervals while the target sums first quartiles | first-quartile intervals (`stats.quantileRange`), labelled "rough" | opportunities "review fix 6", stats |
+| 7 | A running analysis returned a stale result after laps changed; channel checks did not invalidate | recomputed before answering (up to 3 times); channel states in the cache key (D-PL6-14) | lapanalysis "review fix 7" (and "review fix 3" for the key) |
+| 8 | `/api/analysis` not a private GET | added to `PRIVATE_GET` | smoke (cross-site refused) |
+
+User decisions: OD-PL-25 … 31 all (a), as built; D-PL6-1 … 9 confirmed (D-PL6-8 corrected).
+
+Tests after the review: `npm run check` 138/138; `npm test` 346/346 (Node 22.23.4); `npm run test:electron` 346/346 (Node 24.22.2); `npm run test:browser` 22/22 (2 runs).
