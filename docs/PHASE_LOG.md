@@ -466,5 +466,6 @@
 - **Findings:** checks were not tied to a version (`src/channels.js:45-59` at `ab2ba8c`); Compare only checked the grid size, so another car's lap compared silently; AI prompts carried data labelled "left out"; lap provenance already existed in `laps.cond` / `setup_info` / `aids` (no DB change needed).
 - **Tests:** `npm run check` 119/119 → 124/124; `npm test` 240/240 → 272/272 (Node 22.23.4); `npm run test:electron` 272/272 (Node 24.22.2); `npm run test:browser` 13/13 → 16/16.
 - **Known limitations:** no game here (versions, HUD feed, per-car checks, panel with a live game unverified); UI checked by DOM assertions only; bench and packaged smoke not rerun (loop unchanged).
-- **Open decisions:** OD-PL-12 … OD-PL-18 (defaults implemented).
+- **Review round (2026-11-25):** layout `''` merged as unknown (ideal lap incompatible on one-layout tracks); setup-history temperatures sent to the AI while marked wrong; "matches" stored with an unknown game version (never counted); replay tab bypassed the gate; unknown `channelChecks` keys dropped; unconfirmed temperatures/aids counted as matched; health error texts with paths. Fixed in `b59541c`, `8703dff` with regression tests; downgrade and `cond.reader` in lap exports documented. User decisions: OD-PL-12 … 17 (a), OD-PL-18 → (b) (implemented), D-PL4-1 … 8 confirmed. Tests: check 124/124, test 279/279, test:electron 279/279, test:browser 16/16.
+- **Open decisions:** none.
 - **User approval:** pending. Push/merge not done.
