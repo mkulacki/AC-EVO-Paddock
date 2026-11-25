@@ -4,7 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyPendingRestore } from './restore-apply.js';
 
-export const DATA_DIR = path.resolve(process.env.ACEVO_DATA || 'data');
+// PL11 demo (--demo, Settings → Try the demo): synthetic laps in their own folder data\demo with their own database and
+// settings, so nothing of the demo can reach the driver's laps, stats, backups or the leaderboard (src/demo.js)
+export const DEMO = process.argv.includes('--demo') || process.env.PADDOCK_DEMO === '1';
+export const DATA_DIR = DEMO ? path.join(path.resolve(process.env.ACEVO_DATA || 'data'), 'demo') : path.resolve(process.env.ACEVO_DATA || 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 // a restore asked for in Settings is applied now, before the database is opened (src/backup.js)
 export const restoreResult = applyPendingRestore(DATA_DIR);

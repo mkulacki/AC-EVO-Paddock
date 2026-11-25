@@ -161,7 +161,8 @@ function createTray() {
 }
 
 // ------------------------------------------------------------------ startup
-app.on('before-quit', () => { quitting = true; });
+// the server ends a session being driven, so a lap waiting for its official time is saved (src/server.js, PL11)
+app.on('before-quit', () => { quitting = true; try { globalThis.__paddockBeforeQuit?.(); } catch { /* server not started */ } });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { /* stay in the tray */ });
 
@@ -169,6 +170,15 @@ app.whenReady().then(async () => {
   console.log(`AC EVO Paddock desktop ${app.getVersion()} (Electron ${process.versions.electron}), data: ${DATA}`);
   // "Developer: restart" in the page (src/server.js restartApp): start the whole app again
   globalThis.__trainerRelaunch = () => { quitting = true; saveState(); app.relaunch(); app.exit(0); };
+  // PL11 demo (Settings → Try the demo / the banner's Leave): start again with or without --demo (src/db.js DEMO)
+  globalThis.__paddockDemo = (on) => {
+    try { globalThis.__paddockBeforeQuit?.(); } catch { /* nothing driven */ }
+    quitting = true; saveState();
+    // the new process inherits this environment: PADDOCK_DEMO=1 would keep it in the demo (src/db.js DEMO)
+    if (on) process.env.PADDOCK_DEMO = '1'; else delete process.env.PADDOCK_DEMO;
+    app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--demo').concat(on ? ['--demo'] : []) });
+    app.exit(0);
+  };
   // brake marks keyboard shortcut (Settings): a global shortcut, so it works while the game has the focus.
   // Returns false if the key is invalid or another program already uses it.
   let markKey = null;

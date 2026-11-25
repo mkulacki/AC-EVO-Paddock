@@ -83,7 +83,16 @@ async function restartPaddock(btn) {
   setTimeout(poll, 600);
 }
 
-api('/api/status').then((s) => { status = s.settings; });
+api('/api/status').then((s) => {
+  status = s.settings;
+  // PL11 demo: a banner on every page, with the way back (src/demo.js)
+  if (s.demo && !document.getElementById('demoBar')) {
+    document.title = `DEMO · ${document.title}`;
+    document.body.insertAdjacentHTML('beforeend', `<div class="demo-bar" id="demoBar" role="status"><b>Demo</b><span>Synthetic laps on a fictional circuit, kept apart from your own data. Nothing here reaches your laps, stats or the leaderboard.</span>
+      ${s.demoInApp ? '<button class="small" id="demoLeave">Leave the demo</button>' : '<span class="muted">Stop this run to leave.</span>'}</div>`);
+    document.getElementById('demoLeave')?.addEventListener('click', async (e) => { (await import('./system.js')).switchDemo(false, e.currentTarget); });
+  }
+});
 
 // a dot on the Mods tab while the Paddock HUD is missing or older than this Paddock's copy
 async function hudBadge() {

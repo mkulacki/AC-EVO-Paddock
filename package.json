@@ -12,6 +12,7 @@
     "deploy": "node desktop/deploy.mjs",
     "make-icon": "node desktop/make-icon.mjs",
     "mock": "node --no-warnings src/server.js --mock 4",
+    "demo": "node --no-warnings src/server.js --demo",
     "seed": "node --no-warnings src/mock.js --seed 10",
     "check-limits": "node --no-warnings src/tools/check-track-limits.js",
     "install-mod": "node --no-warnings src/tools/install-mod.js",

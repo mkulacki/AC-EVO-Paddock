@@ -44,6 +44,10 @@ import * as health from './health.js';
 import * as notes from './notes.js';
 import * as onboarding from './onboarding.js';
 import * as backup from './backup.js';
+import * as autobackup from './autobackup.js';
+import * as recovery from './recovery.js';
+import * as reportexport from './reportexport.js';
+import * as demo from './demo.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
 import * as sensitive from './sensitive.js';
@@ -55,6 +59,7 @@ import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
+if (db.DEMO && !args.includes('--mock')) args.push('--mock', '1'); // PL11 demo: the mock car drives, in real time
 const mockIdx = args.indexOf('--mock');
 
 // ---------------------------------------------------------------- telemetry source
@@ -167,6 +172,27 @@ function setupTelemetry(setup, trackId, layout) {
 
 // a session is loaded in the game (driving, paused, in the pits or watching a replay)
 const inSession = () => ['live', 'pause', 'replay'].includes(recorder.state.status) && Date.now() - recorder.state.lastFrameAt < 5000;
+// PL11 demo: the first start fills data\demo with two synthetic sessions (and their reports)
+if (db.DEMO) { try { await demo.seed(); } catch (e) { console.log(`[demo] not seeded: ${e.message}`); } }
+// PL11 scheduled backups: off until switched on in Settings; checked every 10 minutes, only while no session is driven
+autobackup.schedule({ isIdle: () => !inSession(), appVersion: VERSION });
+// PL11 crash recovery: a session the last run did not end (crash, kill, power cut) is closed now: its saved laps are in
+// the database already; its report is made when it has enough laps (src/recovery.js). Home says so in this run.
+{
+  let found = null;
+  try { found = recovery.interrupted(); } catch (e) { console.log(`[recovery] ${e.message}`); }
+  if (found) setTimeout(() => recovery.recover(found, { makeReport: async (sid) => {
+    if (db.getReport(sid)) return true;
+    const laps = db.lapsOfSession(sid);
+    if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return false;
+    await warmSession(sid);
+    report.make(sid);
+    return true;
+  } }).catch((e) => console.log(`[recovery] ${e.message}`)), 1500);
+}
+// desktop app quitting (tray → Quit): the session ends as if the game had closed, so a lap waiting for its official
+// time is saved; its report is made at the next start (the journal stays until then)
+globalThis.__paddockBeforeQuit = () => { try { recorder.endSession(); } catch (e) { console.log(`[recovery] ${e.message}`); } };
 // the car on track now (checks of readings whose meaning depends on the car are made with it), or null
 const liveCar = () => (inSession() ? recorder.session?.car || source.lastRaw?.frame?.car || null : null);
 const clients = new Set();
@@ -212,7 +238,7 @@ recorder.on('session', (s) => setImmediate(() => {
 }));
 
 // a new lap: only its track + car is worked out again (service.js invalidate)
-recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); afterLap(l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
+recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); afterLap(l); setImmediate(() => recovery.opened({ ...l, startedAt: recorder.session?.id === l.sessionId ? recorder.session.startedAt : null })); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
 // driver development (P9): goals met by this lap, achievements reached, sessions Paddock started (race weekends)
 game.onStarted((order) => { try { weekends.recordStart(order); devChanged(); } catch (e) { console.log(`[weekends] ${e.message}`); } });
 // a goal met for the first time, wherever it was noticed (after a lap, at the end of a session, on a page load)
@@ -289,6 +315,7 @@ recorder.on('sessionEnd', (s) => {
       broadcast('report', { sessionId: s.id, headline: text });
       globalThis.__paddockNotify?.({ title: `Session report ready: ${s.track} · ${s.car}`, body: text, hash: `#/report?session=${s.id}` });
     } catch (e) { console.log(`[report] session ${s.id}: ${e.message}`); }
+    finally { recovery.closed(s.id); } // PL11: ended cleanly, nothing to recover at the next start
   }, 300);
 });
 
@@ -375,7 +402,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice|experiments|hudlayouts|assist|board\/admin)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7); experiments: setup names, journal and lap ids (PL8); hudlayouts, assist: Paddock's pages only (PL9 review); board/admin: moderation evidence with reporters' SteamIDs (PL10)
+const PRIVATE_GET = /^\/api\/(backup\/file|report\/export|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice|experiments|hudlayouts|assist|board\/admin)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7); experiments: setup names, journal and lap ids (PL8); hudlayouts, assist: Paddock's pages only (PL9 review); board/admin: moderation evidence with reporters' SteamIDs (PL10)
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -423,6 +450,15 @@ async function route(req, res) {
   const foreign = foreignRequest(req, p);
   if (foreign) { console.warn(`[http] refused ${m} ${p}: ${foreign} (host ${req.headers.host}, origin ${req.headers.origin ?? '-'})`); return send(res, 403, { error: 'Forbidden' }); }
   if (m === 'GET') await warmFor(p, url.searchParams);
+  // PL11 demo: nothing that touches the game, its files, the leaderboard or the driver's real data folder
+  if (db.DEMO && m !== 'GET' && m !== 'HEAD' && demo.BLOCKED.test(p)) return send(res, 409, { error: demo.BLOCKED_TEXT });
+  if (p === '/api/demo' && m === 'POST') {
+    const { on } = await readJson(req);
+    if (typeof globalThis.__paddockDemo !== 'function') return send(res, 409, { error: on ? 'The demo opens from the desktop app. In a source checkout, run: npm run demo' : 'Stop this run and start Paddock normally (npm start).' });
+    send(res, 200, { restarting: true });
+    setTimeout(() => globalThis.__paddockDemo(!!on), 300);
+    return;
+  }
 
   if (p === '/api/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -704,6 +740,25 @@ async function route(req, res) {
       probeConfirmed: channels.trusted('setupProbe'), channels: channels.summary(), hasKey: !!settings.get().geminiApiKey,
       ai: r.ai ? { ...r.ai, ...ai.splitConfidence(r.ai.text) } : null, laps, technique: TECHNIQUE, plan: coach.planForSession(id, c) });
   }
+  // PL11: the report as one offline HTML file; name / Steam identity, notes and the AI debrief only when ticked
+  if (p === '/api/report/export' && m === 'GET') {
+    const id = Number(url.searchParams.get('session'));
+    const q = (k) => url.searchParams.get(k) === '1';
+    let r = db.getReport(id);
+    const laps = db.lapsOfSession(id);
+    if (!laps.length) return send(res, 404, { error: 'This session has no laps.' });
+    if (!r) {
+      if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return send(res, 400, { error: `A report needs ${report.MIN_LAPS} laps and a valid one.` });
+      try { await warmSession(id); report.make(id); r = db.getReport(id); } catch (e) { return send(res, 400, { error: e.message }); }
+    }
+    const s = settings.get();
+    const html = reportexport.render(r, laps, { appVersion: VERSION, ai: q('ai'),
+      identity: q('identity') ? { driver: db.getSession(id)?.driver || s.driverName || null, steam: s.boardSteam || null } : null,
+      notes: q('notes') ? (() => { try { const n = notes.forSession(id); return { text: n.text, tags: n.tags }; } catch { return null; } })() : null });
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-disposition': `attachment; filename="${reportexport.fileName(r.data)}"`,
+      'content-security-policy': reportexport.CSP, 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' });
+    return res.end(html);
+  }
   if (p === '/api/report/regenerate' && m === 'POST') {
     const { session } = await readJson(req);
     try { report.make(Number(session)); return send(res, 200, { ok: true }); } catch (e) { return send(res, 400, { error: e.message }); }
@@ -756,7 +811,19 @@ async function route(req, res) {
   if (p.startsWith('/api/backup')) {
     const busy = () => (inSession() ? send(res, 409, { error: 'You are on track: back up or restore when you are in the menus or AC EVO is closed (it would stall the lap recording).' }) : null);
     try {
-      if (p === '/api/backup' && m === 'GET') return send(res, 200, { backups: backup.listBackups(), parts: backup.parts(), pending: backup.pending(), restored: db.restoreResult, folder: backup.BACKUP_DIR });
+      if (p === '/api/backup' && m === 'GET') return send(res, 200, { backups: backup.listBackups().map((b) => ({ ...b, verified: autobackup.verification(b.name) })), parts: backup.parts(), pending: backup.pending(), restored: db.restoreResult, folder: backup.BACKUP_DIR, schedule: autobackup.status() });
+      // PL11: the schedule (on, daily / weekly, how many to keep, synced folders), a run now, and verifying any backup
+      if (p === '/api/backup/schedule' && m === 'POST') return send(res, 200, autobackup.setConfig(await readJson(req)));
+      if (p === '/api/backup/schedule/run' && m === 'POST') {
+        if (busy()) return;
+        const out = await autobackup.runOnce({ isIdle: () => !inSession(), appVersion: VERSION, force: true });
+        return send(res, 200, { ...out, schedule: autobackup.status() });
+      }
+      if (p === '/api/backup/verify' && m === 'POST') {
+        const { name } = await readJson(req);
+        if (!fs.existsSync(backup.fileOf(name))) return send(res, 404, { error: 'Backup not found' });
+        return send(res, 200, await autobackup.verify(name));
+      }
       if (p === '/api/backup' && m === 'POST') {
         if (busy()) return;
         const { includeSecrets = false, parts = null } = await readJson(req);
@@ -819,6 +886,10 @@ async function route(req, res) {
     const safe = (fn) => { try { return fn(); } catch { return null; } };
     if (db.blocked) add('warning', db.blocked.message, '#/game', 'Game → Integration health');
     if (backup.pending()) add('warning', 'A restore is waiting for Paddock to restart.', '#/settings', 'Settings → Backup and restore');
+    const rec = recovery.lastRecovery(); // PL11: a session the last run did not end
+    if (rec) add('info', `Paddock was closed during a session last time (${rec.track} · ${rec.car}): its ${rec.laps} saved lap${rec.laps === 1 ? ' is' : 's are'} kept and the session was closed${rec.report ? ', with its report' : ''}. The lap being driven at that moment could not be kept.`, `#/report?session=${rec.sessionId}`, 'Open the session');
+    const bkSkip = safe(() => autobackup.notice()); // PL11: a scheduled backup that could not be made (disk space, synced folder, failed check)
+    if (bkSkip) add('warning', bkSkip.text, '#/settings', 'Settings → Backup and restore');
     if (db.restoreResult && !db.restoreResult.ok) add('warning', `The last restore did not complete: ${db.restoreResult.error}`, '#/settings', 'Settings → Backup and restore');
     if (!fs.existsSync(ACE)) add('warning', "AC EVO's game files folder was not found, so the HUD, mods and setups are not available.", '#/settings', 'Settings → Game files folder');
     const hud = safe(() => hudInstall.status({ quick: true })); // quick: no tasklist call (this runs after every lap)
@@ -858,7 +929,7 @@ async function route(req, res) {
     const lastNotes = last ? safe(() => notes.summaries().get(last.id)) ?? null : null;
     return send(res, 200, { ...d, warnings, recording: recorder.state.status === 'live', development: dev, objective, lastNotes });
   }
-  if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
+  if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView(), demo: db.DEMO, demoInApp: typeof globalThis.__paddockDemo === 'function' });
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows
   if (p === '/api/overview') {
     const reports = Object.fromEntries(db.listReports().map((r) => [r.sessionId, { weakest: (r.data.corners?.weakest || []).map((w) => w.name) }]));
@@ -1065,6 +1136,7 @@ async function route(req, res) {
       const oldPath = settings.get().gamePath, oldKey = settings.get().markKey, oldAssistKey = settings.get().assistKey;
       delete body.assistOff; // the kill switch goes through /api/assist (it acts at once, also when the file cannot be saved)
       delete body.hudLayouts; // through /api/hudlayouts (checked there)
+      delete body.autoBackup; // through /api/backup/schedule (checked there)
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
       if (settings.get().markKey !== oldKey) bindMarkKey();

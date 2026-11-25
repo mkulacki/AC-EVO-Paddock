@@ -101,6 +101,10 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | Capability | Status | Note |
 | --- | --- | --- |
 | Backup & restore | Done (P3) | Settings → Backup and restore |
+| Scheduled verified backups | Done (PL11), off by default | daily / weekly, integrity check + counts, retention of scheduled backups, free-space and synced-folder skips, storage forecast (`docs/platform/DATA_OWNERSHIP.md`) |
+| Crash recovery | Done (PL11) | an interrupted session is closed at the next start with its report; Home notice |
+| Report file | Done (PL11) | session report → Save as HTML (offline, private by default) |
+| Demo | Done (PL11) | Settings → Try the demo (own `data\demo`, mock car, banner) |
 | Data export | Done (P3) | laps/sessions CSV + per-lap `.lap.gz` |
 | Automatic updates | Done (P3, check and notify) | daily GitHub check, link to the release; no auto-install (user's choice) |
 | Diagnostics | Done (P3) | Settings → Diagnostics, redacted |
@@ -137,4 +141,4 @@ How the platform plan PL1–PL11 (a local operator plan, not in the repo; phase 
 | PL8 setup experiments | P7 setup history and comparison | Done (PL8): A/B experiments (schema v4) with hypothesis, expected outcome, ABBA stint plan, live or past-session stints, change journal, handling feedback by corner phase, matched conditions (PL4 compat), counted/left-out laps with reasons, medians, spreads and intervals, an explicit inconclusive result, confounds, review/archive, follow-ups and setup ancestry, patch warnings; never applied to the game; `docs/platform/EXPERIMENTS.md` |
 | PL9 HUD and live assistance | `src/live.js`, `src/gamebridge.js`, `mod/trainerhud` 0.15.0, `src/spotter.js`, `src/assist.js`, `src/hudlayouts.js` | Done 2026-11-25: layouts and context profiles, freshness / invalid-data labels, spotter quiet time, cue result time, post-lap summary and lap-time spread (off by default), kill switch, bridge counters and back-off; audit and stress results in `docs/platform/HUD_BRIDGE.md`. Not verified in game |
 | PL10 leaderboard integrity | `leaderboard/worker.js` `checkLap`, rate limit, reports + moderator hide | Partial: no written trust model, no verification tiers or audit trail |
-| PL11 data ownership | P3 backups (manual + before-restore), CSV/`.lap.gz` export | Partial: no scheduled backups, retention, storage forecast or partial-session recovery |
+| PL11 data ownership | P3 backups (manual + before-restore), CSV/`.lap.gz` export | Done in PL11 (2026-11-25): scheduled verified backups, retention, forecast, crash recovery, report file, demo; local API, plugins, sync, signed updates and animation export are design only (`docs/platform/EXTENSIBILITY_DESIGN.md`) |

@@ -64,7 +64,7 @@ export function parts() {
 
 // left-overs of an interrupted backup, upload or zip write (each can be a full database copy)
 try {
-  for (const n of fs.readdirSync(BACKUP_DIR)) if (/^\.(backup|upload)-|\.part$|\.tmp$/.test(n)) fs.rmSync(path.join(BACKUP_DIR, n), { force: true });
+  for (const n of fs.readdirSync(BACKUP_DIR)) if (/^\.(backup|upload|verify)-|\.part$|\.tmp$/.test(n)) fs.rmSync(path.join(BACKUP_DIR, n), { force: true });
 } catch { /* no backups yet */ }
 
 /**
@@ -85,7 +85,9 @@ export function create(opts = {}) {
   queue = run.catch(() => {});
   return run;
 }
-async function createNow({ includeSecrets = false, reason = 'manual', appVersion = null, parts: want = null }) {
+// beforeCopy(): asked again right before the database copy (a queued backup may start later than it was asked for);
+// false = not now (409). PL11 scheduled backups pass their idle check.
+async function createNow({ includeSecrets = false, reason = 'manual', appVersion = null, parts: want = null, beforeCopy = null }) {
   if (db.blocked) throw err(`No backup: ${db.blocked.message}`, 409); // the file is left alone (src/db.js)
   // which parts: all of them unless the driver picked some (automatic backups always take everything)
   const pick = new Set(Array.isArray(want) ? PARTS.filter((p) => want.includes(p.id)).map((p) => p.file) : PARTS.map((p) => p.file));
@@ -99,7 +101,11 @@ async function createNow({ includeSecrets = false, reason = 'manual', appVersion
   const tmpDb = path.join(BACKUP_DIR, `.backup-${process.pid}-${Date.now()}.db`);
   try {
     const entries = [];
-    if (pick.has('telemetry.db')) { db.vacuumInto(tmpDb); entries.push({ name: 'telemetry.db', file: tmpDb }); }
+    if (beforeCopy && !beforeCopy()) throw err('A session started: no backup now', 409);
+    // the counts are taken in the same synchronous step as the copy (no await in between: no lap can be saved between
+    // them), so the manifest describes exactly the copy (PL11 verification compares the two)
+    let counts = null;
+    if (pick.has('telemetry.db')) { db.vacuumInto(tmpDb); counts = db.counts(); entries.push({ name: 'telemetry.db', file: tmpDb }); }
     for (const f of JSON_FILES) {
       const file = path.join(db.DATA_DIR, f);
       if (!pick.has(f) || !fs.existsSync(file)) continue;
@@ -112,7 +118,7 @@ async function createNow({ includeSecrets = false, reason = 'manual', appVersion
     }
     // includesSecrets: the Gemini key and passwords are in it. signIn: false = no leaderboard login (never, since PL1)
     const manifest = { format: FORMAT, version: FORMAT_VERSION, app: appVersion, createdAt: now.getTime(), reason, includesSecrets: !!includeSecrets, signIn: false,
-      files: entries.map((e) => e.name), counts: pick.has('telemetry.db') ? db.counts() : null };
+      files: entries.map((e) => e.name), counts };
     if (!entries.length) throw err('Nothing to back up: the chosen files do not exist yet');
     await writeZip(path.join(BACKUP_DIR, name), [{ name: 'manifest.json', data: JSON.stringify(manifest, null, 2) }, ...entries]);
     return describe(name);

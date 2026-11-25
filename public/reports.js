@@ -96,6 +96,12 @@ export async function viewReport(view, params, cleanup) {
         <div class="secondary">${esc(prettyName(r.combo.car))} · ${esc(SESSION_TYPES[r.sessionType] || 'Session')} on ${esc(when(r.startedAt))}</div></div>
       <span class="spacer"></span>
       <a href="#/consistency?combo=${encodeURIComponent(`${r.combo.track}|${r.combo.layout}|${r.combo.car}`)}&session=${id}"><button>Consistency</button></a>
+      <details class="rep-save"><summary class="btnlike" title="One HTML file that opens in any browser, offline">Save as HTML…</summary>
+        <div class="card plain rep-save-box"><p class="muted" style="margin:0 0 6px">One file with this report, the lap list and a lap-time chart: no scripts, nothing loaded from the internet. Left out unless you tick them:</p>
+          <label class="row"><input type="checkbox" id="rxId"> my driver name and Steam name / ID</label>
+          <label class="row"><input type="checkbox" id="rxNotes"> my notes and tags of this session</label>
+          <label class="row"><input type="checkbox" id="rxAi"> the AI debrief</label>
+          <a id="rxGo" download><button class="primary small">Save</button></a></div></details>
       <button class="ghost" id="rRegen" title="Build the report again from the laps (keeps nothing but the AI debrief)">Regenerate</button>
     </div>
     <div class="tiles">
@@ -151,6 +157,10 @@ export async function viewReport(view, params, cleanup) {
     try { await post('/api/plan', { action: 'create', session: id }); reload(); } catch (err) { e.target.disabled = false; alert(err.message); }
   });
   $('#rRegen').onclick = async () => { await post('/api/report/regenerate', { session: id }); reload(); };
+  // PL11: the offline HTML file; the link follows the ticks (a plain download, so the browser's "Save as" applies)
+  const exportHref = () => `/api/report/export?session=${id}${$('#rxId').checked ? '&identity=1' : ''}${$('#rxNotes').checked ? '&notes=1' : ''}${$('#rxAi').checked ? '&ai=1' : ''}`;
+  $('#rxGo').href = exportHref();
+  for (const k of ['#rxId', '#rxNotes', '#rxAi']) $(k).onchange = () => { $('#rxGo').href = exportHref(); };
   view.querySelectorAll('select[data-seg]').forEach((sel) => {
     sel.onchange = async () => {
       const seg = r.setups[Number(sel.dataset.seg)];
