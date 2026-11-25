@@ -4,6 +4,14 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
+### Leaderboard integrity (platform phase PL10; needs the new leaderboard server, not deployed yet)
+
+- **Evidence on every board row:** Legacy, Format checked, Telemetry consistent or Reviewed, with what each one means. A Steam sign-in proves who sent a lap, not that it was driven as sent; the labels never say more than what was checked. Laps already on the boards are labelled Legacy.
+- **Your data:** **Remove** on your own row takes that lap (and its telemetry) off the leaderboard; **Delete my online data** removes your laps, telemetry, reports and sign-in from the server, signs you out and switches sharing off. Your laps in Paddock stay, and a removed lap is never sent again by itself. Nothing new is sent, and every sharing switch keeps its default.
+- Boards no longer split when a track or car name differs only in capitals, spaces or dashes; car classes are read the same way (`gt3` is GT3).
+- **Moderators:** a queue of reported or automatically flagged laps (far ahead of the field, a sector far ahead, telemetry refused, a date in the future), each lap's evidence, a trail of every action with its reason, review marks, and suspending a driver. Flags only ask a moderator to look; they hide nothing.
+- The server limits sign-ins per address, moderation actions per moderator and request sizes.
+
 ### HUD and live assistance (platform phase PL9, Paddock HUD 0.15.0)
 
 - **One switch for the HUD and every cue:** the button at the bottom of the sidebar, **Alt+Q**, Ctrl+K → "HUD and cues", Settings or the tray menu. Off hides the Paddock HUD (in game and in the overlay) and silences the spotter until you switch them on again; it stays off after a restart and the sidebar shows it in amber. In the desktop app you can also give it a global shortcut that works while the game has the focus (none by default).

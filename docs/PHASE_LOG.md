@@ -550,3 +550,18 @@
 - **Review round (2026-11-25):** the back-off starved a slightly slow disk and left old kill-switch state in some slots (HUD flicker): back-off only near the read window, slot w+5 when it is behind, the HUD keeps the newer copy, monotonic pause (OD-PL-60 refinement, D-PL9-10); reference-pedal markers from stale data hidden (D-PL9-11); `/api/hudlayouts` out of the open CORS branch, private GETs, own-key presets (D-PL9-12). Fixes `f2d4e9f`, `eee30ee`, `d5da044`, tests `31285e9`. Tests: check 154/154, test 426/426, test:electron 426/426, test:browser 26/26. HUD stays 0.15.0.
 - **Open decisions:** OD-PL-54 … 63, OPEN (operator), recommended defaults applied; the user reviews them in the app. D-PL9-1 … 9 to confirm.
 - **User approval:** pending. Push/merge not done.
+
+## PL10: Leaderboard integrity
+
+- **Started / finished:** 2026-11-25 · branch `platform/pl10-leaderboard-integrity` (from `d2d4564`, the PL9 merge) · scope in `docs/platform/BACKLOG.md` (PL10); report `docs/platform/PL10-report.md`; trust model in `docs/platform/LEADERBOARD_TRUST.md`; community design in `docs/platform/COMMUNITY_DESIGN.md`
+- **Objectives:** trust model (login proves identity, not lap authenticity); canonical car/track/class IDs; evidence tiers whose labels match their evidence; anomaly flags with evidence; an auditable moderation trail; legacy labels for existing records; rate limiting, auth and abuse handling; own-data deletion; community features as design only; nothing deployed, no new upload, no privacy-default change.
+- **Changes:**
+  - `leaderboard/migrations/0003_integrity.sql` (new; not applied to D1), `leaderboard/worker.js` (tiers, keys, flags, moderation queue / evidence / trail / moderate / suspend, `/v1/laps/delete`, `/v1/me/delete`, rate limits, body caps).
+  - `src/leaderboard.js`, `src/server.js` (moderation and deletion routes; `/api/board/admin` GETs private), `public/leaderboard.js` (Evidence column, moderation queue, Remove, Delete my online data).
+  - Commits: `e9e30c4`, `59d5009`, `b7a260c`, `49d854e`, plus the report commit.
+- **Findings:** every lap field is client-supplied (identity is the only proof); hiding left no trail; boards split on spelling; bodies uncapped; sign-in routes unlimited; no way for a driver to delete online data. The upload whitelist is unchanged.
+- **Tests:** `npm run check` 154/154 → 155/155; `npm test` 426/426 → 436/436 (Node 22.23.4); `npm run test:electron` 436/436 (Node 24.22.2); `npm run test:browser` 26/26. Local board run on port 8799 with a scratch database.
+- **Known limitations:** nothing ran against Cloudflare or D1; flags need 3 other drivers on a board; the trail is append-only by code only; one timing failure of the PL9 bridge stress test in one full run (passed on rerun).
+- **Needs approval:** apply migration 0003 to the live D1 (then again after the deploy) and deploy the Worker: **not executed**; optional `RATE_SALT`; community features.
+- **Open decisions:** OD-PL-64 … 73, OPEN (operator), recommended defaults applied; the user reviews them in the app. D-PL10-1 … 7 to confirm.
+- **User approval:** pending. Push/merge/deploy not done.
