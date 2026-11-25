@@ -101,5 +101,8 @@ export function summaries() {
 }
 /** Every tag in use, most used first. */
 export const allTags = () => db.prepare('SELECT tag, COUNT(*) AS n FROM session_tags GROUP BY tag ORDER BY n DESC, tag').all().map((r) => ({ tag: r.tag, n: r.n }));
+/** The bookmarks of a track + car, newest first (the lap analysis marks their corners, PL6). */
+export const forCombo = ({ track, layout, car }) => db.prepare('SELECT * FROM corner_bookmarks WHERE track = ? AND layout = ? AND car = ? ORDER BY created_at DESC, id DESC LIMIT ?')
+  .all(track, layout, car, LIMITS.bookmarksListed).map(bookmarkRow);
 /** The newest bookmarks (command palette). */
 export const recentBookmarks = (limit = 40) => db.prepare('SELECT * FROM corner_bookmarks ORDER BY created_at DESC, id DESC LIMIT ?').all(limit).map(bookmarkRow);

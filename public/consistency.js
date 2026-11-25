@@ -53,6 +53,7 @@ export async function viewConsistency(view, params, cleanup) {
       <label class="row">Session <select id="sess"><option value="all">All sessions</option>
         ${data.sessions.map((s) => `<option value="${s.id}">${SESSION_TYPES[s.type] || 'Session'} on ${new Date(s.startedAt).toLocaleString()}</option>`).join('')}</select></label>
       <label class="row"><input type="checkbox" id="inv" ${invalid ? 'checked' : ''}> Include invalid laps</label>
+      <a href="#/analysis?combo=${encodeURIComponent(params.get('combo') || '')}"><button>Lap analysis</button></a>
     </div>
     ${laps.length < 2 ? '<div class="card empty">Drive at least 2 laps here to see how consistent you are.</div>' : `
     <div class="tiles">

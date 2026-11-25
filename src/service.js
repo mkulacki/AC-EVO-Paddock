@@ -1,9 +1,12 @@
 import * as db from './db.js';
 import * as compat from './compat.js';
+import * as channels from './channels.js';
+import * as notes from './notes.js';
+import * as opportunities from './opportunities.js';
 import { cornersOnGrid } from './track.js';
 import * as trackdata from './trackdata.js';
 import { resample, detectCorners, cornerMetrics, lapStats, deltaSeries, buildIdeal, pickIdealCorners, gridStep, CHANNELS,
-  lateralOffsets, turnSign, envelope, performanceScore, SCORE_FORMULA, TECHNIQUE } from './analysis.js';
+  lateralOffsets, turnSign, envelope, performanceScore, SCORE_FORMULA, TECHNIQUE, phaseTimes, channelPresence } from './analysis.js';
 
 const comboKey = (m) => `${m.track}|${m.layout}|${m.car}`;
 export const parseCombo = (key) => { const [track, layout, car] = key.split('|'); return { track, layout, car }; };
@@ -24,11 +27,17 @@ const points = new Map();        // lapId -> Map(sig -> value), oldest lap first
 const POINTS_MAX = 100000;       // values in all
 let pointsCount = 0;
 const inflight = new Map();      // comboKey -> running comboInfoAsync promise
+const analysisCache = new Map(); // comboKey|window|match -> {version, gen, value} (PL6 lap analysis)
+const analysisRuns = new Map();  // the same key -> running lapAnalysisAsync promise
 /** Laps changed. With a combo (a new lap): only that track + car is worked out again; without: everything. */
 export const invalidate = (combo = null) => {
   // a run that started before the change is not joined by later callers (it would miss the change)
-  if (combo) { const k = comboKey(combo); comboCache.delete(k); progressCache.delete(k); inflight.delete(k); comboGen.set(k, (comboGen.get(k) || 0) + 1); return; }
-  version++; comboCache.clear(); modelCache.clear(); progressCache.clear(); inflight.clear();
+  if (combo) {
+    const k = comboKey(combo); comboCache.delete(k); progressCache.delete(k); inflight.delete(k); comboGen.set(k, (comboGen.get(k) || 0) + 1);
+    for (const m of [analysisCache, analysisRuns]) for (const a of [...m.keys()]) if (a.startsWith(`${k}|`)) m.delete(a);
+    return;
+  }
+  version++; comboCache.clear(); modelCache.clear(); progressCache.clear(); inflight.clear(); analysisCache.clear(); analysisRuns.clear();
 };
 /** Drops everything kept for a lap (it was deleted). */
 function forgetLap(id) {
@@ -372,6 +381,140 @@ function progressNow(combo) {
   return { combo: { track: combo.track, layout: combo.layout, car: combo.car }, bestMs: info.best?.lap_time_ms ?? null, bestLapId: info.best?.id ?? null,
     idealMs: info.ideal?.timeMs ?? null, laps: all.length, validLaps: all.filter((l) => l.valid).length, cleanWithinPct: Math.round((CLEAN_WITHIN - 1) * 100), days,
     compat: compat.mix(all.filter((l) => l.valid).map((l) => compat.provenance(l))) }; // PL4.2: what varies between the valid laps of the trend
+}
+
+// ---------------------------------------------------------------- lap analysis (PL6)
+// Corner opportunities, distributions, target lap, trends and the PB explanation of one track + car
+// (src/opportunities.js; docs/platform/ANALYSIS.md). On demand only (the Analysis page), worked out in slices
+// (runInSlices) and kept until a lap of this track + car changes; the per-lap numbers are kept per lap (lapPoints),
+// so a new lap reads only itself.
+/** Newest valid laps analysed by default (window 'recent'; docs/DECISIONS.md OD-PL-25). */
+export const ANALYSIS_WINDOW = 30;
+const PASS_KEYS = ['timeMs', 'entryMs', 'apexMs', 'exitMs', 'brakePoint', 'brakeRelease', 'releaseMs', 'releaseBumps', 'trailM', 'minSpeed', 'exitSpeed',
+  'throttlePickup', 'pickupMs', 'holdMs', 'reLifts', 'minGear', 'coastM'];
+const PASS_REV = 1; // bump when PASS_KEYS or what they measure change: kept values are then worked out again
+/** A lap's numbers for the analysis: {n, has: channels with data, c: [per corner]}; null if the lap does not exist. */
+export function lapPasses(info, id) {
+  const sig = cornerSig.get(info);
+  if (!sig) return null;
+  return lapPoints(id, `pl6|${PASS_REV}|${sig}`, (R) => ({ n: R.n, has: channelPresence(R), c: info.corners.map((c) => {
+    const m = { ...cornerMetrics(R, c), ...phaseTimes(R, c) };
+    return Object.fromEntries(PASS_KEYS.map((k) => [k, m[k] ?? null]));
+  }) }));
+}
+const WINDOWS = new Set(['recent', 'all']), MATCHES = new Set(['any', 'game', 'setup']);
+function* analysisSteps(combo, info, { window, match }) {
+  const core = channels.evaluate('core', { car: combo.car });
+  const base = { combo: { track: combo.track, layout: combo.layout, car: combo.car }, window, match, windowSize: ANALYSIS_WINDOW,
+    cornersSource: info.cornersSource, bestMs: info.best?.lap_time_ms ?? null, idealMs: info.ideal?.timeMs ?? null, basis: compat.basis(combo.car) };
+  // the pedals, speed and gear are what every number here rests on: never analysed when marked as wrong
+  if (core.state === 'unsupported') return { ...base, disabled: `The speed, pedal and gear readings are marked as not matching the game (${core.reason}): no analysis.` };
+  const sessionTypes = new Map(db.listSessions().map((s) => [s.id, s.session_type]));
+  const prov = (l) => compat.provenance(l, { sessionType: sessionTypes.get(l.session_id) ?? null });
+  const valid = db.lapsForCombo(combo.track, combo.layout, combo.car, true).filter((l) => l.valid).sort((a, b) => a.recorded_at - b.recorded_at || a.id - b.id);
+  const excluded = [];
+  // the newest lap is the anchor: a lap that cannot be compared with it is left out and listed (PL4 classes)
+  const anchor = valid.length ? prov(valid[valid.length - 1]) : null;
+  const notes0 = [];
+  // the automatic gearbox per lap (laps.aids.assists, from the Paddock HUD): 'auto' laps are left out of gear
+  // comparisons, 'unknown' ones are labelled; assist readings marked as wrong count as unknown (review fix 2)
+  const assistsWrong = channels.status('assists', { car: combo.car }) === 'mismatch';
+  const gearboxOf = (l) => {
+    if (assistsWrong) return 'unknown';
+    let a = null; try { a = typeof l.aids === 'string' ? JSON.parse(l.aids) : l.aids; } catch { /* old row */ }
+    const g = a?.assists?.gearbox;
+    return g === true ? 'auto' : g === false ? 'manual' : 'unknown';
+  };
+  let set = valid.filter((l) => {
+    const k = compat.classify(prov(l), anchor);
+    if (k.level !== 'incompatible') return true;
+    excluded.push({ id: l.id, reason: k.items.filter((i) => i.level === 'incompatible').map((i) => i.title).join('; ') });
+    return false;
+  });
+  // optional: only laps that match the newest lap's game version or setup (not known on the newest lap: not applied)
+  // setups follow compat.classify (review fix 3): pit-box readings marked as wrong = every setup unknown (never a match);
+  // not checked yet = the filter is applied and labelled
+  const probe = channels.status('setupProbe', { car: combo.car });
+  if (match !== 'any') {
+    const key = match === 'game' ? (p) => p.game : (p) => (probe === 'mismatch' ? null : p.setup?.id ?? null);
+    const want = key(anchor);
+    if (want == null) notes0.push(match === 'setup' && probe === 'mismatch' ? 'Setup recognition is marked as not matching the game, so Paddock cannot tell setups apart: the "same setup" filter is not applied and every lap is used.'
+      : `Your newest lap has no recorded ${match === 'game' ? 'game version' : 'setup'}: the filter is not applied and every lap is used.`);
+    else if (match === 'setup' && probe !== 'verified') notes0.push('"Same setup" rests on setup recognition, which is not checked against the game yet (Setups → Setup recognition): laps on another setup may be among them.');
+    if (want != null) set = set.filter((l) => { const ok = key(prov(l)) === want; if (!ok) excluded.push({ id: l.id, reason: match === 'game' ? 'another game version' : 'another setup' }); return ok; });
+  }
+  const chosen = window === 'all' ? set : set.slice(-ANALYSIS_WINDOW);
+  const bestR = getResampled(info.best.id)?.R;
+  if (!bestR) return { ...base, disabled: 'The best lap was deleted meanwhile: open the page again.' };
+  const refN = bestR.n;
+  const sig = `pl6|${PASS_REV}|${cornerSig.get(info)}`;
+  const laps = [];
+  for (const l of chosen) {
+    // a lap's metrics cost ~1-2 ms even when its trace is in memory: a chance to yield before every lap not kept yet
+    if (!hasLapPoints(l.id, sig)) yield;
+    const p = lapPasses(info, l.id);
+    if (!p) continue; // deleted meanwhile (the result is not kept)
+    if (p.n !== refN) { excluded.push({ id: l.id, reason: 'recorded on another track length' }); continue; }
+    laps.push({ id: l.id, sessionId: l.session_id, recordedAt: l.recorded_at, lapMs: l.lap_time_ms, has: p.has, gearbox: gearboxOf(l), c: p.c });
+  }
+  // trends: every lap of the set (not only the window), from the corner times kept per lap (PL3)
+  const trend = [];
+  for (const l of set) {
+    if (!hasLapPoints(l.id, cornerSig.get(info)) && !resampleCache.has(l.id)) yield;
+    const ct = lapCornerTimes(info, l.id);
+    if (ct && ct.n === refN) trend.push({ id: l.id, sessionId: l.session_id, recordedAt: l.recorded_at, lapMs: l.lap_time_ms, dts: ct.dts });
+  }
+  // the personal best of the set against the best lap before it
+  let pb = null;
+  if (set.length) {
+    const best = set.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a));
+    const before = set.filter((l) => l.recorded_at < best.recorded_at);
+    const prev = before.length ? before.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a)) : null;
+    const asLap = (l) => {
+      const p = lapPasses(info, l.id);
+      return p && p.n === refN ? { id: l.id, sessionId: l.session_id, recordedAt: l.recorded_at, lapMs: l.lap_time_ms, has: p.has, gearbox: gearboxOf(l), c: p.c } : null;
+    };
+    if (!hasLapPoints(best.id, sig)) yield;
+    const lapB = asLap(best);
+    if (prev && !hasLapPoints(prev.id, sig)) yield;
+    const lapP = prev ? asLap(prev) : null;
+    if (lapB) pb = { lap: lapB, prev: lapP, compat: lapP ? compat.classify(prov(best), prov(prev)) : null };
+  }
+  const result = opportunities.analyse({
+    corners: info.corners.map((c) => ({ n: c.n, name: c.name, apex: Math.round(bestR.d[c.apexIdx]) })),
+    laps, trend, pb, idealMs: info.ideal?.timeMs ?? null, excluded,
+  });
+  const bookmarks = new Map();
+  for (const b of notes.forCombo(combo)) bookmarks.set(b.corner, (bookmarks.get(b.corner) || 0) + 1);
+  return { ...base, ...result, note: notes0.length ? notes0.join(' ') : null,
+    compat: compat.mix(chosen.map(prov)), // what varies between the analysed laps (PL4.2)
+    noGear: laps.filter((l) => !l.has.gear).length,
+    gearbox: { auto: laps.filter((l) => l.gearbox === 'auto').length, unknown: laps.filter((l) => l.gearbox === 'unknown').length },
+    bookmarks: Object.fromEntries(bookmarks) };
+}
+/** The lap analysis of a track + car, worked out in slices (and kept until its laps change). */
+export function lapAnalysisAsync(combo, opts = {}) {
+  const window = WINDOWS.has(opts.window) ? opts.window : 'recent', match = MATCHES.has(opts.match) ? opts.match : 'any';
+  // what the channels are worth is part of the key: a changed check (Setups, /api/channels) gives a new result (review fix 7)
+  const st = ['core', 'setupProbe', 'assists'].map((g) => channels.status(g, { car: combo.car })).join(',');
+  const ck = comboKey(combo), key = `${ck}|${window}|${match}|${st}`;
+  const hit = analysisCache.get(key);
+  if (hit && hit.version === version && hit.gen === (comboGen.get(ck) || 0)) return Promise.resolve(hit.value);
+  if (analysisRuns.has(key)) return analysisRuns.get(key);
+  const run = (async () => {
+    // laps of this car + track changed while it ran: worked out again, so no caller gets a stale result (review fix 7);
+    // after 3 tries (laps changing all the time) the last result is returned, not kept
+    for (let attempt = 1; ; attempt++) {
+      const v0 = version, g0 = comboGen.get(ck) || 0;
+      const info = await comboInfoAsync(combo);
+      if (!info.best) throw new Error('No valid laps for this track/car yet');
+      const value = await runInSlices(analysisSteps(combo, info, { window, match }));
+      if (version === v0 && (comboGen.get(ck) || 0) === g0) { analysisCache.set(key, { version: v0, gen: g0, value }); return value; }
+      if (attempt >= 3) return value;
+    }
+  })().finally(() => { if (analysisRuns.get(key) === run) analysisRuns.delete(key); });
+  analysisRuns.set(key, run);
+  return run;
 }
 
 // ---------------------------------------------------------------- home dashboard

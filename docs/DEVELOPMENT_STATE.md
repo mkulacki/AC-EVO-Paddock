@@ -3,8 +3,8 @@
 _Last updated: 2026-11-25_
 
 **Status:** P0–P10 done; **0.7.0-beta.1 released 2026-11-23**. Platform plan PL0–PL11 (the local operator plan, not in the repo; phase scopes are summarised in `docs/platform/BACKLOG.md`) started.
-**Current phase:** PL5 (onboarding and usability) done on `platform/pl5-onboarding` (2026-11-25), review fixes applied, user decisions recorded; awaiting merge. PL4 is merged locally (`4d25a15`).
-**Branch:** `platform/pl5-onboarding` (from `4d25a15`; not pushed, not merged).
+**Current phase:** PL6 (actionable lap analysis) done on `platform/pl6-analysis` (2026-11-25), review fixes applied (`76bb4ec`), user decisions recorded; awaiting merge. PL5 is merged locally (`c65fa65`).
+**Branch:** `platform/pl6-analysis` (from `c65fa65`; not pushed, not merged).
 
 ## Phases
 
@@ -28,17 +28,19 @@ _Last updated: 2026-11-25_
 | PL3 | Recording reliability and performance | Done 2026-11-24, merged locally (`ab2ba8c`) |
 | PL4 | Compatibility and provenance | Done 2026-11-25, review fixes applied (`b59541c`, `8703dff`) |
 | PL5 | Onboarding and usability | Done 2026-11-25, review fixes applied (`5395369`, `9abd626`) |
-| PL6–PL11 | Platform plan | Not started; see `docs/platform/BACKLOG.md` |
+| PL6 | Actionable lap analysis | Done 2026-11-25, review fixes applied (`76bb4ec`) (`docs/platform/PL6-report.md`) |
+| PL7–PL11 | Platform plan | Not started; see `docs/platform/BACKLOG.md` |
 
 ## Current task
 
-None in progress. PL5 is committed on `platform/pl5-onboarding`: report `docs/platform/PL5-report.md`.
+None in progress. PL6 is committed on `platform/pl6-analysis`: report `docs/platform/PL6-report.md`, algorithms `docs/platform/ANALYSIS.md`.
 
 ## Known problems
 
 - Shared-memory groups (pit-box readings, temperatures, tyres, brakes, suspension) are unverified until the user checks them in game (Setups → Setup recognition). Slip can't be checked. Since PL4 a check counts only on the game version (and reader) it was made with; checks from before PL4 count as not checked until confirmed again (OD-PL-12).
 - PL1 fixed the PL0 data-safety defects (sign-in in backups, lap import, zip extraction, mod rollback, atomic settings writes); each has a regression test. PL1D applied the user's decisions: restores keep the current sign-in and never replace a current key or password (current secrets win), the before-restore backup holds no secrets, and Settings names a damaged data file with Dismiss / Delete copy (OD-PL-1, -4, -5); mod uploads stay uncapped by choice (OD-PL-6).
 - The database is at schema v2 since PL5 (notes, tags, bookmarks). The first start makes one copy `telemetry.backup-v1-<time>.db` when laps exist (OD-PL-21).
+- The Lap analysis thresholds (OD-PL-26 … 29) are tuned on synthetic and mock laps only; not checked against real AC EVO laps. The Consistency page and the AI coach still read every lap's full trace at once.
 - CI (`.github/workflows/ci.yml`) has never run: it needs a push. The Ubuntu job has never run on Linux.
 - The packaged app installs the loader and HUD into `ACE_DIR` at start; CLAUDE.md step 6 now uses a scratch `ACE_DIR` too (OD-PL-9, decided).
 
@@ -51,6 +53,7 @@ None in progress. PL5 is committed on `platform/pl5-onboarding`: report `docs/pl
 - PL3 (2026-11-24, `platform/pl3-recording-perf`): `npm run check` 119/119; `npm test` 236/236; `npm run test:electron` 236/236; `npm run test:browser` 13/13. `npm run bench` (not in the suite): longest 60 Hz hold 7.4 s → 26 ms with 612 laps on one car/track, live run 44 s → 0.58 s. After the review fixes (`6c1d08a`, 2026-11-25): test 240/240, test:electron 240/240, check 119/119, test:browser 13/13.
 - PL4 (2026-11-25, `platform/pl4-compatibility`): `npm run check` 124/124; `npm test` 272/272 (Node 22.23.4); `npm run test:electron` 272/272 (Node 24.22.2); `npm run test:browser` 16/16. After the review fixes: check 124/124, test 279/279, test:electron 279/279, test:browser 16/16.
 - PL5 (2026-11-25, `platform/pl5-onboarding`): baseline at `4d25a15` check 124/124, test 280/280; after: `npm run check` 130/130; `npm test` 299/299 (Node 22.23.4); `npm run test:electron` 299/299 (Node 24.22.2); `npm run test:browser` 21/21 (4 runs). After the review fixes: check 131/131, test 306/306, test:electron 306/306, test:browser 21/21 (3 runs).
+- PL6 (2026-11-25, `platform/pl6-analysis`): baseline at `c65fa65` check 131/131, test 307/307, test:browser 21/21; after: `npm run check` 138/138; `npm test` 337/337 (Node 22.23.4); `npm run test:electron` 337/337 (Node 24.22.2); `npm run test:browser` 22/22 (2 runs). Lap analysis of 30 laps: longest hold 12.7 ms. After the review fixes: check 138/138, test 346/346, test:electron 346/346, test:browser 22/22 (2 runs).
 
 ## Pending user decisions
 
@@ -58,11 +61,12 @@ None in progress. PL5 is committed on `platform/pl5-onboarding`: report `docs/pl
 - None open from PL3: OD-PL-10 (a) and OD-PL-11 (a) decided, D-PL3-3/4 confirmed by the user on 2026-11-25.
 - None open from PL4: OD-PL-12 … 17 (a) and OD-PL-18 (b) decided, D-PL4-1 … 8 confirmed by the user on 2026-11-25.
 - None open from PL5: OD-PL-19 … 24 decided (22 → (b), 24 → (c), implemented), D-PL5-1 … 14 confirmed, D-PL5-15 (user) built.
-- Push / merge of `platform/pl5-onboarding`, `platform/pl1-decisions`, `platform/pl3-recording-perf` and `platform/pl4-compatibility` (into `platform/integration`, then `main`); after the first push, check both CI jobs.
+- None open from PL6: OD-PL-25 … 31 decided (a) by the user on 2026-11-25; D-PL6-1 … 9 confirmed (D-PL6-8 corrected); D-PL6-10 … 14 from the review round.
+- Push / merge of `platform/pl6-analysis`, `platform/pl5-onboarding`, `platform/pl1-decisions`, `platform/pl3-recording-perf` and `platform/pl4-compatibility` (into `platform/integration`, then `main`); after the first push, check both CI jobs.
 
 ## Next action
 
-- Merge PL5. Then PL6 (lap analysis, use `src/compat.js` to exclude or label laps; its opportunities can feed Home's `nextStep`). Gate each step with `npm run verify`; rerun `npm run bench` after changes near the telemetry loop.
+- Merge PL6. Then PL7 (structured practice: prescriptions from the top opportunities and their findings, with a success criterion the next analysis checks; OD-PL-31 decides whether the analysis runs in the background). Gate each step with `npm run verify`; rerun `npm run bench` after changes near the telemetry loop.
 
 ## How to resume
 

@@ -214,6 +214,7 @@ function comboCard(c, laps, summaries) {
     <div class="row" style="margin-bottom:12px">
       ${c.validLaps >= 1 ? `<a href="#/progress?combo=${encodeURIComponent(c.key)}"><button>Progress</button></a>` : ''}
       ${c.validLaps >= 2 ? `<a href="#/consistency?combo=${encodeURIComponent(c.key)}"><button>Consistency</button></a>` : ''}
+      ${c.validLaps >= 1 ? `<a href="#/analysis?combo=${encodeURIComponent(c.key)}"><button>Analysis</button></a>` : ''}
       <a href="#/setuphistory?combo=${encodeURIComponent(c.key)}"><button title="Every setup you drove here, how fast each was, and what differs between two of them">Setup history</button></a>
       <a href="#/coach?combo=${encodeURIComponent(c.key)}"><button title="Ask the AI coach about your driving here, follow a training plan, get braking points">Coach</button></a>
       ${c.bestLapId && c.idealMs ? `<a href="#/compare?laps=${c.bestLapId}&ref=ideal"><button>Best lap against ideal</button></a>` : ''}

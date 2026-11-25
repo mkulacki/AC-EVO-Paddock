@@ -249,3 +249,35 @@ Open in the first build; decided by the user on 2026-11-25:
   - **Default:** (a). Assessment in `docs/platform/PL5-report.md`.
 - **OD-PL-24, when the guide opens by itself. DECIDED (user, 2026-11-25): (c), implemented: never by itself.** Options: (a) only for a new driver (built, D-PL5-5); (b) also once after an update, as a "what's new" page; (c) never by itself, only offered.
   - **Default:** (a).
+
+## 2026-11-25: Platform plan PL6, actionable lap analysis
+
+Made in PL6 without asking; **D-PL6-1 … 9 confirmed by the user on 2026-11-25** (D-PL6-8 as corrected in the review round):
+
+- **D-PL6-1, one new page, not a new sidebar entry.** `#/analysis?combo=…` ("Lap analysis") sits under Sessions in the navigation; it is reached from the Sessions page's car + track row (**Analysis**), the Consistency page (**Lap analysis**) and Ctrl+K (kind "Analysis"). Compare, Consistency and Progress are unchanged apart from that button.
+- **D-PL6-2, own valid local laps only,** as the ideal lap: imported, online and invalid laps are never analysed.
+- **D-PL6-3, the anchor is the newest valid lap.** Laps `incompatible` with it (PL4) are left out and listed with the reason; laps with caveats are used and the mix is labelled (`compat.mix`). Trends and the PB explanation use every lap of the filtered set, not only the window.
+- **D-PL6-4, "faster passes" = the quickest quarter** (passes at or under the first quartile), compared by medians with all passes; findings never rest on a single pass (except the PB explanation, which says so).
+- **D-PL6-5, phases are fixed distances**: entry / apex / exit split 25 m either side of the best lap's slowest point (`APEX_HALF_M`), the same grid points for every lap.
+- **D-PL6-6, throttle hesitation is a new technique metric** (`holdMs`, `src/analysis.js` `TECHNIQUE`), so it also appears in the Consistency page's technique table and spread chart. Session reports are unchanged (report version stays 2; their style notes do not use it).
+- **D-PL6-7, uncertainty as words and ranges:** gains to 0.01 s with "up to" the fastest-pass gain, the median's interval (1.58 × IQR / √n) on every corner, the target lap ± its interval to 0.1 s, and a confidence word by sample size; trends say "faster" / "slower" only when the first and latest sessions' median intervals do not overlap.
+- **D-PL6-8, channel limits are said, not guessed (corrected in review):** the brake channel is called the pedal position (no pressure reading); laps driven with the automatic gearbox (`laps.aids.assists.gearbox`, from the Paddock HUD) are left out of gear comparisons, and laps whose gearbox setting was not recorded (or whose assist readings are marked as wrong) are used but labelled; a top card with a braking or gear finding carries the matching caveat; laps without gear (or pedal) data are left out of what needs it; the whole page is off when the core readings are marked as wrong. (The first text said Paddock does not record the gearbox setting: wrong, it does.)
+- **D-PL6-9, no DB change:** per-lap numbers live in the PL3 in-memory lap-points cache; nothing is stored, so no migration.
+
+Operator decisions, **all DECIDED (user, 2026-11-25): (a)**, as built:
+
+- **OD-PL-25, which laps by default. DECIDED (user, 2026-11-25): (a).** Options: (a) the newest 30 valid laps (built); (b) all valid laps; (c) the last session only. A selector offers "All valid laps"; the trend always uses every session.
+- **OD-PL-26, minimum samples and confidence words. DECIDED (user, 2026-11-25): (a).** Options: (a) 5 passes before anything is concluded about a corner, confidence low 5–9 / medium 10–19 / high 20+; gear groups 3 passes; trends 3 sessions of 3 or more valid laps, newest 10 (built); (b) stricter: 8 passes, high from 30; (c) looser: 3 passes (the session report's style minimum).
+- **OD-PL-27, what "realistic gain" and the target lap mean. DECIDED (user, 2026-11-25): (a) the quickest quarter.** Options: (a) the first quartile: what you already reach in 1 pass out of 4 (built); (b) the median of your 3 fastest passes; (c) your fastest pass (= the ideal; shown as "up to" anyway).
+- **OD-PL-28, the smallest gain listed as an opportunity. DECIDED (user, 2026-11-25): (a) 30 ms.** Options: (a) 30 ms (built); (b) 50 ms; (c) none: rank every corner.
+- **OD-PL-29, thresholds for naming a difference. DECIDED (user, 2026-11-25): (a) fixed thresholds.** Options: (a) fixed levels, the session report's where they exist (5 m braking, 2 km/h apex, 8 m throttle, 3 km/h exit, 150 ms to full throttle) and new ones (5 m brake off, 100 ms / 25 % release time, 150 ms hesitation) (built); (b) scaled with each corner's own spread; (c) per car class.
+- **OD-PL-30, interpretation sentences. DECIDED (user, 2026-11-25): (a) shown, hedged.** Options: (a) shown by default as "What it may mean", apart from "What was measured", always worded as a possibility, with the causation note (built); (b) hidden behind a "possible causes" toggle; (c) not shown: observations only.
+- **OD-PL-31, Home's next step and the opportunities. DECIDED (user, 2026-11-25): (a) Home unchanged.** Options: (a) not now: `nextStep` unchanged (built; the analysis reads full traces and runs only on demand); (b) a new rule "work on the top opportunity" when an analysis is already kept in memory; (c) work the analysis out in the background after each session and feed `nextStep` (and PL7 practice).
+
+**PL6 review round (2026-11-25)**, fixes made without a new product choice:
+
+- **D-PL6-10, a gear finding needs a clear gear on both sides:** at least 3 passes (`gearGroupMin`) in the most used gear of the typical passes and of the quicker quarter, and no tie; otherwise no gear finding.
+- **D-PL6-11, "same setup" follows setup recognition as `compat.classify` does:** pit-box readings marked as wrong = every setup unknown, so the filter is not applied and the page says so; not checked yet = applied and labelled.
+- **D-PL6-12, a trend needs a minimum change:** "faster" / "slower" only when the first and latest sessions' median intervals do not overlap **and** the change is at least 100 ms (lap) or 30 ms (corner) (`RULES.trendMinMs`).
+- **D-PL6-13, numbers shown only as precise as they are:** median intervals only for corners with 5 or more passes; counts (brake re-applications, re-lifts) as whole numbers (the median rounded down); the target lap's ± is a rough range from each corner's first-quartile interval (distribution-free, from the order of its passes), labelled "rough".
+- **D-PL6-14, no stale analysis:** a run during which the car + track's laps changed is worked out again before it answers (up to 3 times); what the core, setup and assist readings are worth is part of the cache key, so a changed check gives a new result. `/api/analysis` is a private GET (refused cross-site).

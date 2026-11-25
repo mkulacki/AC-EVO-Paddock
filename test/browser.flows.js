@@ -83,6 +83,15 @@ before(async () => {
   // the laps' own conditions, as the app records them after each lap (the seed does not): similar temperatures that are
   // not checked against the game, for the combined "not confirmed" line on Compare (D-PL4-12)
   { const d = new DatabaseSync(path.join(env.ACEVO_DATA, 'telemetry.db')); d.exec(`UPDATE laps SET cond = '{"airC":20,"roadC":28}'`); d.close(); }
+  // PL6: 12 synthetic laps with known patterns on another car and track (test/lapfixtures.js), dated 1970 so every
+  // other flow still sees the mock laps first; the lap analysis page must rank their T2 and T1
+  execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', `
+    const db = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/db.js')).href)});
+    const { insertLap, COMBO } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/lapfixtures.js')).href)});
+    const params = (i) => ({ brake: [i % 3 !== 0 ? 0.75 : 1, 1, 1], hold: [0, i % 3 !== 1 ? 50 : 0, 0], gear: [0, i % 3 !== 1 ? 1 : 0, 0] });
+    const s = [0, 1, 2].map((k) => db.createSession({ ...COMBO, sessionType: 0, driver: 'Me', startedAt: 1e9 + k * 1e6 }));
+    for (let i = 1; i <= 12; i++) insertLap(db, { sessionId: s[Math.floor((i - 1) / 4)], lapNumber: i, recordedAt: 1e9 + i * 1e5, params: params(i) });`],
+  { env: childEnv, cwd: ROOT, stdio: 'ignore' });
   // a damaged setup-meta.json: the server keeps it aside at start and the Settings page must say so (OD-PL-5)
   fs.writeFileSync(path.join(env.ACEVO_DATA, 'setup-meta.json'), '{"files": {"x": {"notes": "half');
   // and a damaged copy left by an earlier run (listed as 'earlier')
@@ -194,7 +203,8 @@ async function importThroughPage(files) {
 
 test('import lap files: a broken file and a duplicate are refused with a reason; a valid one is added', { skip }, async () => {
   const o = (await api('/api/overview')).body;
-  const id = o.laps[o.laps.length - 1].id;
+  const mock = o.laps.filter((l) => l.track === 'mock_ring'); // (not the PL6 fixture laps, which the analysis flow needs as they are)
+  const id = mock[mock.length - 1].id;
   const file = Buffer.from(await (await fetch(`${base}/api/laps/${id}/export`)).arrayBuffer());
   const count = async () => (await api('/api/overview')).body.laps.length;
   const n0 = await count();
@@ -679,6 +689,57 @@ test('scalable text: at 200 % zoom (700 px wide) Home, the guide, Sessions and a
       const [sw, iw] = await js('[document.documentElement.scrollWidth, innerWidth]');
       assert.ok(sw <= iw + 1, `${h}: ${sw} px wide in a ${iw} px window`);
     }
+  } finally { await cdp('Emulation.clearDeviceMetricsOverride'); }
+  assert.deepEqual(errors, []);
+});
+
+test('lap analysis: the top opportunities read without a chart, observations apart from interpretations, links to the corner; keyboard; narrow window (PL6)', { skip }, async () => {
+  const key = 'fixture_ring|gp|fixture_gt';
+  await go(`#/analysis?combo=${encodeURIComponent(key)}`, "document.querySelector('#anTop .opp-card')");
+  assert.match(await js("document.querySelector('#view h1').textContent"), /^Lap analysis at fixture ring/);
+  // the known patterns: T2 (throttle held on the exit) first, T1 (early braking) second
+  const an = (await api(`/api/analysis?${new URLSearchParams({ track: 'fixture_ring', layout: 'gp', car: 'fixture_gt' })}`)).body;
+  assert.deepEqual(await js("[...document.querySelectorAll('.opp-card h3')].map((h) => h.textContent)"), ['T2', 'T1'],
+    JSON.stringify(an.corners.map((c) => [c.name, c.passes, c.gain, c.dist])));
+  const card = (q) => js(`document.querySelector('.opp-card').querySelector(${JSON.stringify(q)})?.textContent ?? null`);
+  assert.match(await card('.opp-head'), /^T2: about \d\.\d\d s a lap to gain, most of it on the way out/);
+  assert.match(await card('.conf'), /Confidence: (Medium|Low|High) · 12 passes/);
+  assert.match(await card('.phasebar'), /Entry[\s\S]*Apex[\s\S]*Exit/);
+  // what was measured and what it may mean are two separate lists; only the second speaks of possibilities
+  const obs = await js("[...document.querySelector('.opp-card .opp-obs').children].map((li) => li.textContent)");
+  const int = await js("[...document.querySelector('.opp-card .opp-int').children].map((li) => li.textContent)");
+  assert.ok(obs.length >= 2 && int.length >= 1);
+  assert.ok(obs.every((t) => !/\bmay\b/.test(t)), obs.join(' | '));
+  assert.ok(int.every((t) => /\bmay\b/.test(t)), int.join(' | '));
+  assert.match(await js("document.querySelector('#anTop').textContent"), /do not prove what causes it/);
+  // the comparison link opens Compare at that corner
+  const href = await js("document.querySelector('.opp-card .opp-links a[href^=\"#/compare\"]').getAttribute('href')");
+  assert.match(href, /^#\/compare\?laps=\d+&ref=\d+&c=T2$/);
+  // the target lap is shown next to the ideal; trends and the PB card are there
+  assert.match(await js("document.querySelector('#anTarget').textContent"), /^\d:\d\d\.\d{3} ±\d\.\d s, rough$/);
+  // review fix 2: a card with a gear or brake finding says what that reading is (gearbox setting, pedal position)
+  const cav = await js("[...document.querySelectorAll('.opp-card .opp-cav')].map((p) => p.textContent).join(' ')");
+  assert.match(cav, /pedal position, not the brake pressure/); // T1's braking finding
+  // (T2's gear finding is its 4th, so not on the card: the corner row below carries the gearbox note)
+  assert.match(await js("document.querySelector('#view').textContent"), /What made your personal best faster|Your personal best/); // the fixture's best is its first lap: the card says there is no earlier best
+  // "Distribution" opens the corner's row by keyboard, without leaving the page
+  await js("document.querySelector('.opp-card [data-goto]').focus(); 1");
+  await press('Enter');
+  await waitFor("document.getElementById('an-T2')?.open === true", 'the T2 row opened');
+  assert.match(await js('location.hash'), /^#\/analysis/);
+  assert.match(await js("document.getElementById('an-T2').textContent"), /Quicker quarter[\s\S]*Throttle hesitation[\s\S]*manual gearbox only[\s\S]*gearbox setting was not recorded/);
+  // the window switch reloads with the other window
+  await js("window.__rendered = 0; const s = document.querySelector('#anWindow'); s.value = 'all'; s.dispatchEvent(new Event('change')); 1");
+  await waitFor("window.__rendered > 0 && location.hash.includes('window=all') && document.querySelector('#anTop')", 'all laps');
+  // reachable from Sessions and Ctrl+K
+  await go('#/', "document.querySelector('a[href^=\"#/analysis?combo=\"]')");
+  // 200 % zoom: no sideways scrolling
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
+  try {
+    await go(`#/analysis?combo=${encodeURIComponent(key)}`, "document.querySelector('#anTop .opp-card')");
+    await sleep(250);
+    const [sw, iw] = await js('[document.documentElement.scrollWidth, innerWidth]');
+    assert.ok(sw <= iw + 1, `${sw} px wide in a ${iw} px window`);
   } finally { await cdp('Emulation.clearDeviceMetricsOverride'); }
   assert.deepEqual(errors, []);
 });

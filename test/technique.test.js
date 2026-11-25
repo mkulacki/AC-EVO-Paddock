@@ -2,7 +2,7 @@
 // built directly on a 1 m grid, so every expected value can be worked out by hand.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { techniqueMetrics, cornerMetrics, performanceScore, TECHNIQUE } from '../src/analysis.js';
+import { techniqueMetrics, cornerMetrics, performanceScore, TECHNIQUE, phaseTimes, channelPresence, APEX_HALF_M } from '../src/analysis.js';
 
 // A corner on a 1 m grid, 0..400 m, apex (slowest point) at 200 m. Speed falls from 200 to 80 km/h and back.
 // brk/thr/str are functions of the distance d (m). Time follows from the speed, so ms values are exact sums.
@@ -167,4 +167,39 @@ test('review fix: an early tap on the straight is not taken as the braking zone'
   assert.equal(withTap.brakeRampMs, noTap.brakeRampMs);
   assert.equal(withTap.releaseMs, noTap.releaseMs);
   assert.ok(withTap.brakeRampMs > 0);
+});
+
+// ---- PL6: throttle hesitation, corner phases, channel presence
+
+test('throttle hesitation: part-way throttle held on the exit counts; one steady push does not', () => {
+  // steady ramp 0 → 100 % from 200 to 250 m (2 % a metre: far above 20 % a second at these speeds)
+  const steady = corner({ thr: (d) => (d < 100 ? 1 : d < 200 ? 0 : Math.min(1, (d - 200) / 50)) });
+  assert.equal(techniqueMetrics(steady.R, steady.c).holdMs, 0);
+  // the same, but held at 50 % from 225 to 255 m: the held stretch is counted (226..255 m: not rising)
+  const held = corner({ thr: (d) => (d < 100 ? 1 : d < 200 ? 0 : d < 225 ? (d - 200) / 50 : d < 255 ? 0.5 : Math.min(1, 0.5 + (d - 255) / 50)) });
+  const m = techniqueMetrics(held.R, held.c);
+  assert.equal(m.holdMs, msBetween(held.R, 225, 255));
+  // no throttle after the apex at all: empty, not zero
+  const none = corner({ thr: (d) => (d < 100 ? 1 : 0) });
+  assert.equal(techniqueMetrics(none.R, none.c).holdMs, null);
+});
+
+test('corner phases: fixed grid boundaries around the reference apex, adding up to the corner time', () => {
+  const { R, c } = corner();
+  const p = phaseTimes(R, c);
+  assert.equal(p.entryMs, msBetween(R, 0, 200 - APEX_HALF_M));
+  assert.equal(p.apexMs, msBetween(R, 200 - APEX_HALF_M, 200 + APEX_HALF_M));
+  assert.equal(p.exitMs, msBetween(R, 200 + APEX_HALF_M, 400));
+  assert.ok(Math.abs(p.entryMs + p.apexMs + p.exitMs - msBetween(R, 0, 400)) <= 2);
+  // an apex near the segment start: the phases are clipped to the segment, never negative
+  const q = phaseTimes(R, { a: 0, b: 400, apexIdx: 5 });
+  assert.equal(q.entryMs, 0);
+  assert.ok(q.apexMs > 0 && q.exitMs > 0);
+});
+
+test('channel presence: a lap without gear (or pedal) data is recognised', () => {
+  const { R } = corner();
+  assert.deepEqual(channelPresence(R), { gear: true, brake: false, throttle: true });
+  R.gear = R.gear.map(() => 0);
+  assert.equal(channelPresence(R).gear, false);
 });

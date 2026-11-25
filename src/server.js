@@ -341,7 +341,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard)/; // overview + dashboard carry tags and note lines (PL5)
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review)
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -807,6 +807,13 @@ async function route(req, res) {
     const q = url.searchParams;
     return send(res, 200, svc.consistency({ track: q.get('track'), layout: q.get('layout'), car: q.get('car') },
       q.get('session') || 'all', q.get('invalid') === '1'));
+  }
+  // lap analysis (PL6): corner opportunities, distributions, target lap, trends, PB explanation; worked out in slices
+  if (p === '/api/analysis') {
+    const q = url.searchParams;
+    try {
+      return send(res, 200, await svc.lapAnalysisAsync({ track: q.get('track'), layout: q.get('layout'), car: q.get('car') }, { window: q.get('window'), match: q.get('match') }));
+    } catch (e) { if (/^No valid laps/.test(e.message)) return send(res, 404, { error: e.message }); throw e; }
   }
   // setup history (P7): every setup driven on a track + car, and two of them compared value by value
   if (p === '/api/setuphistory') {

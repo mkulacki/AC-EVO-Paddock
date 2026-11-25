@@ -205,6 +205,7 @@ export const TECHNIQUE = {
   releaseBumps: { label: 'Release bumps', unit: '', lowerBetter: true, def: 'Times the brake was pressed again by 5 % or more while releasing it. 0 = a smooth release.' },
   pickupMs: { label: 'Apex to full throttle', unit: 'ms', lowerBetter: true, def: 'Time from the slowest point of the corner to full throttle (over 95 %). Empty when full throttle is not reached before the next corner.' },
   reLifts: { label: 'Throttle re-lifts', unit: '', lowerBetter: true, def: 'Times the throttle went down again by 20 % or more after the exit had started (over 50 %).' },
+  holdMs: { label: 'Throttle hesitation', unit: 'ms', lowerBetter: true, def: 'Time on the exit with the throttle part-way (20 to 95 %) and not rising (less than 20 % a second), from the first throttle after the slowest point until full throttle or the end of the corner. 0 = one steady push to full throttle.' },
   steerReversals: { label: 'Steering reversals', unit: '', lowerBetter: true, def: 'Big changes of steering direction (a swing of 25 % of the corner\'s peak lock or more). 1 for a simple corner: turn in, then unwind.' },
   steerSaw: { label: 'Steering saw', unit: '', lowerBetter: true, def: 'Small steering corrections: changes of direction between 2 % and 25 % of the corner\'s peak lock.' },
   coastM: { label: 'Coasting', unit: 'm', lowerBetter: true, def: 'Distance with neither pedal pressed (both under 10 %) above 30 km/h.' },
@@ -268,6 +269,16 @@ export function techniqueMetrics(R, c) {
     if (!falling) { if (v > ext) ext = v; else if (ext - v >= 0.2) { reLifts++; falling = true; ext = v; } }
     else if (v < ext) ext = v; else if (v - ext >= 0.2) { falling = false; ext = v; }
   }
+  // hesitation (PL6): part-way throttle that is held or eased between the first throttle after the apex and full throttle
+  let hold = null, from = null;
+  for (let i = apex; i <= c.b; i++) if (R.thr[i] > 0.2) { from = i; break; }
+  if (from != null) {
+    hold = 0;
+    for (let i = from + 1; i <= (full ?? c.b); i++) {
+      const dt = R.t[i] - R.t[i - 1];
+      if (dt > 0 && R.thr[i] > 0.2 && R.thr[i] < 0.95 && (R.thr[i] - R.thr[i - 1]) / (dt / 1000) < 0.2) hold += dt;
+    }
+  }
   let coast = 0;
   for (let i = c.a; i <= c.b; i++) if (R.thr[i] < 0.1 && R.brk[i] < 0.1 && R.spd[i] > 30) coast += step;
   // steering: big direction changes and small corrections, relative to this pass's peak lock
@@ -276,9 +287,35 @@ export function techniqueMetrics(R, c) {
   const small = straight ? 0 : reversals(R.str, c.a, c.b, Math.max(0.004, 0.02 * peakLock));
   return {
     brakeRampMs, trailM: on != null ? Math.round(trail) : null, releaseMs, releaseBumps,
-    pickupMs: ms(apex, full), reLifts: started ? reLifts : null,
+    pickupMs: ms(apex, full), reLifts: started ? reLifts : null, holdMs: hold == null ? null : Math.round(hold),
     steerReversals: big, steerSaw: Math.max(0, small - big), coastM: Math.round(coast),
   };
+}
+
+// ---------------------------------------------------------------- corner phases (PL6)
+/** Half-width (m) of the apex phase around the corner's reference apex. docs/platform/ANALYSIS.md. */
+export const APEX_HALF_M = 25;
+/**
+ * Time (ms) through the three phases of corner segment c on the shared distance grid: entry = segment start to
+ * APEX_HALF_M before the reference apex (c.apexIdx), apex = the APEX_HALF_M either side of it, exit = from there to the
+ * segment end. The boundaries are the same grid points for every lap of a track + car, so the phases of a lap add up
+ * to its corner time and two laps' phases can be compared directly.
+ */
+export function phaseTimes(R, c) {
+  const w = Math.max(1, Math.round(APEX_HALF_M / R.step));
+  const p1 = Math.max(c.a, Math.min(c.b, c.apexIdx - w)), p2 = Math.max(p1, Math.min(c.b, c.apexIdx + w));
+  const ms = (i, j) => Math.round(R.t[j] - R.t[i]);
+  return { entryMs: ms(c.a, p1), apexMs: ms(p1, p2), exitMs: ms(p2, c.b) };
+}
+
+/**
+ * Which pedal and gear channels hold anything in this lap. A channel missing from a lap file is resampled as 0
+ * (resample), so a lap without a gear channel reads as gear 0 all the way: such a lap says nothing about gears.
+ */
+export function channelPresence(R) {
+  let gear = false, brk = 0, thr = 0;
+  for (let i = 0; i < R.n; i++) { if (R.gear[i] > 0) gear = true; if (R.brk[i] > brk) brk = R.brk[i]; if (R.thr[i] > thr) thr = R.thr[i]; }
+  return { gear, brake: brk > 0.05, throttle: thr > 0.05 };
 }
 
 // Performance score of a set of laps against the ideal lap (P6). The formula is shown on the page as written here.

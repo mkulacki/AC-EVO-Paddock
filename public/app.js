@@ -8,6 +8,7 @@ import { viewTracks, viewTrack } from './tracks.js';
 import { viewRace } from './race.js';
 import { viewCars, viewCar } from './cars.js';
 import { viewProgress } from './progress.js';
+import { viewAnalysis } from './analysis.js';
 import { viewMods } from './mods.js';
 import { viewLeaderboard } from './leaderboard.js';
 import { viewSetups } from './setups.js';
@@ -116,7 +117,7 @@ async function render() {
   const [path, query] = (location.hash.slice(1) || '/home').split('?'); // Paddock opens on Home; #/ is Sessions
   const params = new URLSearchParams(query || '');
   const prevRoute = currentRoute;
-  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/coach': 'coach', '/development': 'development', '/progress': 'progress', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/cars': 'cars', '/car': 'car', '/report': 'report', '/leaderboard': 'leaderboard', '/welcome': 'welcome' }[path] || 'laps';
+  currentRoute = { '/home': 'home', '/compare': 'compare', '/settings': 'settings', '/consistency': 'consistency', '/setuphistory': 'setuphistory', '/coach': 'coach', '/development': 'development', '/progress': 'progress', '/analysis': 'analysis', '/game': 'game', '/mods': 'mods', '/race': 'race', '/setups': 'setups', '/tracks': 'tracks', '/track': 'track', '/cars': 'cars', '/car': 'car', '/report': 'report', '/leaderboard': 'leaderboard', '/welcome': 'welcome' }[path] || 'laps';
   const navKey = currentRoute === 'track' ? 'tracks' : currentRoute === 'car' ? 'cars' : ['home', 'settings', 'game', 'mods', 'race', 'setups', 'tracks', 'cars', 'development', 'leaderboard', 'welcome'].includes(currentRoute) ? currentRoute : 'laps';
   if (navKey === 'laps') document.querySelector('nav a[data-nav=laps] .nav-dot')?.remove();
   if (navKey === 'development') document.querySelector('nav a[data-nav=development] .nav-dot')?.remove();
@@ -136,6 +137,7 @@ async function render() {
     else if (currentRoute === 'compare') await viewCompare(view, params, mine, { hasKey: status.hasKey });
     else if (currentRoute === 'consistency') await viewConsistency(view, params, mine);
     else if (currentRoute === 'progress') await viewProgress(view, params, mine);
+    else if (currentRoute === 'analysis') await viewAnalysis(view, params);
     else if (currentRoute === 'setuphistory') await viewSetupHistory(view, params, mine);
     else if (currentRoute === 'coach') await viewCoach(view, params, mine);
     else if (currentRoute === 'development') await viewDevelopment(view, mine);
