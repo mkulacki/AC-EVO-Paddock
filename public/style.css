@@ -953,3 +953,5 @@ ul.lb-notes { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
 .health-tag.st-ok { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
 .health-tag.st-warn { color: var(--warning); border-color: var(--warning); }
 .health-tag.st-bad { color: var(--critical); border-color: var(--critical); }
+
+.compat-unconf { margin: 8px 0 4px; padding-left: 8px; border-left: 3px solid var(--warning); }

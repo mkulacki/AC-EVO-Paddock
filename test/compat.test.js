@@ -207,3 +207,13 @@ test('AI setup history: temperatures marked as not matching the game are left ou
   assert.match(channels.forAi(['conditions']).conditions, /left out/);
   channels.confirm('conditions', null);
 });
+
+test('readings only not confirmed are marked for the combined line; the level is unchanged (D-PL4-12)', () => {
+  const unv = (g) => (g === 'conditions' || g === 'aids' || g === 'setupProbe' ? 'unverified' : 'verified');
+  const r = compat.classify(lap(), lap({ id: 2, roadC: 29 }), { statusOf: unv });
+  assert.equal(r.level, 'caveats');
+  assert.deepEqual(r.items.filter((i) => i.unconfirmed).map((i) => i.unconfirmed).sort(), ['driving aids', 'setup recognition', 'temperatures']);
+  assert.ok(!r.matched.includes('track temperature'));
+  const d = compat.classify(lap(), lap({ id: 2, roadC: 40 }), { statusOf: unv });
+  assert.equal(d.items.find((i) => i.key === 'conditions').unconfirmed, undefined, 'a real difference stays its own line');
+});

@@ -49,23 +49,28 @@ export function compatHtml(data, lapTxt, gated) {
   const level = data.compat?.level || 'compatible';
   const shaky = (data.compat?.basis || []).filter((b) => b.id !== 'gforce' && b.status !== 'verified');
   const many = laps.length > 1;
-  const list = laps.filter((l) => l.compat.items.length).map((l) => `${many ? `<li class="grp">${esc(lapTxt(l.id))}</li>` : ''}${l.compat.items.map((it) => `<li class="compat-item ${it.level}">
+  // readings only "not confirmed yet" (D-PL4-12): one combined line with where to confirm them, not one caveat each
+  const unconf = [...new Set(laps.flatMap((l) => l.compat.items.filter((i) => i.unconfirmed).map((i) => i.unconfirmed)))];
+  const UNCONF = 'Some readings aren\'t confirmed yet';
+  const unconfLine = unconf.length ? `<p class="compat-unconf"><b>${UNCONF}:</b> ${esc(unconf.join(', '))}. Until they are, they never count as the same. <a href="#/setups">Confirm them in Setups → Setup recognition</a></p>` : '';
+  const shown = (l) => l.compat.items.filter((i) => !i.unconfirmed);
+  const list = laps.filter((l) => shown(l).length).map((l) => `${many ? `<li class="grp">${esc(lapTxt(l.id))}</li>` : ''}${shown(l).map((it) => `<li class="compat-item ${it.level}">
       <b>${esc(it.title)}</b> <span>${esc(it.detail)}</span><div class="compat-effect"><span class="muted">What it changes:</span> ${esc(it.effect)}</div></li>`).join('')}`).join('');
   const basis = `<p class="hint compat-basis">The charts use ${(data.compat?.basis || []).filter((b) => b.id !== 'gforce').map((b) => `${esc(b.use.toLowerCase())} ${prov(b.status)}`).join(', ')}.${shaky.length ? ' Some of these are not checked against the game: read the charts as a hint.' : ''}</p>`;
   if (level === 'compatible') {
     const m = laps[0].compat.matched;
     return `<div class="card compat compat-ok"><span class="compat-tag ok">Like for like</span> <span class="hint">Same ${esc(m.join(', '))}.</span>${shaky.length ? basis : ''}</div>`;
   }
-  const titles = [...new Set(laps.flatMap((l) => l.compat.items.map((i) => i.title)))];
+  const titles = [...new Set(laps.flatMap((l) => shown(l).map((i) => i.title))), ...(unconf.length ? [UNCONF] : [])];
   if (level === 'incompatible') {
     return `<div class="card compat compat-bad" ${gated ? 'role="alert"' : ''}><div class="row"><span class="compat-tag bad">Not comparable</span>
       <b>${gated ? 'These laps cannot be compared like for like' : 'Compared anyway: these laps are not like for like'}</b></div>
-      <ul class="compat-list">${list}</ul>${basis}
+      ${list ? `<ul class="compat-list">${list}</ul>` : ''}${unconfLine}${basis}
       ${gated ? '<div class="row"><button class="primary" data-force>Compare anyway</button><span class="hint">The charts will show, but the gap and corner times do not mean what they usually do.</span></div>' : ''}</div>`;
   }
   return `<details class="card compat compat-warn"><summary><span class="compat-tag warn">Compare with care</span>
     <span class="hint">${titles.length} thing${titles.length === 1 ? '' : 's'} to keep in mind: ${esc(titles.join(' · '))}</span></summary>
-    <ul class="compat-list">${list}</ul>${basis}</details>`;
+    ${list ? `<ul class="compat-list">${list}</ul>` : ''}${unconfLine}${basis}</details>`;
 }
 let choicesCache = null; // { at, laps }
 

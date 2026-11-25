@@ -13,6 +13,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import { isolate, ROOT } from './helpers.js';
 
 const BROWSERS = [process.env.PADDOCK_BROWSER,
@@ -79,6 +80,9 @@ before(async () => {
   if (skip) return;
   // demo laps on scratch data, then the server on a free port (as test/smoke.test.js does)
   execFileSync(process.execPath, node(path.join(ROOT, 'src/mock.js'), '--seed', '6'), { env: childEnv, cwd: ROOT, stdio: 'ignore' });
+  // the laps' own conditions, as the app records them after each lap (the seed does not): similar temperatures that are
+  // not checked against the game, for the combined "not confirmed" line on Compare (D-PL4-12)
+  { const d = new DatabaseSync(path.join(env.ACEVO_DATA, 'telemetry.db')); d.exec(`UPDATE laps SET cond = '{"airC":20,"roadC":28}'`); d.close(); }
   // a damaged setup-meta.json: the server keeps it aside at start and the Settings page must say so (OD-PL-5)
   fs.writeFileSync(path.join(env.ACEVO_DATA, 'setup-meta.json'), '{"files": {"x": {"notes": "half');
   // and a damaged copy left by an earlier run (listed as 'earlier')
@@ -378,6 +382,17 @@ test('compare: caveats are listed with what they change, and open from the keybo
   await press('Enter');
   await waitFor("document.querySelector('#view .compat-warn').open", 'Enter opens the caveats');
   assert.match(await js("document.querySelector('#view .compat-warn .compat-effect').textContent"), /What it changes:/);
+  // readings not confirmed yet: one combined line with where to confirm them, not a caveat each (D-PL4-12)
+  assert.equal(await js("document.querySelectorAll('#view .compat-warn .compat-unconf').length"), 1);
+  assert.match(await js("document.querySelector('#view .compat-unconf').textContent"), /Some readings aren't confirmed yet: temperatures/);
+  assert.equal(await js("[...document.querySelectorAll('#view .compat-item b')].some((b) => /not confirmed/.test(b.textContent))"), false, 'no separate not-confirmed caveat');
+  assert.match(await js("document.querySelector('#view .compat-warn summary').textContent"), /Some readings aren't confirmed yet/);
+  await js("document.querySelector('#view .compat-unconf a').focus(); 1");
+  await js('window.__rendered = 0; 1');
+  await press('Enter');
+  await waitFor("location.hash === '#/setups' && window.__rendered > 0", 'Enter on the link opens Setups');
+  await go(`#/compare?laps=${two[0]}&ref=${two[1]}&tab=line`, "document.querySelector('#view #rpCanvas')");
+  assert.equal(await js("document.querySelectorAll('#view .compat-unconf').length"), 1, 'the same line on the replay tab');
   assert.match(await js("document.querySelector('#view .compat-basis').textContent"), /Measured/);
   assert.deepEqual(errors, []);
 });

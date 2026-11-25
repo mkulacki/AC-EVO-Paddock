@@ -78,7 +78,9 @@ const sess = (t) => SESSION_TYPES[t] || `session type ${t}`;
 export function classify(a, b, { statusOf } = {}) {
   const st = statusOf || ((g) => channels.status(g, { car: a.car }));
   const items = [], matched = [], unknown = [];
-  const add = (key, level, title, detail, effect) => items.push({ key, level, title, detail, effect });
+  // unconfirmed: a short name when the caveat is only that a reading is not checked against the game yet (the page
+  // shows those on one combined line, D-PL4-12); they are caveats all the same and never count as a match
+  const add = (key, level, title, detail, effect, unconfirmed) => items.push({ key, level, title, detail, effect, ...(unconfirmed ? { unconfirmed } : {}) });
   const refName = b.id === 'ideal' ? 'the ideal lap' : 'the reference';
 
   // track and car: anything else is a different comparison altogether
@@ -112,7 +114,7 @@ export function classify(a, b, { statusOf } = {}) {
       'A setup change moves braking points, speed and balance: part of the gap may be the setup.');
   } else if (probe !== 'verified') {
     add('setup', 'caveat', 'Same setup, recognition not confirmed', `Both laps were recognised as "${a.setupName || 'the same setup'}", but setup recognition is not checked against the game yet.`,
-      'If the recognition is wrong, a setup change could explain part of the gap. Check it once in Setups → Setup recognition.');
+      'If the recognition is wrong, a setup change could explain part of the gap. Check it once in Setups → Setup recognition.', 'setup recognition');
   } else matched.push('setup');
 
   // conditions: temperatures (conditions group), weather and grip (from the Race tab launch)
@@ -135,7 +137,7 @@ export function classify(a, b, { statusOf } = {}) {
     if (diffs.length) add('conditions', 'caveat', 'Different conditions', `${diffs.join('; ')}${cond !== 'verified' && diffs.some((d) => d.includes('°C')) ? ' (temperatures not checked against the game yet)' : ''}.`,
       'Track temperature, weather and grip change how much grip there is: part of the gap may be the conditions.');
     else if (close.length) add('conditions', 'caveat', 'Similar temperatures, not confirmed', `${close.join('; ')}: within ${LIMITS.roadC} °C, but the temperature readings are not checked against the game yet.`,
-      'If the readings are wrong, the conditions may differ more than shown. Check them once in Setups → Setup recognition.');
+      'If the readings are wrong, the conditions may differ more than shown. Check them once in Setups → Setup recognition.', 'temperatures');
   }
 
   // driving aids (through the Paddock HUD)
@@ -146,7 +148,7 @@ export function classify(a, b, { statusOf } = {}) {
   else if (a.aids !== b.aids) add('aids', 'caveat', 'Different driving aids', `This lap: ${AIDS_TEXT[a.aids] || a.aids}; ${refName}: ${AIDS_TEXT[b.aids] || b.aids}${aid !== 'verified' ? ' (aid readings not checked against the game yet)' : ''}.`,
     'TC and ABS change how late you can brake and how early you can accelerate: part of the gap may be the aids.');
   else if (aid !== 'verified') add('aids', 'caveat', 'Same driving aids, not confirmed', `Both laps: ${AIDS_TEXT[a.aids] || a.aids}, but the aid readings are not checked against the game yet.`,
-    'If the readings are wrong, a difference in TC or ABS could explain part of the gap. Check them once in Setups → Setup recognition.');
+    'If the readings are wrong, a difference in TC or ABS could explain part of the gap. Check them once in Setups → Setup recognition.', 'driving aids');
   else matched.push('driving aids');
 
   // session type: a race lap has traffic and fuel, a hotlap has neither

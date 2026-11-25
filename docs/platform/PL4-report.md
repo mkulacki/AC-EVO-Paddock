@@ -49,15 +49,15 @@ Independent review findings, all fixed with a regression test each:
 8. `cond.reader` goes into exported lap files: documented (D-PL4-5).
 9. `/api/health` passed raw error texts with paths: `noPaths()` keeps the file name only (quoted paths with spaces too); `/api/health` added to `PRIVATE_GET`.
 
-User decisions: OD-PL-12 … 17 (a) as built; OD-PL-18 changed to (b) and implemented; D-PL4-1 … 8 confirmed.
+User decisions: OD-PL-12 … 17 (a) as built; OD-PL-18 changed to (b) and implemented; D-PL4-1 … 8 confirmed. Then D-PL4-12 (user): readings not confirmed yet are one combined line on both compare tabs with a link to Setups (commit "PL4: one combined line for unconfirmed readings"); level and strictness unchanged; unit test and the browser caveat flow extended (laps get recorded temperatures in the browser fixture).
 
 ## Tests run and results
 
 | Command | Before (PL3 + review) | After |
 | --- | --- | --- |
 | `npm run check` | 119/119 | 124/124 (124/124 after review) |
-| `npm test` (Node 22.23.4) | 240/240 | 272/272 → 279/279 after review |
-| `npm run test:electron` (Node 24.22.2) | 240/240 | 272/272 → 279/279 after review |
+| `npm test` (Node 22.23.4) | 240/240 | 272/272 → 279/279 after review → 280/280 after D-PL4-12 |
+| `npm run test:electron` (Node 24.22.2) | 240/240 | 272/272 → 279/279 after review → 280/280 after D-PL4-12 |
 | `npm run test:browser` (headless Edge) | 13/13 | 16/16 (replay-tab gate added to an existing flow) |
 
 New coverage: version-aware records, migration, damaged records, per-car checks, mismatch persistence, OFFSETS revision guard (`test/channels-version.test.js`, 10); compatibility classes, caveat effects, unknowns, channel quality, ideal-lap merge, payloads of compare/consistency/progress (`test/compat.test.js`, 13); health states (`test/health.test.js`, 7); `/api/health` and check context in the smoke test (a fake game log gives the version); AI prompts drop data marked wrong (`test/provenance.test.js`); browser: caveats open from the keyboard, the incompatible gate and **Compare anyway**, the health panel (state words, Enter toggles, open state kept across redraws, palette entry).
@@ -92,7 +92,7 @@ None open. OD-PL-12 … 17 decided (a) as built, OD-PL-18 decided (b) (user, 202
 ## Remaining risks
 
 - Re-check fatigue: every AC EVO or HUD update asks for new checks (OD-PL-13 (a)); drivers may stop checking, which leaves hints unconfirmed rather than wrong.
-- "Not recorded" caveats are nearly universal on old histories and may be ignored (OD-PL-15). With temperatures and aids unconfirmed (the usual state), most comparisons also carry a "not confirmed" caveat until the driver checks them once.
+- "Not recorded" caveats are nearly universal on old histories and may be ignored (OD-PL-15). With temperatures and aids unconfirmed (the usual state), most comparisons also carry the combined "Some readings aren't confirmed yet" line until the driver checks them once (D-PL4-12).
 - The game version comes from the newest log file: if AC EVO stops writing `version x.y.z,` at the top of its log, every check counts as not checked (cautious, but silent); the health panel then shows "game version not known".
 - `PARSER_REV` relies on the OFFSETS hash test; offsets read outside `OFFSETS` would not be caught.
 
