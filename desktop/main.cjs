@@ -174,6 +174,8 @@ app.whenReady().then(async () => {
   globalThis.__paddockDemo = (on) => {
     try { globalThis.__paddockBeforeQuit?.(); } catch { /* nothing driven */ }
     quitting = true; saveState();
+    // the new process inherits this environment: PADDOCK_DEMO=1 would keep it in the demo (src/db.js DEMO)
+    if (on) process.env.PADDOCK_DEMO = '1'; else delete process.env.PADDOCK_DEMO;
     app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--demo').concat(on ? ['--demo'] : []) });
     app.exit(0);
   };

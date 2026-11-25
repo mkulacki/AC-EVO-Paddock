@@ -126,3 +126,35 @@ test('the schedule is kept in settings.json and cannot be set through the genera
   auto.setConfig({ on: false });
   assert.equal(auto.config().on, false);
 });
+
+// ---------------------------------------------------------------- PL11 review fixes
+test('review: a scheduled backup imported from another PC is never removed by retention', async () => {
+  auto.setConfig({ on: true, keep: 1 });
+  const own = await auto.runOnce({ env: noCloud, force: true });
+  const imported = backup.importUpload(backup.fileOf(own.backup.name)); // same manifest (reason 'scheduled'), imported name
+  assert.match(imported.name, /-imported-/);
+  assert.equal(imported.reason, 'scheduled');
+  await auto.verify(imported.name);
+  for (let i = 0; i < 2; i++) await auto.runOnce({ env: noCloud, force: true });
+  const names = backup.listBackups().map((b) => b.name);
+  assert.ok(names.includes(imported.name), 'the imported backup stays');
+  assert.equal(backup.listBackups().filter(auto.isOwnScheduled).length, 1);
+  auto.setConfig({ keep: 2 });
+});
+
+test('review: a session that starts between the checks and the copy: no backup, no notice', async () => {
+  const before = backup.listBackups().length;
+  let calls = 0;
+  const r = await auto.runOnce({ env: noCloud, force: true, isIdle: () => ++calls < 2 });
+  assert.equal(r.skipped, 'driving');
+  assert.ok(calls >= 2, 'idle asked again right before the copy');
+  assert.equal(backup.listBackups().length, before);
+  assert.equal(auto.notice(), null);
+});
+
+test('review: laps saved after the copy do not fail its verification (counts describe the copy)', async () => {
+  const r = await auto.runOnce({ env: noCloud, force: true });
+  await seedLaps(1); // more laps in the live database now
+  const v = await auto.verify(r.backup.name);
+  assert.equal(v.ok, true, v.problems.join('; '));
+});

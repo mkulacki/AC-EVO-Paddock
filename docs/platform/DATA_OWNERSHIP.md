@@ -12,13 +12,13 @@ Settings → Backup and restore → **Scheduled backups**. Built on `src/backup.
 | Rule | How |
 | --- | --- |
 | Off by default | `settings.autoBackup` is `null` → off (OD-PL-74). Daily or weekly (default weekly), keep 1 … 30 (default 4) (OD-PL-75). |
-| Only while idle | Checked every 10 minutes (first 2 minutes after start); a run waits while a session is being driven (the copy is a `VACUUM INTO` on the main thread). |
+| Only while idle | Checked every 10 minutes (first 2 minutes after start); a run waits while a session is being driven (the copy is a `VACUUM INTO` on the main thread). Idle is asked again right before the copy; a session that started meanwhile defers the run without a notice. |
 | Secret-free | `backup.create({ reason: 'scheduled' })` never includes the Gemini key, server passwords or the sign-in (PL1). The verification also fails a backup whose files hold one it should not. |
-| Verified | The zip is checked (`inspect`), `telemetry.db` is unpacked next to the backups and opened **read-only in a worker thread**: `PRAGMA integrity_check`, then the row counts of laps, sessions, reports and brake marks are compared with the manifest. The small files must parse. The copy is deleted afterwards. |
+| Verified | The zip is checked (`inspect`), `telemetry.db` is unpacked next to the backups and opened **read-only in a worker thread**: `PRAGMA integrity_check`, then the row counts of laps, sessions, reports and brake marks are compared with the manifest. The small files must parse. The copy is deleted afterwards. The manifest counts are taken in the same synchronous step as the copy, so laps saved later never make a good backup fail. |
 | A failed check | The new backup is deleted (it cannot be trusted), the older ones stay, and Home and Settings say why (OD-PL-78). |
 | Never fills the disk | A run needs `2 × (database + small files) + 1 GiB` free on the drive (`fs.statfsSync`); otherwise it is skipped with a notice on Home and in Settings (OD-PL-76). Temp files (`.backup-*`, `.verify-*`) are removed on failure and at the next start. |
 | No cloud folder by surprise | When the backups folder is inside OneDrive (by the `OneDrive*` environment folders or a folder name), Dropbox, Google Drive, iCloud Drive, pCloud, MEGA, Nextcloud, ownCloud, Box or Sync.com, scheduled runs are skipped with a notice unless the driver ticks **Back up there anyway** (OD-PL-77). Manual backups are unchanged. |
-| Retention | After a new scheduled backup verified, only the newest `keep` **verified scheduled** backups stay. Manual, imported and before-restore backups are never deleted by Paddock. |
+| Retention | After a new scheduled backup verified, only the newest `keep` **verified scheduled** backups this install made (named `…-scheduled.zip` / `…-scheduled-2.zip`) stay. Manual, imported (also a scheduled backup imported from another PC, which keeps its manifest reason) and before-restore backups are never deleted by Paddock. |
 | Any backup | **Verify** on each row runs the same check on demand; the result (verified / check failed) is kept in `data\backups\schedule.json` with the schedule's last run and skip. |
 
 **Storage forecast** (same card): the laps database size, laps per 30 days and growth per 30 days (laps of the last
@@ -37,6 +37,7 @@ them elsewhere by hand, or point a synced folder at them deliberately).
 - At the next start, a journal that matches a session in the database (same id, track, car and start time) means the
   session was interrupted: its report is made (when it has 3 laps and a valid one) and Home says once that the session
   was closed and its laps kept. A journal that does not match (for example after a restore) is ignored and removed.
+  The recovered journal is removed only if it still names that session (a new session may have written its own).
 - The desktop app's **Quit** now ends a session being driven first (`__paddockBeforeQuit`), so a lap that crossed the
   line less than a second before (waiting for the official lap time) is saved; its report follows at the next start.
 - **Not recoverable** (by design, OD-PL-79): the lap being driven at the moment of a crash. Its samples live only in
@@ -72,3 +73,5 @@ Settings → **Demo → Try the demo** (desktop app; `npm run demo` from source)
   installs, every leaderboard action, restores, backup uploads and lap imports. No scheduled backups, no update check
   (a mock run), no in-game HUD bridge.
 - To reset the demo: leave it and delete `data\demo`.
+- `PADDOCK_DEMO=1` in the environment also starts the demo; Leave the demo clears it for the relaunched app.
+- Read from the real data folder in the demo: only the `hud-removed` / `loader-removed` flags (`src/hudinstall.js`, `src/loaderinstall.js`, which use `ACEVO_DATA` directly). They are read, never written: the routes that change them are refused in the demo.

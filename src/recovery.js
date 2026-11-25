@@ -55,7 +55,8 @@ export async function recover(found, { makeReport = async () => false } = {}) {
   if (!found) return null;
   let report = false, error = null;
   try { report = !!(await makeReport(found.sessionId)); } catch (e) { error = e.message; }
-  try { fs.rmSync(FILE, { force: true }); } catch { /* next start */ }
+  // only this session's journal: a new session may have saved its first lap (and its own journal) meanwhile
+  try { if (readJsonSafe(FILE, null)?.sessionId === found.sessionId) fs.rmSync(FILE, { force: true }); } catch { /* next start */ }
   last = { ...found, report, error, at: Date.now() };
   console.log(`[recovery] session ${found.sessionId} (${found.track} / ${found.car}) was interrupted last time: ${found.laps} saved lap(s) kept, session closed${report ? ', report made' : ''}${error ? ` (report failed: ${error})` : ''}`);
   return last;

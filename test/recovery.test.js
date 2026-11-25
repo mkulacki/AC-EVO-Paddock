@@ -99,3 +99,16 @@ test('a server killed mid-session: every saved lap is still there and the next s
     assert.equal(rep.laps.length, lapsBefore, 'no saved lap lost');
   } finally { await stop(b); }
 });
+
+test('review: a new session journaled while the old one is recovered keeps its journal', async () => {
+  recovery._reset();
+  const s = db.listSessions()[0];
+  fs.writeFileSync(recovery.FILE, JSON.stringify({ sessionId: s.id, track: s.track, car: s.car, startedAt: s.started_at }));
+  const found = recovery.interrupted();
+  await recovery.recover(found, { makeReport: async () => {
+    fs.writeFileSync(recovery.FILE, JSON.stringify({ sessionId: s.id + 1000, track: 't', car: 'c' })); // the new session's first lap
+    return false;
+  } });
+  assert.equal(JSON.parse(fs.readFileSync(recovery.FILE, 'utf8')).sessionId, s.id + 1000);
+  fs.rmSync(recovery.FILE, { force: true });
+});

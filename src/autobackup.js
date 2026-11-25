@@ -102,7 +102,7 @@ export function forecast(now = Date.now()) {
   const lapsPer30d = recent.n ? Math.round((recent.n / days) * 30) : 0;
   const growthPer30d = lapsPer30d * perLapBytes;
   const cfg = config();
-  const scheduled = backup.listBackups().filter((b) => b.ok && b.reason === 'scheduled');
+  const scheduled = backup.listBackups().filter(isOwnScheduled);
   const backupBytes = scheduled[0]?.size ?? Math.round(dbBytes * 0.9); // a zip of a database compresses little: lap telemetry is gzipped already
   const allBackups = backup.listBackups().reduce((s, b) => s + b.size, 0);
   const retainedBytes = cfg.keep * backupBytes;
@@ -148,8 +148,11 @@ async function runNow({ isIdle = () => true, appVersion = null, force = false, n
   if (free == null) return skip('space-unknown', 'The free space on the drive could not be read, so no scheduled backup was made.');
   if (free < need) return skip('space', `Not enough free space for a scheduled backup: ${gb(free)} free, ${gb(need)} needed (a copy of the laps database, its zip and a reserve of ${gb(reserve)}). Free some space or delete old backups.`);
   let made;
-  try { made = await backup.create({ reason: 'scheduled', appVersion }); }
-  catch (e) { return skip('failed', `The scheduled backup failed: ${e.message}`); }
+  try { made = await backup.create({ reason: 'scheduled', appVersion, beforeCopy: isIdle }); }
+  catch (e) {
+    if (e.code === 409 && !isIdle()) return { ran: false, skipped: 'driving' }; // a session started meanwhile: next time
+    return skip('failed', `The scheduled backup failed: ${e.message}`);
+  }
   const v = await verify(made.name);
   s.lastRun = { at: Date.now(), name: made.name, ok: v.ok, problems: v.problems };
   if (!v.ok) {
@@ -174,10 +177,15 @@ export async function verify(name) {
   return v;
 }
 
-/** Keep the newest `keep` scheduled backups that verified; older scheduled ones go. Other backups are never touched. */
+/**
+ * Keep the newest `keep` scheduled backups that verified; older scheduled ones go. Other backups are never touched:
+ * only files this install made on schedule count (named …-scheduled.zip, …-scheduled-2.zip). A scheduled backup
+ * brought from another PC is named …-imported-… and keeps its manifest reason, so the reason alone is not enough.
+ */
+export const isOwnScheduled = (b) => b.ok && b.reason === 'scheduled' && /^paddock-backup-\d{4}-\d{2}-\d{2}_\d{6}-scheduled(-\d+)?\.zip$/i.test(b.name);
 export function prune(keep) {
   const s = loadState();
-  const scheduled = backup.listBackups().filter((b) => b.ok && b.reason === 'scheduled');
+  const scheduled = backup.listBackups().filter(isOwnScheduled);
   const good = scheduled.filter((b) => s.verified[b.name]?.ok);
   const removed = [];
   for (const b of good.slice(keep)) { try { backup.remove(b.name); removed.push(b.name); } catch { /* in use: next time */ } }

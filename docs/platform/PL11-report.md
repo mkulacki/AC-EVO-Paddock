@@ -69,6 +69,18 @@ OD-PL-74 … 82, all OPEN (operator), recommended default applied, user reviews 
 - The demo shares the desktop app's browser storage (remembered page choices) with the real app.
 - The crash journal is only as good as the start-time check: two Paddock instances on one data folder are prevented by the desktop single-instance lock, not by the source runs.
 
+## Review round (2026-11-25)
+
+Light review by the coordinator; fixes in one commit (`PL11: review fixes`), each with a regression test:
+
+1. **Retention could delete an imported backup** (important): a scheduled backup imported from another PC keeps the manifest reason `scheduled`. Retention (and the forecast count) now take only files this install made on schedule (`isOwnScheduled`: name `paddock-backup-<time>-scheduled(-n).zip`).
+2. **Recovery could delete a new session's journal:** the recovered journal is removed only when it still names the recovered session.
+3. **Count mismatch race:** checked: the counts were already taken with no await after `VACUUM INTO`, so no lap could be saved in between; they are now taken explicitly right after the copy, and a test saves a lap after the copy and still verifies.
+4. **Idle re-checked right before the copy** (`backup.create` `beforeCopy`): a session started meanwhile defers the run without a notice.
+5. **Demo:** Leave the demo clears `PADDOCK_DEMO` for the relaunched app; the real folder's `hud-removed` / `loader-removed` flags are read-only in the demo (documented).
+
+Tests after the review: `npm run check` 164/164, `npm test` 467/467 (Node 22.23.4), `npm run test:electron` 467/467 (Node 24.22.2), `npm run test:browser` 26/26.
+
 ## Recommended next phase
 
 The user reviews PL8–PL11 in the app (OD-PL-42 … 82), then merges the platform branches. After that, the research

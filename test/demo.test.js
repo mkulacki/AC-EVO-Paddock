@@ -69,3 +69,10 @@ test('nothing reaches the game, its files, the leaderboard or real data', async 
   assert.ok(b.status === 409 || b.body.skipped === 'demo', JSON.stringify(b.body));
   assert.equal(fs.existsSync(path.join(env.ACEVO_DATA, 'backups')), false, 'nothing in the real backups folder');
 });
+
+test('review: leaving the demo clears PADDOCK_DEMO for the relaunched app (static check of desktop/main.cjs)', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'desktop/main.cjs'), 'utf8');
+  const fn = src.slice(src.indexOf('globalThis.__paddockDemo = '), src.indexOf('app.exit(0);', src.indexOf('globalThis.__paddockDemo = ')));
+  assert.match(fn, /else delete process\.env\.PADDOCK_DEMO/);
+  assert.ok(fn.indexOf('PADDOCK_DEMO') < fn.indexOf('app.relaunch'), 'cleared before the relaunch');
+});

@@ -4,6 +4,13 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
+### Data ownership (platform phase PL11)
+
+- **Scheduled backups** (Settings → Backup and restore, off until you switch them on): daily or weekly, only while you are not driving, without your key, passwords or sign-in. Each one is opened and checked after it is made; older scheduled backups are deleted once a newer one checks out (backups you make or import are never deleted). A run is skipped, and Home says why, when the drive would get too full or the backups folder is inside OneDrive, Dropbox or a similar folder (unless you allow it). **Verify** checks any backup, and the card shows how fast your data grows and how long the free space lasts.
+- **Crash recovery:** if Paddock is closed or crashes during a session, the next start closes that session, makes its report and tells you on Home. Every saved lap is kept; only the lap being driven at that moment is lost. Quitting the desktop app during a session now saves a lap that has just crossed the line.
+- **Save a report as HTML:** one file that opens in any browser, offline, with the numbers, laps, corners and targets. Your name, Steam ID, notes and the AI debrief go in only if you tick them.
+- **Try the demo** (Settings): look around Paddock without the game, with a mock car on a fictional circuit and two earlier sessions. The demo keeps its own data in `data\demo`; nothing of it reaches your laps, stats, backups or the leaderboard.
+
 ### Leaderboard integrity (platform phase PL10; needs the new leaderboard server, not deployed yet)
 
 - **Evidence on every board row:** Legacy, Format checked, Telemetry consistent or Reviewed, with what each one means. A Steam sign-in proves who sent a lap, not that it was driven as sent; the labels never say more than what was checked. Laps already on the boards are labelled Legacy.
