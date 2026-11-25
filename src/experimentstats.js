@@ -22,7 +22,16 @@ export const RULES = {
   maxWarmup: 5,
   lapsPerStint: 6,   // default planned laps per stint
   trendShare: 0.5,   // a within-setup drift over the experiment above half the gap: learning flagged as a strong confound
+  minCiMs: 50,       // the smallest median interval used (PL8 review): identical or 1 ms-resolution times give IQR 0, and a 0 ms
+                     // interval would make any gap 'beyond the noise'; lap times in AC EVO vary by more than this lap to lap
+  segmentGapMs: 5 * 60e3, // within a stint, a new session or a pause this long starts a new run: its first laps are warm-up too
+  unknownShare: 0.5, // more than half of a setup's counted laps without recorded conditions: no clean 'difference' (OD-PL-46 review)
 };
+/** Own keys only: a request's 'constructor' or 'toString' is never a pattern, measure, phase … (PL8 review). */
+export const has = (o, k) => typeof k === 'string' && Object.hasOwn(o, k);
+/** The medians' intervals, each at least RULES.minCiMs, do not overlap. */
+export const apart = (a, b) => !!a && !!b && Math.abs(a.median - b.median) > Math.max(a.ci, RULES.minCiMs) + Math.max(b.ci, RULES.minCiMs);
+const ciOf = (sm) => Math.max(sm.ci, RULES.minCiMs);
 export const PATTERNS = { ABBA: ['A', 'B', 'B', 'A'], ABAB: ['A', 'B', 'A', 'B'], ABA: ['A', 'B', 'A'], AB: ['A', 'B'] };
 export const METRICS = { pace: 'Pace (typical lap)', consistency: 'Consistency (spread)', validity: 'Valid laps', handling: 'Handling (your feedback)' };
 export const DIRECTIONS = { better: 'B better than A', worse: 'B worse than A', same: 'no difference' };
@@ -64,22 +73,28 @@ export function shift(a, b) {
 }
 
 /** Which stint each lap belongs to: laps in a stint's session, or recorded inside its time window. -> Map(lapId -> stint) */
+// Deterministic and never twice (PL8 review): a session stint takes its session's laps; a time window takes only laps of
+// sessions that are no stint of their own; windows are tried oldest first (src/experiments.js refuses overlaps anyway).
 export function assign(stints, laps, now = Date.now()) {
   const out = new Map();
+  const bySession = new Map(stints.filter((st) => st.sessionId != null).map((st) => [st.sessionId, st]));
+  const windows = stints.filter((st) => st.sessionId == null).sort((a, b) => a.startAt - b.startAt || a.id - b.id);
   const sorted = [...laps].sort((a, b) => a.recorded_at - b.recorded_at || a.id - b.id);
   for (const l of sorted) {
-    const s = stints.find((st) => (st.sessionId != null ? l.session_id === st.sessionId : l.recorded_at >= st.startAt && l.recorded_at <= (st.endAt ?? now)));
+    const s = bySession.get(l.session_id) ?? (bySession.has(l.session_id) ? null : windows.find((st) => l.recorded_at >= st.startAt && l.recorded_at <= (st.endAt ?? now)));
     if (s) out.set(l.id, s);
   }
   return out;
 }
 
 /** The planned stints and how far the driver is: {pattern, sequence, lapsPerStint, warmup, done, next}. */
-export function planProgress(plan = {}, stints = []) {
-  const sequence = PATTERNS[plan.pattern] || PATTERNS.ABBA;
-  const done = stints.filter((s) => s.endAt != null || s.sessionId != null).length;
+export function planProgress(plan = {}, stints = [], lapsOf = null) {
+  const sequence = has(PATTERNS, plan.pattern) ? PATTERNS[plan.pattern] : PATTERNS.ABBA;
+  // a finished stint without a lap (its laps deleted, or ended before any lap) is not a driven stint (PL8 review)
+  const empty = lapsOf ? stints.filter((s) => (s.endAt != null || s.sessionId != null) && !lapsOf(s.id)).map((s) => s.id) : [];
+  const done = stints.filter((s) => (s.endAt != null || s.sessionId != null) && !empty.includes(s.id)).length;
   const open = stints.find((s) => s.endAt == null && s.sessionId == null) || null;
-  return { pattern: PATTERNS[plan.pattern] ? plan.pattern : 'ABBA', sequence, lapsPerStint: plan.lapsPerStint ?? RULES.lapsPerStint, warmup: plan.warmup ?? RULES.warmup,
+  return { pattern: has(PATTERNS, plan.pattern) ? plan.pattern : 'ABBA', sequence, empty, lapsPerStint: plan.lapsPerStint ?? RULES.lapsPerStint, warmup: plan.warmup ?? RULES.warmup,
     done, open: open ? { id: open.id, variant: open.variant, startAt: open.startAt } : null, next: open ? null : sequence[done] ?? null, complete: done >= sequence.length };
 }
 
@@ -90,7 +105,7 @@ export function feedbackSummary(entries) {
   const corners = new Set();
   for (const e of entries) {
     const f = e.data || {};
-    if (!out[f.variant] || !PHASES[f.phase] || !BALANCE[f.balance]) continue;
+    if ((f.variant !== 'A' && f.variant !== 'B') || !has(PHASES, f.phase) || !has(BALANCE, f.balance)) continue;
     out[f.variant][f.phase][f.balance]++;
     out.count[f.variant]++;
     if (f.corner) corners.add(f.corner);
@@ -120,11 +135,14 @@ export function evaluate(exp, laps, ctx = {}) {
   const firstGame = inExp.map(gameOf).find(Boolean) || null;
   const game = exp.game || firstGame;
 
-  const idxInStint = new Map();
+  // warm-up per run (PL8 review): a new session inside a stint, or a pause of RULES.segmentGapMs, starts a new run
+  const run = new Map(); // stint id -> {session, at, i}
   const rows = inExp.map((l) => {
     const st = stintOf.get(l.id);
-    const i = idxInStint.get(st.id) ?? 0;
-    idxInStint.set(st.id, i + 1);
+    const prev = run.get(st.id);
+    const fresh = !prev || prev.session !== (l.session_id ?? null) || l.recorded_at - prev.at > RULES.segmentGapMs;
+    const i = fresh ? 0 : prev.i + 1;
+    run.set(st.id, { session: l.session_id ?? null, at: l.recorded_at, i });
     const prov = compat.provenance(l, { sessionType: ctx.sessionTypes?.get(l.session_id) ?? null });
     return { id: l.id, sessionId: l.session_id ?? null, recordedAt: l.recorded_at, stint: st.id, variant: st.variant, idx: i, timeMs: l.lap_time_ms, valid: !!l.valid,
       game: gameOf(l), info: parse(l.setup_info), prov, reason: null, unrecognised: false };
@@ -187,6 +205,8 @@ export function evaluate(exp, laps, ctx = {}) {
       summary: sm, bestMs: used.length ? Math.min(...used.map((r) => r.timeMs)) : null,
       validity: { valid: afterWarm.filter((r) => r.valid).length, of: afterWarm.length },
       unrecognised: used.filter((r) => r.unrecognised).length,
+      // counted laps with no recorded conditions at all (no track or air temperature, weather or grip)
+      noConditions: used.filter((r) => r.prov.roadC == null && r.prov.airC == null && r.prov.weather == null && r.prov.grip == null).length,
       trendMsPerLap: used.length >= RULES.minLaps ? stats.theilSen(pos, used.map((r) => r.timeMs)) : null,
     };
   };
@@ -203,12 +223,16 @@ export function evaluate(exp, laps, ctx = {}) {
   if (A.used < RULES.minLaps || B.used < RULES.minLaps) {
     cmp.why = 'laps';
     cmp.text = `Inconclusive: not enough laps yet. Each setup needs at least ${RULES.minLaps} counted laps (A has ${A.used}, B has ${B.used}).`;
-  } else if (!stats.apart(A.summary, B.summary)) {
+  } else if (!apart(A.summary, B.summary)) {
     cmp.why = 'noise';
-    cmp.text = `Inconclusive: the typical laps differ by ${s3(cmp.deltaMs)}, which is inside the lap-to-lap noise (A ±${s3(A.summary.ci)}, B ±${s3(B.summary.ci)}). This does not show the setups are the same, only that these laps can't tell them apart.`;
+    cmp.text = `Inconclusive: the typical laps differ by ${s3(cmp.deltaMs)}, which is inside the lap-to-lap noise (A ±${s3(ciOf(A.summary))}, B ±${s3(ciOf(B.summary))}; never taken as less than ±${s3(RULES.minCiMs)}). This does not show the setups are the same, only that these laps can't tell them apart.`;
   } else if (A.stints < RULES.minStints || B.stints < RULES.minStints) {
     cmp.why = 'stints';
     cmp.text = `Inconclusive: ${quicker(cmp.lean)}'s typical lap was ${s3(cmp.deltaMs)} quicker, more than the noise, but ${A.stints < RULES.minStints && B.stints < RULES.minStints ? 'each setup was' : `${A.stints < RULES.minStints ? 'A' : 'B'} was`} driven in one stint only, so the gap can't be told apart from what changed between the stints (learning, tyres, fuel, the track). Drive the remaining stints of the plan.`;
+  } else if (A.noConditions > RULES.unknownShare * A.used || B.noConditions > RULES.unknownShare * B.used) {
+    // OD-PL-46 refinement (review): a gap on laps whose conditions were not recorded is never a clean difference
+    cmp.why = 'conditions';
+    cmp.text = `Inconclusive: ${quicker(cmp.lean)}'s typical lap was ${s3(cmp.deltaMs)} quicker, more than the noise, but the conditions were not recorded for most of the counted laps (A ${A.noConditions} of ${A.used}, B ${B.noConditions} of ${B.used}), so Paddock can't tell whether both setups were driven in the same conditions.`;
   } else {
     cmp.kind = 'difference'; cmp.faster = cmp.lean;
     cmp.text = `${quicker(cmp.faster)}'s typical lap was ${s3(cmp.deltaMs)} quicker (${A.used} and ${B.used} counted laps over ${A.stints} and ${B.stints} stints), more than the lap-to-lap noise. This is a difference in these laps; it suggests, but does not prove, that the setup caused it (see what else changed below).`;
@@ -266,7 +290,7 @@ export function evaluate(exp, laps, ctx = {}) {
     game, gameFrom: exp.game ? 'created' : firstGame ? 'first lap' : null,
     patch: { game, current: ctx.currentGame ?? null, changed: !!(game && ctx.currentGame && ctx.currentGame !== game), otherVersion, unknownVersion },
     filter, reference: { roadC: ref.roadC, airC: ref.airC, weather: ref.weather, grip: ref.grip, aids: ref.aids, sessionType: ref.sessionType },
-    variants: { A, B }, comparison: cmp, expected, confounds, feedback: fb, plan: planProgress(exp.plan, exp.stints || []),
+    variants: { A, B }, comparison: cmp, expected, confounds, feedback: fb, plan: planProgress(exp.plan, exp.stints || [], (id) => rows.some((r) => r.stint === id)),
     laps: rows.map((r) => ({ id: r.id, variant: r.variant, stint: r.stint, idx: r.idx, timeMs: r.timeMs, valid: r.valid, game: r.game, reason: r.reason, sessionId: r.sessionId, recordedAt: r.recordedAt })),
     excludedTotal: rows.filter((r) => r.reason).length, lapsTotal: rows.length,
   };

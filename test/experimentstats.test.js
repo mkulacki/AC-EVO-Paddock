@@ -124,7 +124,7 @@ test('stints: by session or by time window (an open one runs to now); a lap in n
   const laps = [lap(100, 1, { session: 7 }), lap(200, 1, { session: 8 }), lap(300, 1, { session: 8 }), lap(5000, 1, { session: 9 })];
   const m = X.assign([{ id: 1, variant: 'A', sessionId: 7 }, { id: 2, variant: 'B', startAt: 250, endAt: null }], laps, 1000);
   assert.deepEqual([...m.keys()], [laps[0].id, laps[2].id]);
-  assert.deepEqual(X.planProgress({ pattern: 'ABAB' }, [{ id: 1, variant: 'A', sessionId: 7 }]), { pattern: 'ABAB', sequence: ['A', 'B', 'A', 'B'], lapsPerStint: 6, warmup: 1, done: 1, open: null, next: 'B', complete: false });
+  assert.deepEqual(X.planProgress({ pattern: 'ABAB' }, [{ id: 1, variant: 'A', sessionId: 7 }]), { pattern: 'ABAB', sequence: ['A', 'B', 'A', 'B'], empty: [], lapsPerStint: 6, warmup: 1, done: 1, open: null, next: 'B', complete: false });
   const p = X.planProgress({}, [{ id: 1, variant: 'A', startAt: 5, endAt: null }]);
   assert.deepEqual([p.pattern, p.done, p.next, p.open.variant], ['ABBA', 0, null, 'A']);
 });
@@ -157,4 +157,58 @@ test('expected outcomes: pace against the result; consistency and validity descr
 test('Hodges–Lehmann shift: the median of all pairwise differences', () => {
   assert.equal(X.shift([1, 2, 3], [11, 12, 13]), 10);
   assert.equal(X.shift([], [1]), null);
+});
+
+// ---- PL8 review fixes
+test('review 1: identical lap times (IQR 0) never make a 1 ms gap "beyond the noise": the interval has a floor', () => {
+  const { exp, laps } = build('ABBA', 4, (v, i) => (i === 0 ? 63000 : v === 'B' ? 59999 : 60000));
+  const r = X.evaluate(exp, laps);
+  assert.equal(r.variants.A.summary.iqr, 0);
+  assert.equal(r.comparison.kind, 'inconclusive');
+  assert.equal(r.comparison.why, 'noise');
+  assert.match(r.comparison.text, /never taken as less than ±0\.050 s/);
+  assert.equal(X.apart({ median: 60000, ci: 0 }, { median: 59899, ci: 0 }), true, 'a gap over twice the floor is apart');
+  assert.equal(X.apart({ median: 60000, ci: 0 }, { median: 59901, ci: 0 }), false);
+});
+
+test('review 2: a lap is never in two stints; a session stint keeps its laps, a window takes only laps of other sessions; deterministic', () => {
+  const laps = [lap(100, 1, { session: 7 }), lap(150, 1, { session: 8 }), lap(160, 1, { session: 7 })];
+  const stints = [{ id: 1, variant: 'B', startAt: 50, endAt: 200 }, { id: 2, variant: 'A', sessionId: 7 }];
+  const m = X.assign(stints, laps, 1000);
+  assert.deepEqual([...m].map(([id, s]) => [id, s.id]), [[laps[0].id, 2], [laps[1].id, 1], [laps[2].id, 2]]);
+  assert.deepEqual([...X.assign([...stints].reverse(), laps, 1000)].map(([id, s]) => [id, s.id]), [...m].map(([id, s]) => [id, s.id]), 'order of stints does not matter');
+});
+
+test('review 3: warm-up per run: a new session or a long pause inside one stint leaves its first lap out too', () => {
+  const t0 = 1e7, laps = [];
+  for (let i = 0; i < 4; i++) laps.push(lap(t0 + i * 6e4, 60000, { ...vOpt('A'), session: 1 }));
+  for (let i = 0; i < 4; i++) laps.push(lap(t0 + 3e5 + i * 6e4, 60000, { ...vOpt('A'), session: 2 })); // game restarted: a new session
+  for (let i = 0; i < 3; i++) laps.push(lap(t0 + 2e6 + i * 6e4, 60000, { ...vOpt('A'), session: 2 })); // a 25-minute pause
+  const r = X.evaluate({ variants, plan: { warmup: 1 }, stints: [{ id: 1, variant: 'A', startAt: 0, endAt: 1e8 }], game: '1.0' }, laps);
+  assert.equal(r.variants.A.excluded.warmup, 3);
+  assert.deepEqual(r.laps.filter((l) => l.reason === 'warmup').map((l) => l.id), [laps[0].id, laps[4].id, laps[8].id]);
+});
+
+test('review 5: a gap on laps whose conditions were not recorded is not a clean difference (OD-PL-46 refinement)', () => {
+  const { exp, laps } = build('ABBA', 6, (v, i, s) => 100000 + (v === 'B' ? -600 : 0) + noise(i, s), { extra: () => ({ roadC: null, airC: null }) });
+  const r = X.evaluate(exp, laps);
+  assert.equal(r.comparison.kind, 'inconclusive');
+  assert.equal(r.comparison.why, 'conditions');
+  assert.match(r.comparison.text, /conditions were not recorded for most of the counted laps \(A 10 of 10, B 10 of 10\)/);
+  assert.equal(r.expected.status, 'inconclusive');
+});
+
+test('review 6: request keys from the prototype are never patterns, phases or balances', () => {
+  assert.equal(X.planProgress({ pattern: 'constructor' }, []).pattern, 'ABBA');
+  assert.deepEqual(X.planProgress({ pattern: 'toString' }, []).sequence, ['A', 'B', 'B', 'A']);
+  const f = X.feedbackSummary([{ data: { variant: 'count', phase: 'entry', balance: 'neutral' } }, { data: { variant: 'A', phase: 'constructor', balance: 'neutral' } }, { data: { variant: 'A', phase: 'entry', balance: 'toString' } }]);
+  assert.deepEqual(f.count, { A: 0, B: 0 });
+});
+
+test('review 7: a finished stint whose laps are all gone is not counted as driven', () => {
+  const { exp, laps } = build('ABBA', 6, (v, i, s) => 100000 + noise(i, s));
+  const gone = laps.filter((l) => l.recorded_at > 2e7 && l.recorded_at < 3e7).map((l) => l.id); // stint 2's laps
+  const r = X.evaluate(exp, laps.filter((l) => !gone.includes(l.id)));
+  assert.deepEqual(r.plan.empty, [2]);
+  assert.equal(r.plan.done, 3);
 });

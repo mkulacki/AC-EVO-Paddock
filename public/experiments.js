@@ -169,7 +169,7 @@ function page(d, opts, editable) {
   const lapsOf = (s) => R.laps.filter((l) => l.stint === s.id);
   const stintRows = d.stints.map((s, i) => { const L = lapsOf(s); return `<tr><td>${i + 1}</td><td><b>${s.variant}</b> <span class="muted">${esc(d.variants[s.variant].label)}</span></td>
       <td class="muted">${s.sessionId != null ? `session of ${when(s.startAt)}` : `${when(s.startAt)} – ${s.endAt ? when(s.endAt) : '<b>running</b>'}`}</td>
-      <td>${L.filter((l) => !l.reason).length}<span class="muted"> / ${L.length}</span></td>
+      <td>${L.filter((l) => !l.reason).length}<span class="muted"> / ${L.length}</span>${(P.empty || []).includes(s.id) ? ' <span class="muted s" data-empty>no laps: not counted as driven</span>' : ''}</td>
       <td>${editable ? `<button class="small ghost" data-unstint="${s.id}" aria-label="Take stint ${i + 1} out">Take out</button>` : ''}</td></tr>`; }).join('');
   const sess = (opts?.sessions || []).filter((s) => !d.stints.some((x) => x.sessionId === s.id));
   const controls = editable ? `<div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px">${P.open

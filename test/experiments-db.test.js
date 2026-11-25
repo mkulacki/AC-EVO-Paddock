@@ -230,3 +230,49 @@ test('.carsetup files: experiments never write one; export is byte-identical; a 
   assert.ok(fs.readFileSync(moved).equals(carsetup(0)));
   assert.deepEqual(setups.lineage(REL.B).map((l) => l.name), ['Wing', 'Base v2']);
 });
+
+// ---- PL8 review fixes
+test('review 4: a .carsetup imported, exported and copied to another track stays byte-identical; the copy records its ancestry', () => {
+  setups.useCatalogs({ cars: () => [{ id: 'fixture_gt', brand: 'Fixture', name: 'GT' }], tracks: () => [{ id: 'fixture_ring', name: 'Fixture Ring' }, { id: 'other_ring', name: 'Other Ring' }] });
+  try {
+    const buf = carsetup(5);
+    const imp = setups.importFile(buf, { filename: 'Fixture GT - Fixture Ring - Shared.carsetup' });
+    assert.equal(imp.name, 'Shared');
+    const file = path.join(SETUPS, 'Shared.carsetup');
+    assert.ok(fs.readFileSync(file).equals(buf), 'imported = the file sent, byte for byte');
+    const ex1 = setups.exportFile(imp.id);
+    assert.ok(ex1.buf.equals(buf), 'exported = imported');
+    assert.equal(ex1.filename, 'Fixture GT - Fixture Ring - Shared.carsetup', 'the export name imports back to the same car, track and name');
+    const copy = setups.copyTo(imp.id, 'other_ring');
+    const copied = path.join(process.env.ACE_DIR, 'Car Setups', 'Fixture GT', 'Other Ring', 'Shared [Fixture Ring].carsetup');
+    assert.ok(fs.readFileSync(copied).equals(buf), 'the copy for another track is byte-identical');
+    assert.ok(setups.exportFile(copy.id).buf.equals(buf));
+    assert.deepEqual(setups.lineage(copy.rel).map((l) => [l.name, l.track]), [['Shared [Fixture Ring]', 'Other Ring'], ['Shared', 'Fixture Ring']]);
+  } finally { setups.useCatalogs(null); }
+});
+
+test('review 2: overlapping stints are refused (a window that ends after now; a session inside a window)', async () => {
+  const d = make({ title: 'Overlap check' });
+  await ex.startStint(d.id, 'A', 7e9);
+  const { sid } = drive('A', 20, 3, { startedAt: 7e9 + 10 });
+  await ex.endStint(d.id, 7e9 + 1e6);
+  await assert.rejects(ex.addSession(d.id, 'B', sid), (e) => e.status === 409 && /overlaps stint 1 \(A\)/.test(e.message));
+  await assert.rejects(ex.startStint(d.id, 'B', 7e9 + 5e5), /ends after now/);
+  const r = ex.detail(d.id, 7e9 + 2e6).result;
+  assert.equal(r.laps.length, 3, 'each lap once');
+  await ex.remove(d.id);
+});
+
+test('review 6: prototype keys are refused as patterns, measures, setups, phases and decisions', async () => {
+  const d = make({ title: 'Keys', plan: { pattern: 'constructor' }, expected: { metric: 'pace', direction: 'better' } });
+  assert.equal(d.plan.pattern, 'ABBA');
+  assert.throws(() => make({ expected: { metric: 'constructor' } }), /Unknown expected measure/);
+  assert.throws(() => make({ expected: { direction: 'toString' } }), /Unknown expected direction/);
+  await assert.rejects(ex.startStint(d.id, 'constructor'), /Pick A or B/);
+  assert.throws(() => ex.feedback(d.id, { variant: 'A', phase: 'constructor', balance: 'neutral' }), /Pick entry/);
+  assert.throws(() => ex.feedback(d.id, { variant: 'toString', phase: 'entry', balance: 'neutral' }), /Pick A or B/);
+  await ex.addSession(d.id, 'A', stints[0].sid);
+  await assert.rejects(ex.review(d.id, { decision: 'constructor' }), /Unknown decision/);
+  assert.equal(ex.list({ combo: COMBO }).experiments.find((x) => x.id === d.id).plan.sequence.join(''), 'ABBA');
+  await ex.remove(d.id);
+});

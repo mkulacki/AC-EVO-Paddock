@@ -95,15 +95,15 @@ export function create(body, now = Date.now()) {
   const title = str(body.title, LIMITS.title, 'A title', { required: true });
   const hypothesis = str(body.hypothesis, LIMITS.text, 'The hypothesis', { required: true });
   const ex = body.expected || {};
-  if (!X.METRICS[ex.metric || 'pace']) throw fail(400, 'Unknown expected measure');
-  if (!X.DIRECTIONS[ex.direction || 'better']) throw fail(400, 'Unknown expected direction');
+  if (!X.has(X.METRICS, ex.metric || 'pace')) throw fail(400, 'Unknown expected measure');
+  if (!X.has(X.DIRECTIONS, ex.direction || 'better')) throw fail(400, 'Unknown expected direction');
   const expected = { metric: ex.metric || 'pace', direction: ex.direction || 'better', text: str(ex.text, LIMITS.note, 'The expected outcome') };
   const opts = options(combo);
   const A = variantOf(body.a, opts, 'A'), B = variantOf(body.b, opts, 'B');
   if (A.rel ? A.rel === B.rel : !B.rel && A.label.toLowerCase() === B.label.toLowerCase()) throw fail(400, 'A and B must be two different setups');
   const p = body.plan || {};
   const plan = {
-    pattern: X.PATTERNS[p.pattern] ? p.pattern : 'ABBA',
+    pattern: X.has(X.PATTERNS, p.pattern) ? p.pattern : 'ABBA',
     lapsPerStint: Number.isInteger(p.lapsPerStint) && p.lapsPerStint >= 2 && p.lapsPerStint <= 30 ? p.lapsPerStint : X.RULES.lapsPerStint,
     warmup: Number.isInteger(p.warmup) && p.warmup >= 0 && p.warmup <= X.RULES.maxWarmup ? p.warmup : X.RULES.warmup,
     matchConditions: p.matchConditions !== false,
@@ -181,7 +181,7 @@ export function detail(id, now = Date.now()) {
   const vals = (v) => valuesOfSnap(v.snap);
   const diff = vals(e.variants.A) && vals(e.variants.B) ? setuphistory.compareValues(vals(e.variants.A), vals(e.variants.B)) : null;
   return {
-    ...brief(e), hypothesis: e.hypothesis, expected: e.expected, plan: { ...e.plan, ...X.planProgress(e.plan, e.stints) }, stints: e.stints,
+    ...brief(e), hypothesis: e.hypothesis, expected: e.expected, plan: { ...e.plan, ...live.plan }, stints: e.stints,
     variants: Object.fromEntries(['A', 'B'].map((k) => [k, { ...e.variants[k], lineage: e.variants[k].rel ? setups.lineage(e.variants[k].rel) : [] }])),
     changes: diff ? { changed: diff.changed, same: diff.same } : null,
     entries: db.experimentEntries(e.id), result: shown, saved: !!e.result, conclusion: e.conclusion ?? '', decision: e.decision ?? null,
@@ -208,11 +208,14 @@ const entriesFull = (e) => { if (db.experimentEntries(e.id).length >= LIMITS.ent
 /** Start a stint of A or B now. One open stint per car + track (laps can only belong to one). */
 export const startStint = (id, variant, now = Date.now()) => serial(() => {
   const e = load(id);
-  if (!e.variants[variant]) throw fail(400, 'Pick A or B');
+  if (variant !== 'A' && variant !== 'B') throw fail(400, 'Pick A or B');
   if (openStint(e)) throw fail(409, 'A stint is already running: end it first');
   const other = db.listExperiments(e.combo).find((x) => x.id !== e.id && x.status !== 'archived' && openStint(x));
   if (other) throw fail(409, `A stint of "${other.title}" is running on this car and track: end it first`, { code: 'open', other: other.id });
   if (e.stints.length >= LIMITS.stints) throw fail(400, `At most ${LIMITS.stints} stints per experiment`);
+  // stints never overlap (PL8 review): a window that ends after now would share its laps with the new one
+  const later = e.stints.find((x) => x.sessionId == null && (x.startAt > now || (x.endAt != null && x.endAt > now)));
+  if (later) throw fail(409, `Stint ${e.stints.indexOf(later) + 1} ends after now: a new stint would overlap it`);
   e.stints.push({ id: nextStintId(e), variant, startAt: now, endAt: null });
   e.status = 'running';
   db.saveExperiment(e);
@@ -232,11 +235,15 @@ export const endStint = (id, now = Date.now()) => serial(() => {
 /** A past session of this car + track as a stint of A or B. */
 export const addSession = (id, variant, sessionId, now = Date.now()) => serial(() => {
   const e = load(id);
-  if (!e.variants[variant]) throw fail(400, 'Pick A or B');
+  if (variant !== 'A' && variant !== 'B') throw fail(400, 'Pick A or B');
   const s = db.getSession(Number(sessionId));
   if (!s || !same(s, e.combo)) throw fail(400, 'That session is not on this car and track');
   if (e.stints.some((x) => x.sessionId === s.id)) throw fail(409, 'That session is already a stint of this experiment');
   if (e.stints.length >= LIMITS.stints) throw fail(400, `At most ${LIMITS.stints} stints per experiment`);
+  // a session whose laps lie inside a stint's time window would take them from it (PL8 review): refused
+  const times = db.lapsOfSession(s.id).map((l) => l.recorded_at);
+  const overlap = e.stints.find((x) => x.sessionId == null && times.some((t) => t >= x.startAt && t <= (x.endAt ?? now)));
+  if (overlap) throw fail(409, `That session overlaps stint ${e.stints.indexOf(overlap) + 1} (${overlap.variant}), which already counts its laps: take that stint out first`);
   e.stints.push({ id: nextStintId(e), variant, sessionId: s.id, startAt: s.started_at, endAt: null });
   e.stints.sort((a, b) => a.startAt - b.startAt);
   e.status = 'running';
@@ -267,9 +274,9 @@ export function note(id, text, now = Date.now()) {
 export function feedback(id, f = {}, now = Date.now()) {
   const e = load(id, { open: false });
   if (e.status === 'archived') throw fail(409, 'This experiment is archived: restore it first');
-  if (!e.variants[f.variant]) throw fail(400, 'Pick A or B');
-  if (!X.PHASES[f.phase]) throw fail(400, 'Pick entry, mid-corner or exit');
-  if (!X.BALANCE[f.balance]) throw fail(400, 'Pick understeer, neutral or oversteer');
+  if (f.variant !== 'A' && f.variant !== 'B') throw fail(400, 'Pick A or B');
+  if (!X.has(X.PHASES, f.phase)) throw fail(400, 'Pick entry, mid-corner or exit');
+  if (!X.has(X.BALANCE, f.balance)) throw fail(400, 'Pick understeer, neutral or oversteer');
   entriesFull(e);
   db.addExperimentEntry(e.id, 'feedback', { variant: f.variant, phase: f.phase, balance: f.balance, corner: str(f.corner, LIMITS.corner, 'The corner') || null, note: str(f.note, LIMITS.note, 'The note') || null }, now);
   return detail(e.id, now);
@@ -277,7 +284,7 @@ export function feedback(id, f = {}, now = Date.now()) {
 /** Save the result as it is now, with the driver's decision; the experiment is then read-only until reopened. */
 export const review = (id, { decision = 'none', conclusion = '' } = {}, now = Date.now()) => serial(() => {
   const e = load(id);
-  if (!DECISIONS[decision]) throw fail(400, 'Unknown decision');
+  if (!X.has(DECISIONS, decision)) throw fail(400, 'Unknown decision');
   if (openStint(e)) throw fail(409, 'A stint is still running: end it first');
   if (!e.stints.length) throw fail(409, 'Drive at least one stint first');
   const r = evaluate(e, now);

@@ -38,15 +38,20 @@ export const safeName = SAFE;
 export const MAX_SETUP_BYTES = 64 * 1024;
 
 export const filePreset = cs.presetOf;
+// the car and track catalogues (from the game's files); replaceable so tests can import and copy setups for a car and
+// track of their own without AC EVO installed (PL8 review: a real .carsetup import/export round trip)
+let catalogs = { cars: () => carsDb.catalog(), tracks: () => trackdata.catalog() };
+/** Tests and tools: use these catalogues instead of the game's ({cars, tracks}: functions returning arrays); null = the game's. */
+export function useCatalogs(c) { catalogs = c ? { ...catalogs, ...c } : { cars: () => carsDb.catalog(), tracks: () => trackdata.catalog() }; scanCache = { at: 0, files: [] }; }
 function carOfFile(carFolder, preset) {
-  const cat = carsDb.catalog();
+  const cat = catalogs.cars();
   if (preset) {
     const byId = cat.filter((c) => preset === c.id || preset.startsWith(`${c.id}_`)).sort((a, b) => b.id.length - a.id.length)[0];
     if (byId) return byId;
   }
   return cat.find((c) => norm(`${c.brand} ${c.name}`) === norm(carFolder)) || carsDb.match(carFolder) || null;
 }
-const trackOfFolder = (folder) => trackdata.catalog().find((t) => norm(t.name) === norm(folder)) || null;
+const trackOfFolder = (folder) => catalogs.tracks().find((t) => norm(t.name) === norm(folder)) || null;
 
 let scanCache = { at: 0, files: [] };
 /** Every .carsetup file: [{id, rel, file, carFolder, trackFolder, name, carId, carName, trackId, size, mtime}] */
@@ -233,7 +238,7 @@ export function importFile(buf, { filename = '', trackId = null } = {}) {
   if (!car) throw new Error(`This setup is for a car that is not installed (${preset.split('_preset')[0]})`);
   const parts = String(filename).replace(/\.carsetup$/i, '').split(' - ');
   const fromName = parts.length >= 3 ? trackOfFolder(parts[1]) : null;
-  const track = (trackId && trackdata.catalog().find((t) => t.id === trackId)) || fromName;
+  const track = (trackId && catalogs.tracks().find((t) => t.id === trackId)) || fromName;
   if (!track) { const e = new Error('Which track is this setup for?'); e.needsTrack = true; e.car = `${car.brand} ${car.name}`; throw e; }
   const name = parts.length >= 3 ? parts.slice(2).join(' - ') : parts.join(' - ') || 'Shared setup';
   const carFolder = scan().find((f) => f.carId === car.id)?.carFolder || `${car.brand} ${car.name}`;
@@ -251,7 +256,7 @@ export function saveValues(id, changes, { asName = null, notes = null, from = 'p
   const g = gameById(id);
   if (g) { // a stock setup: only as a new file of your own, for a track (the game lists setups per track)
     if (asName == null) throw readOnly();
-    const track = trackdata.catalog().find((t) => t.id === trackId);
+    const track = catalogs.tracks().find((t) => t.id === trackId);
     if (!track) throw new Error('Pick the track this setup is for');
     const { buf, changed } = cs.write(gameBuf(g), g.car.id, changes || {});
     const w = writeSetup(carFolderOf(g.car), track.name, asName, buf);
@@ -283,7 +288,7 @@ export function saveValues(id, changes, { asName = null, notes = null, from = 'p
 /** The game lists and loads only the current track's setups: a copy for another track, as "<name> [<from track>]". */
 export function copyTo(id, trackId) {
   const g = gameById(id);
-  const track = trackdata.catalog().find((t) => t.id === trackId);
+  const track = catalogs.tracks().find((t) => t.id === trackId);
   if (g) { // the stock setup as your own file for this track, unchanged
     if (!track) throw new Error('Pick a track');
     const w = writeSetup(carFolderOf(g.car), track.name, g.name, gameBuf(g));
