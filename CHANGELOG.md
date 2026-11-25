@@ -4,6 +4,13 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
+### Onboarding and usability (platform phase PL5)
+
+- **Setup guide** (`#/welcome`): find AC EVO, check the connections, read what stays on your computer and what is optional (AI, online leaderboards, game mods: each can be skipped; skipping switches nothing on or off), drive a first session and open a first comparison. It opens by itself only for a new driver; if you already have laps it never does, and it is in Settings and Ctrl+K ("setup guide").
+- **Home** starts with your last session (with its tags and note), your practice objective (an open goal, training plan or report targets for that car and track) and one **next step** with the numbers behind it ("Why: your ideal lap is 0.51 s faster than your best…"). A line shows new personal bests of the last 30 days.
+- **Session notes, tags and corner bookmarks** on every session page: what you noticed, short tags (Sessions can be filtered by one, Ctrl+K finds them) and corners to work on, listed again on later sessions with that car and track. They stay on this computer: never uploaded, not sent to the AI, not in lap files; Settings backups include them. The database is upgraded once (schema v2, new tables only); a copy of the old file is kept as `telemetry.backup-v1-<time>.db`, and Paddock 0.7 can still open the upgraded file.
+- **Easier to read and use by keyboard:** muted text and the light theme's timing colours have more contrast; fields show a focus ring; Ctrl + / Ctrl − / Ctrl 0 resize text (listed under `?`); pages without data say what to do next.
+
 ### Data safety (platform phase PL1)
 
 - **Backups never hold your leaderboard sign-in** (the Steam login token and who it belongs to), not even with "include secrets". Restoring settings from a backup keeps the sign-in this install has, so you stay signed in. An older backup that still holds a sign-in restores without it.

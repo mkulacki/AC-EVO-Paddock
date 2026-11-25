@@ -469,3 +469,19 @@
 - **Review round (2026-11-25):** layout `''` merged as unknown (ideal lap incompatible on one-layout tracks); setup-history temperatures sent to the AI while marked wrong; "matches" stored with an unknown game version (never counted); replay tab bypassed the gate; unknown `channelChecks` keys dropped; unconfirmed temperatures/aids counted as matched; health error texts with paths. Fixed in `b59541c`, `8703dff` with regression tests; downgrade and `cond.reader` in lap exports documented. User decisions: OD-PL-12 … 17 (a), OD-PL-18 → (b) (implemented), D-PL4-1 … 8 confirmed. Tests: check 124/124, test 279/279, test:electron 279/279, test:browser 16/16.
 - **Open decisions:** none.
 - **User approval:** pending. Push/merge not done.
+
+## PL5: Onboarding and usability
+
+- **Started / finished:** 2026-11-25 · branch `platform/pl5-onboarding` (from `4d25a15`, the PL4 merge) · scope in `docs/platform/BACKLOG.md` (PL5); report `docs/platform/PL5-report.md`
+- **Objectives:** first-run flow, Home additions, session notes/tags/corner bookmarks under the migration rules, empty states and error recovery, accessible colours, scalable text, visible focus, keyboard use, palette extension; assess beginner/advanced.
+- **Changes:**
+  - Schema v2 (`src/db.js`, `src/notes.js`): notes, tags, corner bookmarks; versioned, additive, one pre-upgrade copy; bounded inputs; local only (not in lap files, uploads, AI or diagnostics; in Settings backups).
+  - Setup guide `#/welcome` (`src/onboarding.js`, `public/welcome.js`): game → health (reuses `/api/health`) → privacy and optional services (AI, online, mods skippable; skips change nothing) → first session → first comparison. Opens by itself only for a new driver; Settings and Ctrl+K otherwise.
+  - Home: last session, practice objective, next step with evidence, recent progress (`src/service.js` `nextStep`).
+  - Session page notes card, Sessions tag chips and filter, palette Tag/Bookmark kinds and kind-word fallback; contrast tokens, focus rings, empty states with actions, error card links.
+  - Commits: `8dd13d6`, `9c5cf7b`, `344ff23`, `5713d78`, `9e60e34`, `88acad5`, plus the docs commit.
+- **Findings:** palette hid sessions since PL4 (14-item cut); "setup guide" found nothing; muted and light-theme timing colours below 4.5:1; fields had no focus ring; Sessions empty state suggested developer commands. Paddock 0.7 opens a v2 database (checked by hand).
+- **Tests:** `npm run check` 124/124 → 130/130; `npm test` 280/280 → 299/299 (Node 22.23.4); `npm run test:electron` 299/299 (Node 24.22.2); `npm run test:browser` 16/16 → 21/21 (×4).
+- **Known limitations:** no game here (guide and Home with a live game unverified); no screen-reader run; packaged smoke and bench not rerun (loop unchanged).
+- **Open decisions:** OD-PL-19 … 24 (defaults built); D-PL5-1 … 14 to confirm.
+- **User approval:** pending. Push/merge not done.
