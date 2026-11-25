@@ -489,3 +489,34 @@ test('background work (PL2 review): after stop() nothing new is scheduled, not b
     settings.update({ boardUrl: before.boardUrl, boardShare: before.boardShare, boardAuto: before.boardAuto, boardToken: before.boardToken, boardSteam: before.boardSteam });
   }
 });
+
+test('app (PL10): the payload is unchanged; the tier comes back; a removed lap or account is never sent again by itself', async () => {
+  const before = settings.get();
+  settings.update({ boardUrl: URL0, boardShare: true, boardAuto: true, boardTel: false, boardToken: '', boardSteam: null });
+  try {
+    const app = lb.createLeaderboard({ background: false, recorder: null, appVersion: 'test', gameVersion: () => '0.10.0' });
+    const id = newLap(99000);
+    app.onLap({ id, valid: false }); // conditions only
+    // no new data goes online: the same fields as before PL10 (telemetry only when that is switched on)
+    assert.deepEqual(Object.keys(lb.payload(db.getLap(id), { tel: false })).sort(),
+      ['airC', 'app', 'car', 'carClass', 'drivenAt', 'game', 'grip', 'lapMs', 'layout', 'ref', 'roadC', 'sectors', 'tel', 'track', 'valid', 'weather']);
+    await appSignIn(app, '76561198000000010');
+    await app.sync();
+    const sent = JSON.parse(db.getLapMeta(id).board);
+    assert.deepEqual([sent.ok, sent.tier], [true, 'basic']);
+    assert.equal((await app.deleteOwnLap(sent.remoteId)).body.ok, true);
+    const removed = JSON.parse(db.getLapMeta(id).board);
+    assert.deepEqual([removed.ok, removed.removed, removed.retry], [false, true, false]);
+    await app.sync({ force: true, manual: true }); // Send all again (the other bests of this test file go)
+    assert.equal(JSON.parse(db.getLapMeta(id).board).removed, true, 'not even by Send all again');
+    assert.equal((await app.table({ track: 'nowhere', layout: '', car: 'kart', game: '0.10.0' })).body.rows.length, 0);
+    // the account: removed online, signed out here, sharing off; the lap stays in Paddock
+    const r = await app.deleteAccount();
+    assert.equal(r.body.ok, true);
+    const s = settings.get();
+    assert.deepEqual([s.boardToken, s.boardSteam, s.boardShare], ['', null, false]);
+    assert.ok(db.getLapMeta(id));
+  } finally {
+    settings.update({ boardUrl: before.boardUrl, boardShare: before.boardShare, boardAuto: before.boardAuto, boardTel: before.boardTel, boardToken: before.boardToken, boardSteam: before.boardSteam });
+  }
+});

@@ -99,6 +99,12 @@ test('migration 0003: an older board keeps its laps, labelled legacy, with canon
 test('tier labels say only what was checked: none claims a lap is genuine, verified or cheat-proof', () => {
   assert.deepEqual(Object.keys(TIERS), ['legacy', 'basic', 'telemetry', 'reviewed']);
   for (const [k, label] of Object.entries(TIERS)) assert.doesNotMatch(label, /verified|genuine|authentic|cheat|proof|legit/i, k);
+  // the Leaderboards tab labels every tier, and its labels and tooltips make no such claim either
+  const ui = fs.readFileSync(path.join(ROOT, 'public', 'leaderboard.js'), 'utf8');
+  for (const k of Object.keys(TIERS)) assert.match(ui, new RegExp(`\\b${k}: \\[`), `the Leaderboards tab labels ${k}`);
+  const uiLabels = /const TIER = \{([\s\S]*?)\n\};/.exec(ui)[1];
+  assert.doesNotMatch(uiLabels, /verified|genuine|authentic|cheat|legit/i);
+  assert.doesNotMatch(ui, /cheat-proof|anti-cheat|verified lap/i);
   assert.equal(canonicalClass('gt3'), 'GT3');
   assert.equal(canonicalClass('GT9'), null);
   assert.equal(cleanReason(' too\nfast\u0007 '), 'too fast');
