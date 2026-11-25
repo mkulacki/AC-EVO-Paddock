@@ -10,7 +10,7 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 export const restoreResult = applyPendingRestore(DATA_DIR);
 
 /** The newest database layout this Paddock knows (user_version). */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 // A database made by a newer Paddock (user_version above SCHEMA_VERSION) is never upgraded or written: this Paddock
 // would not know what its new parts mean. It is closed again at once (nothing written: the version is read before any
 // other statement) and Paddock runs on an empty database in memory with recording off (D-PL5-19: no lap is recorded
@@ -132,6 +132,7 @@ export const counts = () => ({
   brakeMarks: db.prepare('SELECT COUNT(*) AS n FROM brake_marks').get().n,
   notes: db.prepare('SELECT COUNT(*) AS n FROM session_notes').get().n,
   bookmarks: db.prepare('SELECT COUNT(*) AS n FROM corner_bookmarks').get().n,
+  drills: db.prepare("SELECT COUNT(*) AS n FROM goals WHERE kind = 'drill'").get().n,
   schema: db.prepare('PRAGMA user_version').get().user_version,
 });
 
@@ -325,7 +326,14 @@ export function addGoal(g) {
 }
 export const setGoalMet = (id, m) => db.prepare('UPDATE goals SET met_at = ?, met_session = ?, met_lap = ?, met_value = ? WHERE id = ? AND met_at IS NULL')
   .run(m.at, m.sessionId ?? null, m.lapId ?? null, m.value ?? null, id);
-export const deleteGoal = (id) => db.prepare('DELETE FROM goals WHERE id = ?').run(id);
+export function deleteGoal(id) {
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM goals WHERE id = ?').run(id);
+    db.prepare('DELETE FROM drill_events WHERE goal_id = ?').run(id); // a practice drill's history goes with it (PL7)
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
 
 export function addLaunch(l) {
   const r = db.prepare('INSERT INTO launches (at, mode, track_id, layout_key, car, summary, planned_min, goal_id) VALUES (?,?,?,?,?,?,?,?)')
@@ -351,7 +359,7 @@ export const listLaunches = () => db.prepare('SELECT * FROM launches ORDER BY at
   if (ver < 2) {
     if (!preMigrationCopy && hasUserRows()) {
       const backup = path.join(DATA_DIR, `telemetry.backup-v${ver}-${Date.now()}.db`);
-      try { vacuumInto(backup); console.log(`[db] before the v2 upgrade (notes, tags, bookmarks): copy kept as ${path.basename(backup)}`); }
+      try { vacuumInto(backup); preMigrationCopy = backup; console.log(`[db] before the v2 upgrade (notes, tags, bookmarks): copy kept as ${path.basename(backup)}`); }
       catch (e) { console.error(`[db] the copy before the v2 upgrade could not be made (${e.code || e.message}); upgrading anyway (it only adds new tables)`); }
     }
     db.exec('BEGIN');
@@ -378,6 +386,48 @@ export const listLaunches = () => db.prepare('SELECT * FROM launches ORDER BY at
     if (n) console.log(`[db] removed ${n} note, tag or bookmark row(s) of sessions without laps`);
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
+
+// ---------------------------------------------------------------- v3 (PL7): practice drills
+// A practice drill is a goal (the P9 goals table, kind 'drill'): its prescription (issue, evidence, exercise, success
+// criterion, minimum evidence, review point and the "before" numbers) is goals.extra, its target goals.target, and the
+// first time it is met goals.met_*, as for every goal. drill_events keeps what happened to it later: 'restart' (keep
+// practising after a review point), 'stopped', 'replaced' (another drill took its place) and 'met', each with the
+// evaluation of that moment (data JSON), so a result stays readable after its laps are deleted (src/drills.js).
+// Versioned: user_version 3. One new table, nothing existing changes. A copy of the database is made first, as for
+// v1 and v2 (one copy per start: a v1 file upgraded to v3 in one go keeps only the v1 copy); if that copy cannot be
+// made (a full disk), the upgrade still runs: it only adds an empty table, in one transaction, and the reason is logged.
+{
+  const ver = db.prepare('PRAGMA user_version').get().user_version;
+  if (ver < 3) {
+    if (!preMigrationCopy && hasUserRows()) {
+      const backup = path.join(DATA_DIR, `telemetry.backup-v${ver}-${Date.now()}.db`);
+      try { vacuumInto(backup); preMigrationCopy = backup; console.log(`[db] before the v3 upgrade (practice drills): copy kept as ${path.basename(backup)}`); }
+      catch (e) { console.error(`[db] the copy before the v3 upgrade could not be made (${e.code || e.message}); upgrading anyway (it only adds a new table)`); }
+    }
+    db.exec('BEGIN');
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS drill_events (id INTEGER PRIMARY KEY, goal_id INTEGER NOT NULL, at INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT);
+        CREATE INDEX IF NOT EXISTS drill_events_goal ON drill_events(goal_id);
+        PRAGMA user_version = 3;`);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+}
+export function addDrillEvent(goalId, kind, data = null, at = Date.now()) {
+  const r = db.prepare('INSERT INTO drill_events (goal_id, at, kind, data) VALUES (?,?,?,?)').run(goalId, at, kind, data == null ? null : JSON.stringify(data));
+  return Number(r.lastInsertRowid);
+}
+/** Every drill event, oldest first, grouped by goal id: Map(goalId -> [{id, at, kind, data}]). */
+export function drillEvents() {
+  const out = new Map();
+  for (const r of db.prepare('SELECT * FROM drill_events ORDER BY at, id').all()) {
+    if (!out.has(r.goal_id)) out.set(r.goal_id, []);
+    out.get(r.goal_id).push({ id: r.id, at: r.at, kind: r.kind, data: r.data ? JSON.parse(r.data) : null });
+  }
+  return out;
+}
+/** The practice drills (goals of kind 'drill'), newest first. */
+export const listDrills = () => db.prepare("SELECT * FROM goals WHERE kind = 'drill' ORDER BY id DESC").all().map(goalRow);
 
 export const getMeta = (key) => db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
 export const setMeta = (key, value) => db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));
