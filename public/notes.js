@@ -19,8 +19,8 @@ export async function mountNotes(el, sessionId, { corners = [], open = false } =
   let tags = [...n.tags], saved = JSON.stringify({ text: n.text, tags });
   let known = [];
   api('/api/notes/index').then((x) => { known = x.tags.map((t) => t.tag); drawTagList(); }).catch(() => {});
-  const hasAny = n.text || n.tags.length || n.bookmarks.length;
-  el.innerHTML = `<details class="card notes-card" id="notes" ${open || hasAny ? 'open' : ''}>
+  // closed unless asked for (Home's "Add a note" link), so the telemetry stays in view; the summary shows what is in it
+  el.innerHTML = `<details class="card notes-card" id="notes" ${open ? 'open' : ''}>
     <summary><b>Notes, tags and corner bookmarks</b> <span class="notes-sum"></span></summary>
     <p class="hint" style="margin:6px 0 10px">Only on this computer: never uploaded, not sent to the AI, not in lap files. Backups made in Settings include them.</p>
     <div class="notes-grid">
@@ -50,7 +50,7 @@ export async function mountNotes(el, sessionId, { corners = [], open = false } =
   const text = $('#nText'), tagIn = $('#nTagIn'), msg = $('#nMsg');
   const count = () => { $('#nCount').textContent = `${text.value.length} / ${L.noteChars}`; };
   const summary = () => {
-    $('.notes-sum').innerHTML = `${tags.map((t) => `<span class="tag-chip">${esc(t)}</span>`).join(' ')}${text.value.trim() ? ' <span class="muted s">· note</span>' : ''}${n.bookmarks.length ? ` <span class="muted s">· ${n.bookmarks.length} bookmark${n.bookmarks.length === 1 ? '' : 's'}</span>` : ''}`;
+    $('.notes-sum').innerHTML = `${tags.map((t) => `<span class="tag-chip">${esc(t)}</span>`).join(' ')}${text.value.trim() ? ` <span class="muted s notes-first">· “${esc(text.value.trim().split('\n')[0].slice(0, 80))}”</span>` : ''}${n.bookmarks.length ? ` <span class="muted s">· ${n.bookmarks.length} bookmark${n.bookmarks.length === 1 ? '' : 's'}</span>` : ''}`;
   };
   function drawTagList() { const dl = el.querySelector('#nTagList'); if (dl) dl.innerHTML = known.filter((t) => !tags.includes(t)).map((t) => `<option value="${esc(t)}">`).join(''); }
   const drawTags = () => {

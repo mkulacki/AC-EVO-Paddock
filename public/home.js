@@ -149,7 +149,7 @@ function nowRow(d) {
     ${a ? `<p style="margin:0"><b>${esc(a.text)}</b></p><p class="muted s" style="margin:4px 0 0">${combo(a)} · ${esc(prettyName(a.car))}</p>
       <p class="s hn-why" style="margin:6px 0 0"><span class="muted">Why:</span> ${esc(a.evidence)}</p>
       <p style="margin:10px 0 0"><a href="${esc(a.href)}"><button class="small">${esc(a.label)}</button></a></p>` : '<p class="muted" style="margin:0">Drive a session first.</p>'}
-    ${p ? `<p class="muted s hn-progress" style="margin:10px 0 0">Last ${p.days} days: ${plural(p.combos, 'car and track')} driven, a new personal best on ${p.newBests}${p.latest.length ? ` (latest: ${p.latest.map((x) => `${esc(prettyName(x.track))} · ${esc(prettyName(x.car))} ${fmt(x.bestMs)}`).join('; ')})` : ''}.</p>` : ''}</section>`;
+    ${p ? `<p class="muted s hn-progress" style="margin:10px 0 0">Last ${p.days} days: ${plural(p.combos, 'car and track')} driven; a new personal best (beating your laps from before) on ${p.newBests}${p.latest.length ? ` (latest: ${p.latest.map((x) => `${esc(prettyName(x.track))} · ${esc(prettyName(x.car))} ${fmt(x.bestMs)}`).join('; ')})` : ''}.</p>` : ''}</section>`;
   return `<div class="home-now-row">${last}${objective}${next}</div>`;
 }
 

@@ -124,10 +124,14 @@ test('next step: from the last session, with evidence quoting stored values only
 
 test('next step rules: no report -> a longer session; no gap -> progress; nothing -> null', () => {
   assert.equal(svc.nextStep(null, []), null);
-  const s = { track: 't', layout: 'l', car: 'c', laps: 2, validLaps: 1, report: null };
+  const s = { id: 9, track: 't', layout: 'l', car: 'c', laps: 2, validLaps: 1, report: null };
   const a = svc.nextStep(s, []);
   assert.equal(a.kind, 'longer');
   assert.match(a.evidence, /2 laps, 1 valid/);
+  const r = svc.nextStep({ ...s, laps: 5, validLaps: 4 }, []);
+  assert.equal(r.kind, 'report', 'long enough, not opened yet: open the report (it is made then)');
+  assert.equal(r.href, '#/report?session=9&tab=report');
+  assert.equal(svc.nextStep({ ...s, laps: 5, validLaps: 0 }, []).kind, 'longer', 'no valid lap: no report possible');
   const withReport = { ...s, report: { weakest: ['T1'] } };
   assert.equal(svc.nextStep(withReport, [{ key: 't|l|c', bestMs: 60000, idealMs: 60000, bestLapId: 1 }]).kind, 'progress', 'best = ideal: nothing to compare');
   const c = svc.nextStep(withReport, [{ key: 't|l|c', bestMs: 60500, idealMs: 60000, bestLapId: 7 }]);
@@ -140,7 +144,7 @@ test('recent progress: new bests in the last 30 days, a first visit is not progr
   const d = svc.dashboard();
   assert.equal(d.recentProgress.days, 30);
   assert.equal(d.recentProgress.combos, 1);
-  assert.ok(d.recentProgress.newBests <= 1);
+  assert.equal(d.recentProgress.newBests, 0, 'every lap is from the last 30 days: nothing to beat from before');
   assert.equal(d.recentProgress.latest.length, d.recentProgress.newBests);
   // 40 days on: nothing in the window
   assert.deepEqual(svc.dashboard({ now: Date.now() + 40 * 86400e3 }).recentProgress, { days: 30, combos: 0, newBests: 0, latest: [] });

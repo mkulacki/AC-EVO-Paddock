@@ -583,7 +583,7 @@ test('Home: last session, practice objective and one next step with its evidence
   assert.deepEqual(heads, ['Last session', 'Practice objective', 'Next step']);
   assert.match(await js("document.querySelector('.hn-why').textContent"), /^Why: \S/);
   const href = await js('document.querySelector(\'.hn-next a[href^="#/"]\').getAttribute(\'href\')');
-  assert.match(href, /^#\/(compare|race|progress)/);
+  assert.match(href, /^#\/(compare|race|progress|report)/);
   await js('document.activeElement?.blur(); 1');
   await tabTo('.hn-next a[href^="#/"]', 80);
   assert.ok(await js("document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), 'a visible focus ring');
@@ -649,7 +649,11 @@ test('session notes, tags and corner bookmarks: by keyboard, saved locally, show
   await press('Escape');
   await waitFor("!document.querySelector('.palette-back')", 'palette closed');
   // remove the bookmark by keyboard
-  await go(`#/report?session=${sid}`, "document.querySelector('#nBms [data-unbm]')");
+  // closed by default (the telemetry stays in view) with the tags in its summary; opened from Home's link (&notes=1)
+  await go(`#/report?session=${sid}`, "document.querySelector('#notes')");
+  assert.equal(await js("document.querySelector('#notes').open"), false);
+  assert.match(await js("document.querySelector('#notes summary').textContent"), /wet[\s\S]*then too late/);
+  await go(`#/report?session=${sid}&notes=1`, "document.querySelector('#nBms [data-unbm]')");
   await js("document.querySelector('#nBms [data-unbm]').focus(); 1");
   await press('Enter');
   await waitFor("!document.querySelector('#nBms [data-unbm]')", 'bookmark removed');
