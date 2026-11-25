@@ -808,6 +808,13 @@ async function route(req, res) {
     return send(res, 200, svc.consistency({ track: q.get('track'), layout: q.get('layout'), car: q.get('car') },
       q.get('session') || 'all', q.get('invalid') === '1'));
   }
+  // lap analysis (PL6): corner opportunities, distributions, target lap, trends, PB explanation; worked out in slices
+  if (p === '/api/analysis') {
+    const q = url.searchParams;
+    try {
+      return send(res, 200, await svc.lapAnalysisAsync({ track: q.get('track'), layout: q.get('layout'), car: q.get('car') }, { window: q.get('window'), match: q.get('match') }));
+    } catch (e) { if (/^No valid laps/.test(e.message)) return send(res, 404, { error: e.message }); throw e; }
+  }
   // setup history (P7): every setup driven on a track + car, and two of them compared value by value
   if (p === '/api/setuphistory') {
     const q = url.searchParams, combo = { track: q.get('track'), layout: q.get('layout'), car: q.get('car') };
