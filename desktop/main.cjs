@@ -161,7 +161,8 @@ function createTray() {
 }
 
 // ------------------------------------------------------------------ startup
-app.on('before-quit', () => { quitting = true; });
+// the server ends a session being driven, so a lap waiting for its official time is saved (src/server.js, PL11)
+app.on('before-quit', () => { quitting = true; try { globalThis.__paddockBeforeQuit?.(); } catch { /* server not started */ } });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { /* stay in the tray */ });
 

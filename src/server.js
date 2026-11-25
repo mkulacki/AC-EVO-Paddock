@@ -45,6 +45,7 @@ import * as notes from './notes.js';
 import * as onboarding from './onboarding.js';
 import * as backup from './backup.js';
 import * as autobackup from './autobackup.js';
+import * as recovery from './recovery.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
 import * as sensitive from './sensitive.js';
@@ -170,6 +171,23 @@ function setupTelemetry(setup, trackId, layout) {
 const inSession = () => ['live', 'pause', 'replay'].includes(recorder.state.status) && Date.now() - recorder.state.lastFrameAt < 5000;
 // PL11 scheduled backups: off until switched on in Settings; checked every 10 minutes, only while no session is driven
 autobackup.schedule({ isIdle: () => !inSession(), appVersion: VERSION });
+// PL11 crash recovery: a session the last run did not end (crash, kill, power cut) is closed now: its saved laps are in
+// the database already; its report is made when it has enough laps (src/recovery.js). Home says so in this run.
+{
+  let found = null;
+  try { found = recovery.interrupted(); } catch (e) { console.log(`[recovery] ${e.message}`); }
+  if (found) setTimeout(() => recovery.recover(found, { makeReport: async (sid) => {
+    if (db.getReport(sid)) return true;
+    const laps = db.lapsOfSession(sid);
+    if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return false;
+    await warmSession(sid);
+    report.make(sid);
+    return true;
+  } }).catch((e) => console.log(`[recovery] ${e.message}`)), 1500);
+}
+// desktop app quitting (tray → Quit): the session ends as if the game had closed, so a lap waiting for its official
+// time is saved; its report is made at the next start (the journal stays until then)
+globalThis.__paddockBeforeQuit = () => { try { recorder.endSession(); } catch (e) { console.log(`[recovery] ${e.message}`); } };
 // the car on track now (checks of readings whose meaning depends on the car are made with it), or null
 const liveCar = () => (inSession() ? recorder.session?.car || source.lastRaw?.frame?.car || null : null);
 const clients = new Set();
@@ -215,7 +233,7 @@ recorder.on('session', (s) => setImmediate(() => {
 }));
 
 // a new lap: only its track + car is worked out again (service.js invalidate)
-recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); afterLap(l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
+recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); afterLap(l); setImmediate(() => recovery.opened({ ...l, startedAt: recorder.session?.id === l.sessionId ? recorder.session.startedAt : null })); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
 // driver development (P9): goals met by this lap, achievements reached, sessions Paddock started (race weekends)
 game.onStarted((order) => { try { weekends.recordStart(order); devChanged(); } catch (e) { console.log(`[weekends] ${e.message}`); } });
 // a goal met for the first time, wherever it was noticed (after a lap, at the end of a session, on a page load)
@@ -292,6 +310,7 @@ recorder.on('sessionEnd', (s) => {
       broadcast('report', { sessionId: s.id, headline: text });
       globalThis.__paddockNotify?.({ title: `Session report ready: ${s.track} · ${s.car}`, body: text, hash: `#/report?session=${s.id}` });
     } catch (e) { console.log(`[report] session ${s.id}: ${e.message}`); }
+    finally { recovery.closed(s.id); } // PL11: ended cleanly, nothing to recover at the next start
   }, 300);
 });
 
@@ -834,6 +853,8 @@ async function route(req, res) {
     const safe = (fn) => { try { return fn(); } catch { return null; } };
     if (db.blocked) add('warning', db.blocked.message, '#/game', 'Game → Integration health');
     if (backup.pending()) add('warning', 'A restore is waiting for Paddock to restart.', '#/settings', 'Settings → Backup and restore');
+    const rec = recovery.lastRecovery(); // PL11: a session the last run did not end
+    if (rec) add('info', `Paddock was closed during a session last time (${rec.track} · ${rec.car}): its ${rec.laps} saved lap${rec.laps === 1 ? ' is' : 's are'} kept and the session was closed${rec.report ? ', with its report' : ''}. The lap being driven at that moment could not be kept.`, `#/report?session=${rec.sessionId}`, 'Open the session');
     const bkSkip = safe(() => autobackup.notice()); // PL11: a scheduled backup that could not be made (disk space, synced folder, failed check)
     if (bkSkip) add('warning', bkSkip.text, '#/settings', 'Settings → Backup and restore');
     if (db.restoreResult && !db.restoreResult.ok) add('warning', `The last restore did not complete: ${db.restoreResult.error}`, '#/settings', 'Settings → Backup and restore');
