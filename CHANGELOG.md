@@ -16,6 +16,13 @@ All notable changes to AC EVO Paddock. Newest first.
 - **Backups and mod zips** are never unpacked beyond the size they state. A backup whose database holds triggers or views (Paddock never makes them) is not restored.
 - Downloads of private data (backups, lap and CSV exports, diagnostics, setups) are refused when another website asks for them.
 
+### Compatibility and provenance (platform phase PL4)
+
+- **Telemetry checks remember the game version.** A group you checked against the game (Setups → Setup recognition) counts only on the AC EVO version, and with the Paddock reader, it was checked with. After a game update, or a Paddock HUD update for the driving aids, Paddock asks you to check again (one click: **Still matches**). Suspension and driving-aid checks count for the car you checked them with. **Checks made with an older Paddock no longer count** until you confirm them once more, because the game version was not recorded then. A "doesn't match" stays until you undo it.
+- **Compare tells you when laps are not like for like:** another game version, another setup (or the same file with changed values), track temperature more than 5 °C apart, other weather or grip, other driving aids, another session type, or something not recorded for one of the laps. Each point says what it changes. A lap of another car or track layout is not shown until you choose **Compare anyway**. Consistency and Progress note when their laps mix game versions, setups or aids.
+- **Integration health** on the Game page (also Ctrl+K → "Integration health"): game connection, telemetry freshness, recording, Paddock HUD and App Loader, telemetry checks and online services, each with what to do. It uses only what Paddock already knows and sends nothing.
+- The AI coach, debrief and setup engineer no longer get setup names or temperatures you marked as not matching the game. The replay's G-force circle is labelled unconfirmed (the game shows no G values to check against).
+
 ### Recording reliability (platform phase PL3)
 
 - **Recording no longer pauses with a long lap history.** With hundreds of laps on a car and track, Paddock used to stop reading telemetry for seconds at the start of a session and, past 300 laps, after every lap (it re-read the whole history for the HUD's reference laps). Opening the Laps or Home page for the first time stopped it for up to half a minute with thousands of laps. That work now runs in small slices, so laps keep recording; the results are the same. The HUD keeps its references while new ones are worked out, or shows none for a moment on a new car or track.
