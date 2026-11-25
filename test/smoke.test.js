@@ -149,7 +149,7 @@ test('development: goals, suggestions, achievements, weekends; planner refuses w
 test('the Gemini key is never sent to the page, only masked', async () => {
   const s = await json('/api/settings');
   assert.equal(s.geminiApiKey, '••••' + FAKE_KEY.slice(-4));
-  for (const p of ['/api/settings', '/api/status', '/api/game', '/api/overview']) assert.ok(!(await get(p)).includes(FAKE_KEY), `${p} leaks the key`);
+  for (const p of ['/api/settings', '/api/status', '/api/game', '/api/overview', '/api/health']) assert.ok(!(await get(p)).includes(FAKE_KEY), `${p} leaks the key`);
 });
 
 test('telemetry checks: list, confirm a group, refuse unknown ones, not settable through /api/settings', async () => {
@@ -291,4 +291,13 @@ test('unknown files and paths outside public/ are refused', async () => {
     const r = await raw(p);
     assert.ok(!r.body.includes('electron-builder') && !r.body.includes(FAKE_KEY), `${p} served a file outside public/ (${r.status})`);
   }
+});
+
+test('integration health (PL4.3): every part answered; a mock run says so; checks are counted against the game log version', async () => {
+  const h = await json('/api/health');
+  assert.deepEqual(h.checks.map((c) => c.id), ['game', 'freshness', 'recording', 'hud', 'channels', 'online']);
+  for (const c of h.checks) { assert.ok(['ok', 'warn', 'bad', 'off', 'unknown'].includes(c.state), c.id); assert.ok(c.summary); }
+  assert.match(h.checks[0].summary, /mock telemetry/);
+  assert.match(h.checks.find((c) => c.id === 'channels').summary, /AC EVO 0\.6\.1/);
+  assert.equal(h.checks.find((c) => c.id === 'online').state, 'off', 'sharing is off by default');
 });

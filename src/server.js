@@ -36,6 +36,7 @@ import * as goals from './goals.js';
 import * as weekends from './weekends.js';
 import * as achievements from './achievements.js';
 import * as channels from './channels.js';
+import * as health from './health.js';
 import * as backup from './backup.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
@@ -435,6 +436,17 @@ async function route(req, res) {
   }
   // ---- Game tab
   if (p === '/api/game' && m === 'GET') return send(res, 200, { ...game.status(), loaderInfo: loaderInstall.status(), telemetry: { ...recorder.state, live: recorder.live() } });
+  // integration health (PL4.3, Game page): from what Paddock already knows; no network request, nothing new read from the game
+  if (p === '/api/health' && m === 'GET') {
+    const safe = (fn) => { try { return fn(); } catch (e) { return { error: e.message }; } };
+    const g = safe(() => game.status());
+    return send(res, 200, health.build({
+      mock: mockIdx >= 0, aceFound: fs.existsSync(ACE), game: g,
+      telemetry: { ...recorder.state, source: source.name, packetAgeMs: lastPacket == null ? null : Date.now() - lastPacketChange, stale },
+      perf: perf.summary(), hud: safe(() => hudInstall.status({ quick: true })), channels: channels.list({ car: liveCar() }), checkContext: channels.context(),
+      board: safe(() => board.health()), updates: safe(() => updates.status()),
+    }));
+  }
   if (p === '/api/game/launch' && m === 'POST') return send(res, 200, startGame(null));
   if (p === '/api/game/cancel' && m === 'POST') { game.cancel(); return send(res, 200, { ok: true }); }
 

@@ -8,11 +8,16 @@ export const STATUS_TEXT = {
   live: 'On track', unknown: 'AC EVO is running',
 };
 
+// the state of a health check in words (colour is never the only sign)
+const HEALTH_TEXT = { ok: 'OK', warn: 'Needs a look', bad: 'Not working', off: 'Off', unknown: 'Not known' };
+const HEALTH_TAG = { ok: 'All good', warn: 'Needs a look', bad: 'Something is not working', unknown: 'Not known' };
+
 // ================================================================== GAME
 export async function viewGame(view, cleanup) {
   view.innerHTML = `<div class="card"><div class="row"><h1 style="margin:0">AC EVO</h1><span class="spacer"></span>
       <button class="primary" id="gLaunch">Start AC EVO</button></div>
       <div id="gStatus" class="game-status muted" style="margin-top:12px">Checking the game…</div></div>
+    <div class="card health" id="gHealth"><h2 style="margin-top:0">Integration health</h2><div class="muted">Checking…</div></div>
     <div class="card"><h2 style="margin-top:0">Drive</h2>
       <p class="muted">Set up a session (type, car, track, conditions, AI grid) or join a server in the <a href="#/race">Race</a> tab.</p>
       <div id="gLaunchState"></div></div>`;
@@ -30,7 +35,30 @@ export async function viewGame(view, cleanup) {
   };
   const yesNo = (ok, yes, no) => `<span class="${ok ? 'g-ok' : 'g-bad'}">${ok ? yes : no}</span>`;
 
+  // integration health (PL4.3, src/health.js): one row per part, its state in words, details and what to do
+  async function drawHealth() {
+    const box = $('#gHealth');
+    if (!box) return;
+    let h;
+    try { h = await api('/api/health'); } catch (e) { box.innerHTML = `<h2 style="margin-top:0">Integration health</h2><p class="g-bad">${esc(e.message)}</p>`; return; }
+    if (!box.isConnected) return;
+    const open = new Set([...box.querySelectorAll('details[open][data-id]')].map((d) => d.dataset.id)); // redrawn every 2 s: keep open ones open
+    const item = (c) => {
+      const more = c.details.length || c.steps.length || c.href;
+      const head = `<span class="hdot" aria-hidden="true"></span><b>${esc(c.label)}</b><span class="hstate">${HEALTH_TEXT[c.state] || esc(c.state)}</span><span class="hsum">${esc(c.summary)}</span>`;
+      return `<li class="health-item st-${esc(c.state)}" data-check="${esc(c.id)}">${!more ? `<div class="hhead">${head}</div>` : `<details data-id="${esc(c.id)}" ${open.has(c.id) || (!open.size && (c.state === 'bad' || c.state === 'warn') && c.steps.length) ? 'open' : ''}>
+        <summary class="hhead">${head}</summary><div class="hbody">
+        ${c.details.map((d) => `<p>${esc(d)}</p>`).join('')}
+        ${c.steps.length ? `<p class="hsteps-h">What to do</p><ol class="hsteps">${c.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
+        ${c.href ? `<a href="${esc(c.href)}">${esc(c.hrefLabel || 'Open')}</a>` : ''}</div></details>`}</li>`;
+    };
+    box.innerHTML = `<div class="row"><h2 style="margin:0">Integration health</h2><span class="spacer"></span><span class="health-tag st-${esc(h.worst)}">${HEALTH_TAG[h.worst] || ''}</span></div>
+      <ul class="health-list">${h.checks.map(item).join('')}</ul>
+      <p class="hint" style="margin:8px 0 0">From what Paddock already knows: nothing is sent over the internet to fill this in. For a bug report, copy <a href="#/settings">Settings → Diagnostics</a>.</p>`;
+  }
+
   async function refresh() {
+    drawHealth();
     let g;
     try { g = await api('/api/game'); } catch (e) { $('#gStatus').textContent = e.message; return; }
     const t = g.telemetry, live = t.live;

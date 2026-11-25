@@ -46,6 +46,7 @@ async function sources() {
   const items = [];
   for (const [label, href, hint] of PAGES) items.push({ kind: 'Page', label, hint, href });
   for (const [label, target, href] of SECTIONS) items.push({ kind: 'Settings', label, href: href || '#/settings', target });
+  items.push({ kind: 'Page', label: 'Integration health', hint: 'Game connection, telemetry, recording, HUD, telemetry checks, online services', href: '#/game', target: '#gHealth' });
   for (const c of ov?.combos || []) {
     const name = `${prettyName(c.track)} ${prettyName(c.layout)} · ${prettyName(c.car)}`;
     const key = encodeURIComponent(c.key);
