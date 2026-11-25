@@ -7,6 +7,7 @@ import { STATUS } from './shm.js';
 import * as cars from './cars.js';
 import * as settings from './settings.js';
 import * as marks from './brakemarks.js';
+import { perf } from './perf.js';
 
 const MODES = ['best', 'ideal', 'session'];
 const LABELS = { best: 'All-time best', ideal: 'Ideal lap', session: 'Session best' };
@@ -40,7 +41,7 @@ export class LiveHud {
     this.fuel = { lap: null, start: null, pit: false, used: [] }; // litres used per lap
     this.redline = { key: null, rpm: null, seen: 0 }; // from the car catalogue, else the highest rpm seen
     recorder.on('lap', (l) => this.onLap(l));
-    recorder.on('session', () => { this.refsKey = null; this.fuel.used = []; this.redline.key = null; });
+    recorder.on('session', () => { this.refsKey = null; this.loading = null; this.fuel.used = []; this.redline.key = null; });
   }
 
   setMode(mode) {
@@ -57,35 +58,58 @@ export class LiveHud {
   onLap(l) {
     const prevBest = this.refs?.best?.timeMs ?? null;
     this.saved = { id: l.id, lapTimeMs: l.lapTimeMs, valid: l.valid, pb: l.valid && (prevBest == null || l.lapTimeMs < prevBest), at: Date.now() };
-    this.refsKey = null; // best / ideal / session best may have changed
+    this.refsKey = null; this.loading = null; // best / ideal / session best may have changed: loaded again
   }
 
   // ------------------------------------------------------------ references
+  // The reference laps for this session's car and track. Worked out in the background (PL3): with a long history
+  // this reads hundreds of laps, which used to hold the 60 Hz telemetry loop for seconds at the start of a session
+  // and, past 300 laps, after every lap. Meanwhile the HUD keeps the references it had for the same car and track
+  // (a lap was just saved), or shows none (a new car or track), as it does when there are no laps yet.
   loadRefs() {
     const s = this.rec.session;
     const key = s ? `${s.key}|${s.id}` : null;
     if (key === this.refsKey) return this.refs;
-    this.refsKey = key;
-    this.refs = null;
-    if (!s) return null;
-    try {
-      const info = svc.comboInfo(s);
-      const refs = { corners: info.corners, best: null, ideal: null, session: null };
-      if (info.best) {
-        const e = svc.getResampled(info.best.id);
-        if (e) refs.best = { id: info.best.id, timeMs: info.best.lap_time_ms, at: info.best.recorded_at, R: e.R };
-      }
-      if (info.ideal) refs.ideal = { id: 'ideal', timeMs: info.ideal.timeMs, R: info.ideal.R };
-      const sb = s.id ? db.bestLapOfSession(s.id) : null;
-      if (sb) {
-        const e = svc.getResampled(sb.id);
-        if (e && (!refs.best || e.R.n === refs.best.R.n)) refs.session = { id: sb.id, timeMs: sb.lap_time_ms, R: e.R };
-      }
-      for (const m of MODES) if (refs[m]) refs[m].metrics = refs.corners.map((c) => cornerMetrics(refs[m].R, c));
-      refs.sectors = refs.best ? sectorInfo(s, refs.best.R) : null;
-      this.refs = refs;
-    } catch (e) { console.error('[hud] reference load failed:', e.message); }
-    return this.refs;
+    if (!s) { this.refsKey = null; this.refs = null; this.loading = null; return null; }
+    if (this.loading?.key === key) return this.loading.keep;
+    // same car and track: keep the all-time references; this session's (session best, sector bests) only if it is
+    // the same session, as before PL3 (a new session starts without them)
+    const keep = this.refs && this.refsCombo === s.key ? (this.refsSession === s.id ? this.refs : withoutSession(this.refs)) : null;
+    const job = { key, keep };
+    this.loading = job;
+    const t0 = performance.now();
+    this.prepareRefs(s).then((refs) => {
+      if (this.loading !== job) return; // the session or the laps changed meanwhile: a newer load runs
+      this.loading = null; this.refs = refs; this.refsKey = key; this.refsCombo = s.key; this.refsSession = s.id;
+      perf.record('hudRefs', performance.now() - t0);
+    }, (e) => {
+      if (this.loading !== job) return;
+      // shown as no reference (as with no laps), in the log and in Diagnostics; tried again after the next lap
+      console.error('[hud] reference load failed:', e.message);
+      perf.error('hudRefs');
+      this.loading = null; this.refs = null; this.refsKey = key; this.refsCombo = s.key; this.refsSession = s.id;
+    });
+    return keep;
+  }
+
+  /** The references, read in slices (src/service.js comboInfoAsync): the same result as reading them at once. */
+  async prepareRefs(s) {
+    const info = await svc.comboInfoAsync(s);
+    const sb = s.id ? db.bestLapOfSession(s.id) : null;
+    await svc.warmLaps([info.best?.id, sb?.id]);
+    const refs = { corners: info.corners, best: null, ideal: null, session: null };
+    if (info.best) {
+      const e = svc.getResampled(info.best.id);
+      if (e) refs.best = { id: info.best.id, timeMs: info.best.lap_time_ms, at: info.best.recorded_at, R: e.R };
+    }
+    if (info.ideal) refs.ideal = { id: 'ideal', timeMs: info.ideal.timeMs, R: info.ideal.R };
+    if (sb) {
+      const e = svc.getResampled(sb.id);
+      if (e && (!refs.best || e.R.n === refs.best.R.n)) refs.session = { id: sb.id, timeMs: sb.lap_time_ms, R: e.R };
+    }
+    for (const m of MODES) if (refs[m]) refs[m].metrics = refs.corners.map((c) => cornerMetrics(refs[m].R, c));
+    refs.sectors = refs.best ? await svc.runInSlices(sectorSteps(s, refs.best.R)) : null;
+    return refs;
   }
 
   refFor(mode) { return this.loadRefs()?.[mode] ?? null; }
@@ -387,9 +411,15 @@ export class LiveHud {
   }
 }
 
+/** References without the parts that belong to one session (the session best lap, this session's sector bests). */
+function withoutSession(refs) {
+  return { ...refs, session: null, sectors: refs.sectors ? { ...refs.sectors, sess: refs.sectors.sess.map(() => null) } : null };
+}
+
 // Sector boundaries on the reference grid, from AC EVO's track data (timing gates), else thirds of the
-// lap; and the fastest time through each, over all valid laps (all-time) and this session's.
-function sectorInfo(s, R) {
+// lap; and the fastest time through each, over all valid laps (all-time) and this session's. A generator: it yields
+// before each lap it has to read (svc.runInSlices); each lap's times at the boundaries are kept (svc.lapPoints).
+function* sectorSteps(s, R) {
   let starts = null;
   try {
     const model = svc.trackModel(s.track, s.layout);
@@ -399,11 +429,13 @@ function sectorInfo(s, R) {
   const bounds = [0, ...starts, R.L];
   const n = bounds.length - 1;
   const best = new Array(n).fill(null), sess = new Array(n).fill(null);
+  const sig = `sectors|${bounds.join(',')}`;
   for (const l of db.lapsForCombo(s.track, s.layout, s.car, true)) {
     if (!l.valid) continue;
-    const e = svc.getResampled(l.id);
-    if (!e || e.R.n !== R.n) continue;
-    const t = bounds.map((b, i) => (i === n ? l.lap_time_ms : interp(e.R.t, b / e.R.step)));
+    if (!svc.hasLapPoints(l.id, sig)) yield;
+    const p = svc.lapPoints(l.id, sig, (LR) => ({ n: LR.n, t: bounds.map((b) => interp(LR.t, b / LR.step)) }));
+    if (!p || p.n !== R.n) continue;
+    const t = bounds.map((b, i) => (i === n ? l.lap_time_ms : p.t[i]));
     for (let k = 0; k < n; k++) {
       const v = Math.round(t[k + 1] - t[k]);
       if (!(v > 0)) continue;

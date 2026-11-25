@@ -16,6 +16,12 @@ All notable changes to AC EVO Paddock. Newest first.
 - **Backups and mod zips** are never unpacked beyond the size they state. A backup whose database holds triggers or views (Paddock never makes them) is not restored.
 - Downloads of private data (backups, lap and CSV exports, diagnostics, setups) are refused when another website asks for them.
 
+### Recording reliability (platform phase PL3)
+
+- **Recording no longer pauses with a long lap history.** With hundreds of laps on a car and track, Paddock used to stop reading telemetry for seconds at the start of a session and, past 300 laps, after every lap (it re-read the whole history for the HUD's reference laps). Opening the Laps or Home page for the first time stopped it for up to half a minute with thousands of laps. That work now runs in small slices, so laps keep recording; the results are the same. The HUD keeps its references while new ones are worked out, or shows none for a moment on a new car or track.
+- **Diagnostics show recording timing:** how regularly the 60 Hz loop ran, late ticks, stalls, slow pages and memory (numbers only).
+- For contributors: `npm run bench` measures recording and history performance on the mock car (`docs/platform/PERFORMANCE.md`).
+
 ### Quality checks (platform phase PL2)
 
 - For contributors: `npm run verify` runs the syntax check, the tests on your Node and on the desktop app's own Node, and browser tests of the main pages in headless Edge. A GitHub workflow is set up to run the same on every push. `npm run smoke:packaged` starts a built app once with scratch folders.

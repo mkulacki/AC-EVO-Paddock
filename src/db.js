@@ -147,7 +147,11 @@ export const lapsForCombo = (track, layout, car, ownOnly = true) =>
 export const bestLapOfSession = (sessionId) =>
   db.prepare(`SELECT ${LAP_COLS} FROM laps WHERE session_id = ? AND valid = 1 ORDER BY lap_time_ms LIMIT 1`).get(sessionId);
 
+// called with the id of each deleted lap (src/service.js forgets what it kept for it: SQLite reuses the highest id)
+const lapDeletedFns = [];
+export const onLapDeleted = (fn) => { lapDeletedFns.push(fn); };
 export function deleteLap(id) {
+  for (const fn of lapDeletedFns) fn(id);
   // its session's report is out of date: dropped (made again on request)
   db.prepare('DELETE FROM reports WHERE session_id = (SELECT session_id FROM laps WHERE id = ?)').run(id);
   db.prepare('DELETE FROM laps WHERE id = ?').run(id);

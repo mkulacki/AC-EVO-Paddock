@@ -43,6 +43,7 @@ import * as sensitive from './sensitive.js';
 import * as lapfile from './lapfile.js';
 import { limitBytes } from './zip.js';
 import * as updates from './updates.js';
+import { perf } from './perf.js';
 import { pipeline } from 'node:stream/promises';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,6 +55,8 @@ let source;
 if (mockIdx >= 0) {
   const { MockSource } = await import('./mock.js');
   source = new MockSource({ speedup: Number(args[mockIdx + 1]) || 1 });
+  // timing measurements (npm run bench): the same 1 ms Windows timer as a real run, so the 60 Hz loop is comparable
+  if (process.env.PADDOCK_HIRES_TIMER) (await import('./shm.js')).enableHighResTimer();
 } else {
   const { ShmSource, enableHighResTimer } = await import('./shm.js');
   enableHighResTimer();
@@ -231,10 +234,11 @@ recorder.on('sessionEnd', (s) => {
   try { if (db.lapsOfSession(s.id).length) drivenSession = s.id; } catch { /* not opened on game exit */ }
   setTimeout(() => checkGoals(s), 400); // the session is no longer "being driven" by then
   try { const c = setupTracker.conditions(); if (c) db.setSessionConditions(s.id, c); } catch (e) { console.log(`[report] conditions not saved: ${e.message}`); }
-  setTimeout(() => {
+  setTimeout(async () => {
     try {
       const laps = db.lapsOfSession(s.id);
       if (laps.length < report.MIN_LAPS || !laps.some((l) => l.valid)) return;
+      await warmSession(s.id); // the car and track's history read in slices (PL3), then the report at once
       const r = report.make(s.id);
       const text = report.headline(r);
       console.log(`[report] session ${s.id}: ${text}`);
@@ -264,7 +268,9 @@ setInterval(() => {
 }, 2000).unref?.();
 
 let lastPacket = null, lastPacketChange = Date.now(), stale = false;
+perf.start(); // bounded timing of this loop and of the event loop (src/perf.js, Settings → Diagnostics)
 setInterval(() => {
+  const t0 = perf.tickStart();
   try {
     source.tick?.();
     const f = source.read();
@@ -283,6 +289,7 @@ setInterval(() => {
     marker.onFrame(f);
     spotter.tick(hud.nextBrake());
   } catch (e) { console.error('telemetry error', e); }
+  finally { perf.tickEnd(t0); }
 }, 1000 / 60);
 
 // ---------------------------------------------------------------- status for the header bar
@@ -339,12 +346,35 @@ function foreignRequest(req, p = '') {
   return null;
 }
 
+// PL3: the cars and tracks a page works out (best lap, corners, ideal lap) are read in slices first, so a long lap
+// history does not hold up the 60 Hz telemetry loop for seconds (the page waits instead; the result is the same).
+async function warmSession(sid) {
+  const s = db.getSession(sid);
+  if (!s) return;
+  await svc.warmCombos([s]);
+  await svc.warmLaps(db.lapsOfSession(sid).map((l) => l.id)); // the session's own laps are read in full
+  // and the previous session's, when its report is made on the way (its targets are checked)
+  const prev = report.previousSession(sid);
+  if (prev != null && !db.getReport(prev)) await svc.warmLaps(db.lapsOfSession(prev).map((l) => l.id));
+}
+async function warmFor(p, q) {
+  try {
+    if (p === '/api/overview' || p === '/api/dashboard') return await svc.warmCombos();
+    if (!p.startsWith('/api/')) return;
+    const combo = q.get('track') && q.get('layout') != null && q.get('car') ? { track: q.get('track'), layout: q.get('layout'), car: q.get('car') } : null;
+    if (combo) return await svc.warmCombos([combo]);
+    const sid = Number(q.get('session'));
+    if (sid > 0 && /^\/api\/(report|carreport)$/.test(p)) await warmSession(sid);
+  } catch { /* the route itself reports unreadable data */ }
+}
+
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const m = req.method;
   const foreign = foreignRequest(req, p);
   if (foreign) { console.warn(`[http] refused ${m} ${p}: ${foreign} (host ${req.headers.host}, origin ${req.headers.origin ?? '-'})`); return send(res, 403, { error: 'Forbidden' }); }
+  if (m === 'GET') await warmFor(p, url.searchParams);
 
   if (p === '/api/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -663,9 +693,11 @@ async function route(req, res) {
     res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="paddock-${laps ? 'laps' : 'sessions'}-${day}.csv"` });
     return res.end(body);
   }
+  // recording timing only (numbers, no private data); a private GET like the full report (PRIVATE_GET)
+  if (p === '/api/diagnostics/perf') return send(res, 200, perf.summary());
   if (p === '/api/diagnostics') {
     const d = diagnostics.build({
-      version: VERSION, source: source.name, recorder: recorder.state,
+      version: VERSION, source: source.name, recorder: recorder.state, performance: perf.summary(),
       game: (() => { try { const g = game.status(); return { running: g.running, version: g.version ?? g.gameVersion ?? null, hudVersion: g.hudVersion ?? null }; } catch (e) { return { error: e.message }; } })(),
       loader: (() => { try { return loaderInstall.status(); } catch (e) { return { error: e.message }; } })(),
       hud: (() => { try { return hudInstall.status(); } catch (e) { return { error: e.message }; } })(),
@@ -1006,6 +1038,8 @@ async function route(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  const t0 = performance.now();
+  res.once('finish', () => perf.request(req.method, req.url?.split('?')[0], performance.now() - t0)); // slow pages (Diagnostics)
   route(req, res).catch((e) => { console.error(e.message); if (!res.headersSent) send(res, 500, { error: e.message }); });
 });
 const port = Number(process.env.PORT) || settings.get().port || 8080;
@@ -1015,6 +1049,8 @@ export const ready = new Promise((resolve, reject) => {
   server.listen(port, '127.0.0.1', () => {
     console.log(`AC EVO Paddock running: http://localhost:${port}   (source: ${source.name})`);
     setTimeout(() => cars.warmThumbnails().catch(() => {}), 3000); // car pictures for the Race tab, in a worker
+    // the game's track list (~0.5 s, once): read now rather than in the first session (PL3)
+    setTimeout(() => { try { trackdata.catalog(); } catch { /* no game files */ } }, 3500);
     resolve(port);
   });
 });

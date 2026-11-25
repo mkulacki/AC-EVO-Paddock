@@ -2,6 +2,7 @@
 import { EventEmitter } from 'node:events';
 import * as db from './db.js';
 import { STATUS } from './shm.js';
+import { perf } from './perf.js';
 
 const CH = ['t', 'd', 'spd', 'thr', 'brk', 'str', 'gear', 'rpm', 'x', 'z', 'glat', 'glon',
   // track-limit data from EVO: tyres beyond limits, lap still valid, kerb vibration, tyre contact points (FL, FR, RL, RR)
@@ -113,10 +114,10 @@ export class Recorder extends EventEmitter {
       lapNumber: lap.lapNumber, lapTimeMs, valid: !lap.invalid, driver: this.session.driver,
       recordedAt: Date.now(), trackLength: L, data: b, setup: lap.setup ?? this.getSetup(),
     };
-    const id = db.insertLap(meta);
+    const id = perf.time('lapSave', () => db.insertLap(meta));
     this.state.savedLaps++;
     this.state.lastLap = { id, lapTimeMs, valid: meta.valid };
-    this.emit('lap', { id, ...meta, data: undefined });
+    perf.time('lapEvents', () => this.emit('lap', { id, ...meta, data: undefined }));
   }
 
   onFrame(f) {

@@ -318,26 +318,38 @@ export function lapStats(R) {
 export const deltaSeries = (R, ref) => R.t.map((t, i) => Math.round(t - ref.t[i]) / 1000);
 
 // Ideal lap: for each corner segment take the fastest lap and splice the traces together.
-export function buildIdeal(laps /* [{id, R}] */, corners) {
+// A lap is {id, R} (its resampled trace) or {id, dts} (its time per corner, src/service.js keeps these so a long
+// history is not read again for every new lap); getR gives the full trace of a lap that holds a best corner.
+const cornerTime = (lap, c, j) => (lap.dts ? lap.dts[j] : lap.R.t[c.b] - lap.R.t[c.a]);
+/** The fastest lap through each corner: [{lap, dt}] (the first lap wins a tie). */
+export function pickIdealCorners(laps, corners) {
+  return corners.map((c, j) => {
+    let best = null;
+    for (const lap of laps) {
+      const dt = cornerTime(lap, c, j);
+      if (!best || dt < best.dt) best = { lap, dt };
+    }
+    return best;
+  });
+}
+export function buildIdeal(laps /* [{id, R} | {id, dts}] */, corners, { grid = null, getR = (lap) => lap.R } = {}) {
   if (!laps.length) return null;
-  const n = laps[0].R.n;
-  const R = { step: laps[0].R.step, n, L: laps[0].R.L, d: laps[0].R.d.slice() };
+  const G = grid || getR(laps[0]);
+  const n = G.n;
+  const R = { step: G.step, n, L: G.L, d: G.d.slice() };
   for (const c of CHANNELS) R[c] = new Array(n);
   const sources = [];
   let tStart = 0;
-  for (const c of corners) {
-    let best = null;
-    for (const lap of laps) {
-      const dt = lap.R.t[c.b] - lap.R.t[c.a];
-      if (!best || dt < best.dt) best = { lap, dt };
-    }
-    const L = best.lap.R;
+  const picks = pickIdealCorners(laps, corners);
+  corners.forEach((c, j) => {
+    const best = picks[j];
+    const L = getR(best.lap);
     for (let i = c.a; i <= c.b; i++) {
       for (const ch of CHANNELS) R[ch][i] = L[ch][i];
       R.t[i] = tStart + (L.t[i] - L.t[c.a]);
     }
     tStart += best.dt;
     sources.push({ corner: c.name, lapId: best.lap.id, timeMs: Math.round(best.dt) });
-  }
+  });
   return { R, timeMs: Math.round(tStart), sources };
 }

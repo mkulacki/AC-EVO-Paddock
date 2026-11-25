@@ -170,6 +170,15 @@ export function checkTargets(targets, r) {
  * Build the report of a session. -> report object, or throws when there is nothing to report on.
  * opts.withPrevTargets: also check the previous report's targets (false while building that previous report)
  */
+/** The last earlier session with a valid lap on the same track + car (its report's targets are checked), or null. */
+export function previousSession(sessionId) {
+  const laps = db.lapsOfSession(sessionId).filter((l) => l.source === 'local');
+  if (!laps.length) return null;
+  const startAt = laps[0].recorded_at;
+  return db.lapsForCombo(laps[0].track, laps[0].layout, laps[0].car, true).sort((a, b) => a.recorded_at - b.recorded_at)
+    .filter((l) => l.recorded_at < startAt && l.session_id !== sessionId).reverse().find((l) => l.valid)?.session_id ?? null;
+}
+
 export function build(sessionId, { withPrevTargets = true } = {}) {
   const session = db.getSession(sessionId);
   if (!session) throw new Error('Session not found');
@@ -194,13 +203,14 @@ export function build(sessionId, { withPrevTargets = true } = {}) {
   const ref = svc.getResampled(info.best.id).R;
   const turns = corners.map((c) => turnSign(ref, c.apexIdx));
   const upTo = all.filter((l) => l.valid && l.recorded_at <= endAt);
-  const times = (R) => corners.map((c) => R.t[c.b] - R.t[c.a]);
   const bestEver = corners.map(() => ({ ms: Infinity, lapId: null }));
-  const lapTimes = new Map(); // lapId -> corner times
+  // lapId -> corner times; R (the whole trace) is read only for the laps that need it (PL3: the corner times of
+  // every lap are kept by src/service.js, so a long history is not read again for each report)
+  const lapTimes = new Map();
   for (const l of upTo) {
-    const R = svc.getResampled(l.id)?.R;
-    if (!R || R.n !== ref.n) continue;
-    const t = times(R); lapTimes.set(l.id, { R, t });
+    const ct = svc.lapCornerTimes(info, l.id);
+    if (!ct || ct.n !== ref.n) continue;
+    const t = ct.dts; lapTimes.set(l.id, { t, get R() { return svc.getResampled(l.id).R; } });
     t.forEach((ms, k) => { if (ms < bestEver[k].ms) bestEver[k] = { ms, lapId: l.id }; });
   }
   const sess = S.valid.filter((l) => lapTimes.has(l.id));

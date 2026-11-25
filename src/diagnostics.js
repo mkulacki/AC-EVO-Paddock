@@ -81,6 +81,8 @@ export function build(parts) {
     telemetry: { source: parts.source, status: parts.recorder?.status, lastFrame: parts.recorder?.lastFrameAt ? new Date(parts.recorder.lastFrameAt).toISOString() : null, savedLapsThisRun: parts.recorder?.savedLaps },
     checkedAgainstGame: channels.summary(),
     game: parts.game, loader: parts.loader, hud: parts.hud, paths: parts.paths,
+    // telemetry loop timing, slow jobs and requests since start (src/perf.js): numbers only
+    ...(parts.performance ? { performance: parts.performance } : {}),
   };
   const priv = privateValues();
   // value by value (in a JSON string the path separators are escaped and would slip through)
