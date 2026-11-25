@@ -44,6 +44,7 @@ import * as health from './health.js';
 import * as notes from './notes.js';
 import * as onboarding from './onboarding.js';
 import * as backup from './backup.js';
+import * as autobackup from './autobackup.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
 import * as sensitive from './sensitive.js';
@@ -167,6 +168,8 @@ function setupTelemetry(setup, trackId, layout) {
 
 // a session is loaded in the game (driving, paused, in the pits or watching a replay)
 const inSession = () => ['live', 'pause', 'replay'].includes(recorder.state.status) && Date.now() - recorder.state.lastFrameAt < 5000;
+// PL11 scheduled backups: off until switched on in Settings; checked every 10 minutes, only while no session is driven
+autobackup.schedule({ isIdle: () => !inSession(), appVersion: VERSION });
 // the car on track now (checks of readings whose meaning depends on the car are made with it), or null
 const liveCar = () => (inSession() ? recorder.session?.car || source.lastRaw?.frame?.car || null : null);
 const clients = new Set();
@@ -756,7 +759,19 @@ async function route(req, res) {
   if (p.startsWith('/api/backup')) {
     const busy = () => (inSession() ? send(res, 409, { error: 'You are on track: back up or restore when you are in the menus or AC EVO is closed (it would stall the lap recording).' }) : null);
     try {
-      if (p === '/api/backup' && m === 'GET') return send(res, 200, { backups: backup.listBackups(), parts: backup.parts(), pending: backup.pending(), restored: db.restoreResult, folder: backup.BACKUP_DIR });
+      if (p === '/api/backup' && m === 'GET') return send(res, 200, { backups: backup.listBackups().map((b) => ({ ...b, verified: autobackup.verification(b.name) })), parts: backup.parts(), pending: backup.pending(), restored: db.restoreResult, folder: backup.BACKUP_DIR, schedule: autobackup.status() });
+      // PL11: the schedule (on, daily / weekly, how many to keep, synced folders), a run now, and verifying any backup
+      if (p === '/api/backup/schedule' && m === 'POST') return send(res, 200, autobackup.setConfig(await readJson(req)));
+      if (p === '/api/backup/schedule/run' && m === 'POST') {
+        if (busy()) return;
+        const out = await autobackup.runOnce({ isIdle: () => !inSession(), appVersion: VERSION, force: true });
+        return send(res, 200, { ...out, schedule: autobackup.status() });
+      }
+      if (p === '/api/backup/verify' && m === 'POST') {
+        const { name } = await readJson(req);
+        if (!fs.existsSync(backup.fileOf(name))) return send(res, 404, { error: 'Backup not found' });
+        return send(res, 200, await autobackup.verify(name));
+      }
       if (p === '/api/backup' && m === 'POST') {
         if (busy()) return;
         const { includeSecrets = false, parts = null } = await readJson(req);
@@ -819,6 +834,8 @@ async function route(req, res) {
     const safe = (fn) => { try { return fn(); } catch { return null; } };
     if (db.blocked) add('warning', db.blocked.message, '#/game', 'Game → Integration health');
     if (backup.pending()) add('warning', 'A restore is waiting for Paddock to restart.', '#/settings', 'Settings → Backup and restore');
+    const bkSkip = safe(() => autobackup.notice()); // PL11: a scheduled backup that could not be made (disk space, synced folder, failed check)
+    if (bkSkip) add('warning', bkSkip.text, '#/settings', 'Settings → Backup and restore');
     if (db.restoreResult && !db.restoreResult.ok) add('warning', `The last restore did not complete: ${db.restoreResult.error}`, '#/settings', 'Settings → Backup and restore');
     if (!fs.existsSync(ACE)) add('warning', "AC EVO's game files folder was not found, so the HUD, mods and setups are not available.", '#/settings', 'Settings → Game files folder');
     const hud = safe(() => hudInstall.status({ quick: true })); // quick: no tasklist call (this runs after every lap)
@@ -1065,6 +1082,7 @@ async function route(req, res) {
       const oldPath = settings.get().gamePath, oldKey = settings.get().markKey, oldAssistKey = settings.get().assistKey;
       delete body.assistOff; // the kill switch goes through /api/assist (it acts at once, also when the file cannot be saved)
       delete body.hudLayouts; // through /api/hudlayouts (checked there)
+      delete body.autoBackup; // through /api/backup/schedule (checked there)
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
       if (settings.get().markKey !== oldKey) bindMarkKey();

@@ -25,6 +25,7 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   boardSteam: null, // who that sign-in is: {steamId, name}
   assistOff: false, // PL9 kill switch: the Paddock HUD and every cue (spotter countdowns) off at once, until switched on again
   assistKey: '', // desktop app: global shortcut (Electron accelerator) for that switch; empty = none (opt-in, like markKey)
+  autoBackup: null, // PL11 scheduled backups {on, every, keep, allowSynced} (src/autobackup.js config); null = off
   hudLayouts: null, // PL9 saved HUD layouts and context profiles (see normLayouts); null = none saved, no automatic switch
   onboarding: null }; // the setup guide (src/onboarding.js): {state: 'done' | 'dismissed', at, skipped}; null = not finished
 

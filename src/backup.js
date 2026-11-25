@@ -64,7 +64,7 @@ export function parts() {
 
 // left-overs of an interrupted backup, upload or zip write (each can be a full database copy)
 try {
-  for (const n of fs.readdirSync(BACKUP_DIR)) if (/^\.(backup|upload)-|\.part$|\.tmp$/.test(n)) fs.rmSync(path.join(BACKUP_DIR, n), { force: true });
+  for (const n of fs.readdirSync(BACKUP_DIR)) if (/^\.(backup|upload|verify)-|\.part$|\.tmp$/.test(n)) fs.rmSync(path.join(BACKUP_DIR, n), { force: true });
 } catch { /* no backups yet */ }
 
 /**

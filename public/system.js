@@ -5,7 +5,7 @@ import { $, esc, api, post } from './util.js';
 const size = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(2)} GB` : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const when = (t) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const plural = (n, w) => `${esc(String(n ?? '?'))} ${w}${n === 1 ? '' : 's'}`;
-const REASON = { 'before-restore': 'made before a restore' };
+const REASON = { 'before-restore': 'made before a restore', scheduled: 'scheduled' };
 
 export const systemHtml = () => `
   <div class="card" id="sysUpdates"><h2>Updates</h2><div class="sys-body"><span class="spinner"></span></div></div>
@@ -66,6 +66,46 @@ export function restoreSecretsNote(parts = []) {
     + (p.has('race') ? 'Your saved server passwords always stay: the backup only fills in a password you do not have, and saved servers missing from the backup are kept. ' : '');
 }
 
+// ---------------------------------------------------------------- PL11 scheduled backups (src/autobackup.js)
+const days = (n) => (n == null ? null : n >= 730 ? 'over two years' : n >= 60 ? `about ${Math.round(n / 30)} months` : `about ${n} day${n === 1 ? '' : 's'}`);
+function scheduleHtml(s) {
+  if (!s) return '';
+  const c = s.config, f = s.forecast;
+  const fc = f ? [`Laps database ${size(f.dbBytes)}`,
+    f.lapsPer30d ? `about ${f.lapsPer30d} laps a month (+${size(f.growthPer30d)} a month)` : 'no laps in the last 90 days',
+    c.on ? `${c.keep} scheduled backup${c.keep === 1 ? '' : 's'} kept ≈ ${size(f.retainedBytes)}` : null,
+    f.freeBytes != null ? `${size(f.freeBytes)} free on this drive${f.daysUntilFull != null ? `, enough for ${days(f.daysUntilFull)} at this rate` : ''}` : null].filter(Boolean).join(' · ') : '';
+  return `<h3 style="margin:10px 0 6px">Scheduled backups</h3>
+    ${s.demo ? '<p class="muted" style="margin:0 0 6px">Not in the demo.</p>' : `
+    <div class="row" style="margin:0 0 6px"><label class="row"><input type="checkbox" id="abOn" ${c.on ? 'checked' : ''}> Back up automatically</label>
+      <select id="abEvery" aria-label="How often"><option value="daily" ${c.every === 'daily' ? 'selected' : ''}>every day</option><option value="weekly" ${c.every === 'weekly' ? 'selected' : ''}>every week</option></select>
+      <label class="row">keep the newest <input type="number" id="abKeep" min="1" max="30" value="${c.keep}" style="width:56px" aria-label="Scheduled backups to keep"></label>
+      <span class="spacer"></span><button class="small" id="abRun" title="Make and check a scheduled backup now">Run now</button></div>
+    ${s.synced ? `<p class="note-warn card plain" style="margin:0 0 6px">The backups folder is inside ${esc(s.synced)}, which uploads every backup to the cloud.
+      <label class="row"><input type="checkbox" id="abSynced" ${c.allowSynced ? 'checked' : ''}> Back up there anyway</label></p>` : ''}
+    ${s.skip ? `<p class="error" style="margin:0 0 6px">${esc(s.skip.text)} <span class="muted">(${esc(when(s.skip.at))})</span></p>` : ''}
+    <p class="hint" style="margin:0 0 6px">Only while you are not driving. Each one holds everything except your key, passwords and sign-in, and is opened and checked after it is made.
+      Older scheduled backups are deleted once a newer one checks out; backups you make yourself are never deleted. A run is skipped (and said here) when the drive would get too full.
+      ${c.on ? `${s.lastOkAt ? `Last: ${esc(when(s.lastOkAt))}. ` : ''}Next: ${esc(when(Math.max(Date.now(), s.nextDueAt)))} or later.` : ''}</p>`}
+    ${fc ? `<p class="muted" style="margin:0 0 8px;font-size:12px">${fc}</p>` : ''}`;
+}
+function bindSchedule(s, say, draw) {
+  if (!s || s.demo) return;
+  const save = async (patch) => { try { await post('/api/backup/schedule', patch); draw(); } catch (err) { say(err.message, 'error'); } };
+  $('#abOn').onchange = (e) => save({ on: e.target.checked });
+  $('#abEvery').onchange = (e) => save({ every: e.target.value });
+  $('#abKeep').onchange = (e) => save({ keep: Number(e.target.value) });
+  $('#abSynced')?.addEventListener('change', (e) => save({ allowSynced: e.target.checked }));
+  $('#abRun').onclick = async (e) => {
+    e.currentTarget.disabled = true; say('Making and checking a backup…');
+    try {
+      const r = await post('/api/backup/schedule/run', {});
+      say(r.ran ? `Backed up and verified: ${r.backup.name}${r.removed?.length ? ` (${r.removed.length} older scheduled backup${r.removed.length === 1 ? '' : 's'} deleted)` : ''}.` : r.text || 'Not made now.', r.ran ? 'muted' : 'error');
+      draw();
+    } catch (err) { say(err.message, 'error'); }
+  };
+}
+
 const LS_PARTS = 'backup.parts';
 const partLabel = (b) => (id) => (b.parts || []).find((p) => p.id === id)?.label || id;
 async function backupCard(onRestart) {
@@ -94,13 +134,15 @@ async function backupCard(onRestart) {
         <label class="row" title="The key and passwords stay on this PC unless you tick this. Untick it for a backup you give to someone else."><input type="checkbox" id="bkSecrets"> Include my Gemini key and server passwords</label>
         <span class="spacer"></span><button id="bkPick" title="A backup from another PC or an older copy">Add a backup file…</button><input type="file" id="bkUpload" accept=".zip" hidden></div>
       <p id="bkMsg" class="muted" style="margin:0 0 8px">${esc(msg)}</p>
+      ${scheduleHtml(b.schedule)}
       ${b.backups.length ? `<div class="tablewrap"><table><thead><tr><th>Backup</th><th>Contents</th><th>Size</th><th></th></tr></thead><tbody>${b.backups.map((x) => `<tr>
         <td>${x.ok ? esc(when(x.createdAt)) : esc(x.name)}${x.reason && REASON[x.reason] ? ` <span class="muted">(${REASON[x.reason]})</span>` : ''}${x.includesSecrets ? ' <span class="badge" title="Contains your Gemini key and server passwords">with key</span>' : ''}
+          ${x.verified ? (x.verified.ok ? ` <span class="badge" title="Opened and checked ${esc(when(x.verified.checkedAt))}: the laps database is intact and its counts match">verified</span>` : ` <span class="badge bad" title="${esc(x.verified.problems.join('; '))}">check failed</span>`) : ''}
           ${x.ok ? `<div class="muted" style="font-size:12px">${esc(x.name)}${x.app ? `, Paddock ${esc(x.app)}` : ''}</div>` : `<div class="error" style="font-size:12px">${esc(x.error)}</div>`}</td>
         <td>${x.counts ? `${plural(x.counts.laps, 'lap')}, ${plural(x.counts.sessions, 'session')}` : x.ok ? '<span class="muted">no laps</span>' : '–'}
           ${x.ok && x.parts && x.parts.length < (b.parts || []).length ? `<div class="muted" style="font-size:12px">${esc(x.parts.map(partLabel(b)).join(', '))}</div>` : ''}</td><td>${size(x.size)}</td>
         <td style="white-space:nowrap"><a href="/api/backup/file?name=${encodeURIComponent(x.name)}" download><button class="small ghost">Save as…</button></a>
-          ${x.ok ? `<button class="small" data-restore="${esc(x.name)}">Restore</button>` : ''}<button class="small ghost" data-del="${esc(x.name)}" aria-label="Delete backup">Delete</button></td></tr>`).join('')}</tbody></table></div>`
+          ${x.ok ? `<button class="small ghost" data-verify="${esc(x.name)}" title="Open the copy and check it: database integrity, row counts, no secrets it should not hold">Verify</button><button class="small" data-restore="${esc(x.name)}">Restore</button>` : ''}<button class="small ghost" data-del="${esc(x.name)}" aria-label="Delete backup">Delete</button></td></tr>`).join('')}</tbody></table></div>`
         : '<p class="muted" style="margin:0">No backups yet.</p>'}`;
     const say = (t, cls = 'muted') => { msg = t; $('#bkMsg').className = cls; $('#bkMsg').textContent = t; };
     // the chosen parts: remembered; the total shows what the backup will roughly hold (before zip compression)
@@ -144,6 +186,12 @@ async function backupCard(onRestart) {
       try { await post('/api/backup/restore', { name: x.name }); say('Restarting to restore…'); onRestart?.(btn); }
       catch (err) { say(err.message, 'error'); btn.disabled = false; }
     }; });
+    box.querySelectorAll('[data-verify]').forEach((btn) => { btn.onclick = async () => {
+      btn.disabled = true; say('Checking the backup…');
+      try { const v = await post('/api/backup/verify', { name: btn.dataset.verify }); msg = v.ok ? `${btn.dataset.verify}: verified, the copy opens and its counts match.` : `${btn.dataset.verify}: check failed: ${v.problems.join('; ')}`; draw(); }
+      catch (err) { say(err.message, 'error'); btn.disabled = false; }
+    }; });
+    bindSchedule(b.schedule, say, draw);
     $('#bkRestart')?.addEventListener('click', (e) => onRestart?.(e.currentTarget));
     $('#bkCancel')?.addEventListener('click', async () => { await api('/api/backup/restore', { method: 'DELETE' }); msg = 'Restore cancelled.'; draw(); });
   };
