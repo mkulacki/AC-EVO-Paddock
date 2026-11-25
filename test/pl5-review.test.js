@@ -71,7 +71,8 @@ test('a database from a newer Paddock (user_version 3) is not upgraded or writte
     console.log(JSON.stringify(out));`);
   assert.equal(r.blocked.version, 3);
   assert.equal(r.blocked.supported, 2);
-  assert.match(r.blocked.message, /newer Paddock .* nothing you drive now is saved/);
+  assert.match(r.blocked.message, /^Recording is off: .*newer Paddock.*Install that newer Paddock/);
+  assert.ok(r.blocked.message.includes('data\\telemetry.db'), 'the path is written out (no tab character)');
   assert.equal(r.laps, 0, 'runs on an empty database in memory');
   assert.match(r.backup, /^409 No backup/);
   assert.match(r.restore, /^409 No restore/);
@@ -84,7 +85,40 @@ test('a database from a newer Paddock (user_version 3) is not upgraded or writte
   const h = health.build({ dbBlocked: r.blocked, telemetry: {}, game: {}, aceFound: true });
   const rec = h.checks.find((c) => c.id === 'recording');
   assert.equal(rec.state, 'bad');
-  assert.match(rec.summary, /newer Paddock/);
+  assert.match(rec.summary, /^Recording is off: .*newer Paddock/);
+});
+
+test('D-PL5-19: with a newer database, recording is off: mock laps driven produce no insert; health and status say so', async () => {
+  const data = freshDir('newer-live');
+  const file = path.join(data, 'telemetry.db');
+  { const t = new DatabaseSync(file); t.exec('CREATE TABLE laps (id INTEGER PRIMARY KEY); PRAGMA user_version = 3;'); t.close(); }
+  const sha = () => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  const before = sha();
+  const net = await import('node:net');
+  const port = await new Promise((res) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
+  const { spawn } = await import('node:child_process');
+  // the mock car at 60x speed: a lap every second or two
+  const srv = spawn(process.execPath, ['--no-warnings', path.join(ROOT, 'src/server.js'), '--mock', '60'], { env: { ...childEnv(data), PORT: String(port) }, cwd: ROOT });
+  let log = '';
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`server did not start: ${log}`)), 20000);
+      srv.stdout.on('data', (b) => { log += b; if (log.includes(`running: http://localhost:${port}`)) { clearTimeout(timer); resolve(); } });
+      srv.stderr.on('data', (b) => { log += b; });
+    });
+    await new Promise((r) => setTimeout(r, 6000)); // several mock laps' worth of driving
+    const j = (p) => fetch(`http://127.0.0.1:${port}${p}`).then((r) => r.json());
+    const st = await j('/api/status');
+    assert.equal(st.state.status, 'recording off');
+    assert.equal(st.state.savedLaps, 0);
+    assert.equal((await j('/api/overview')).laps.length, 0, 'no lap inserted, not even in memory');
+    const rec = (await j('/api/health')).checks.find((c) => c.id === 'recording');
+    assert.equal(rec.state, 'bad');
+    assert.match(rec.summary, /^Recording is off/);
+    assert.ok((await j('/api/dashboard')).warnings.some((w) => /^Recording is off/.test(w.text)), 'Home says so');
+    assert.ok(!log.includes('[lap]'), 'no lap event');
+  } finally { const gone = new Promise((r) => srv.once('exit', r)); srv.kill(); await gone; }
+  assert.equal(sha(), before, 'file unchanged');
 });
 
 test('a backup whose database is newer than this Paddock knows (SCHEMA_VERSION) is refused', async () => {

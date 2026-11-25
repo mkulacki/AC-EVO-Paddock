@@ -69,9 +69,9 @@ export function build(x) {
   const saveErr = p.errors?.lapSave || 0;
   const last = t.lastLap ? `Last lap saved: ${(t.lastLap.lapTimeMs / 1000).toFixed(3)} s${t.lastLap.valid ? '' : ' (invalid)'}.` : 'No lap saved since Paddock started.';
   if (x.dbBlocked) {
-    // a laps database from a newer Paddock (src/db.js blocked): left untouched, nothing is saved (review, PL5)
-    add({ id: 'recording', label: 'Recording', state: 'bad', summary: 'Laps are not saved: the laps database was made by a newer Paddock.', details: [x.dbBlocked.message],
-      steps: ['Update Paddock (Settings → Updates) to the version that made it.', 'Or, with Paddock closed, move data\telemetry.db somewhere else to start a new one (your laps stay in the moved file).'], href: '#/settings', hrefLabel: 'Settings → Updates' });
+    // a laps database from a newer Paddock (src/db.js blocked): left untouched, recording off (D-PL5-19)
+    add({ id: 'recording', label: 'Recording', state: 'bad', summary: 'Recording is off: your data was made by a newer Paddock. Install that newer version to record.', details: [x.dbBlocked.message],
+      steps: ['Install the newer Paddock that made this data (Settings → Updates).', 'Or, with Paddock closed, move data\\telemetry.db somewhere else to start a new one (your laps stay in the moved file).'], href: '#/settings', hrefLabel: 'Settings → Updates' });
   } else if (saveErr) {
     add({ id: 'recording', label: 'Recording', state: 'bad', summary: `${saveErr} lap${saveErr === 1 ? '' : 's'} could not be saved since Paddock started.`, details: [last],
       steps: ["Check that the disk with Paddock's data folder has free space.", 'Copy Settings → Diagnostics into a bug report: it lists the error count.'], href: '#/settings', hrefLabel: 'Settings → Diagnostics' });

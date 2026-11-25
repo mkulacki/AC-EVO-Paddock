@@ -103,6 +103,8 @@ User decisions: OD-PL-19 (a), OD-PL-20 (a), OD-PL-21 (a), OD-PL-23 (a); **OD-PL-
 
 Commits: `5395369` (fixes 1, 2, 4, 6), `9abd626` (fixes 3, 4, 5, OD-PL-22 (b), OD-PL-24 (c)), plus the docs commit.
 
-Tests after the review round: `npm run check` 131/131; `npm test` 306/306 (Node 22.23.4); `npm run test:electron` 306/306 (Node 24.22.2); `npm run test:browser` 21/21 in 3 runs.
+Tests after the review round and D-PL5-19: `npm run check` 131/131; `npm test` 307/307 (Node 22.23.4); `npm run test:electron` 307/307 (Node 24.22.2); `npm run test:browser` 21/21 in 3 runs.
 
-Remaining: with a newer database Paddock still records into memory during that run (lost on exit, as the message says); a HUD already in the game folder when game mods are skipped stays until removed in the Mods tab.
+**Recording off on a newer database (D-PL5-19, user):** the 60 Hz loop stops at "the game is there" (status `recording off`); no frame reaches the recorder, HUD, leaderboard, brake marks or spotter, and the recorder refuses to insert. Regression test: a v3 database with the mock car at 60× speed for 6 s gives no lap, no `[lap]` event, an unchanged file, and "Recording is off" on health and Home. Commit `PL5: recording off on a newer database` (see the git log).
+
+Remaining: a HUD already in the game folder when game mods are skipped stays until removed in the Mods tab.

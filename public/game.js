@@ -6,6 +6,7 @@ export const STATUS_TEXT = {
   offline: "AC EVO isn't running", 'waiting for game': "AC EVO isn't running", 'game not running': "AC EVO isn't running",
   menu: 'AC EVO is in the menus', off: 'AC EVO is in the menus', pause: 'Paused', replay: 'Watching a replay',
   live: 'On track', unknown: 'AC EVO is running',
+  'recording off': 'Recording off: your data is from a newer Paddock. Install it to record', // D-PL5-19 (src/db.js blocked)
 };
 
 // the state of a health check in words (colour is never the only sign)

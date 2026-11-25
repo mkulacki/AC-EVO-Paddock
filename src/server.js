@@ -293,6 +293,8 @@ setInterval(() => {
       recorder.state.status = 'game not running';
       return;
     }
+    // recording off (D-PL5-19): telemetry.db was made by a newer Paddock; the game is seen, nothing is recorded or worked on
+    if (db.blocked) { Object.assign(recorder.state, { connected: true, lastFrameAt: Date.now(), status: 'recording off' }); return; }
     recorder.onFrame(f);
     setupTracker.onFrame(f);
     board.onFrame(f);

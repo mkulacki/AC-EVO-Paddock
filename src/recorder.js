@@ -107,6 +107,7 @@ export class Recorder extends EventEmitter {
       this.emit('discarded', { reason: !lap.full ? 'out lap' : lap.pit ? 'pit' : 'incomplete' });
       return;
     }
+    if (db.blocked) { lap.done = 'discarded'; return; } // recording off: a newer Paddock's database (D-PL5-19)
     lap.done = 'saved';
     if (!this.session.id) this.session.id = db.createSession(this.session);
     const meta = {

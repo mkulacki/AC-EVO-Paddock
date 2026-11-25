@@ -13,8 +13,8 @@ export const restoreResult = applyPendingRestore(DATA_DIR);
 export const SCHEMA_VERSION = 2;
 // A database made by a newer Paddock (user_version above SCHEMA_VERSION) is never upgraded or written: this Paddock
 // would not know what its new parts mean. It is closed again at once (nothing written: the version is read before any
-// other statement) and Paddock runs on an empty database in memory, saving nothing, while Home, Integration health
-// and Settings → Backup say why (review, PL5). Backups and restores are refused meanwhile.
+// other statement) and Paddock runs on an empty database in memory with recording off (D-PL5-19: no lap is recorded
+// or worked on), while Home, Integration health and the sidebar status say why. Backups and restores are refused.
 let db = new DatabaseSync(path.join(DATA_DIR, 'telemetry.db'));
 /** null, or {version, supported, message} when telemetry.db was made by a newer Paddock and is left alone. */
 export const blocked = (() => {
@@ -22,7 +22,7 @@ export const blocked = (() => {
   if (v <= SCHEMA_VERSION) return null;
   db.close();
   db = new DatabaseSync(':memory:');
-  const message = `Your laps database (data\telemetry.db) was made by a newer Paddock (database version ${v}; this Paddock knows up to ${SCHEMA_VERSION}). It is left untouched, and nothing you drive now is saved. Update Paddock to use it.`;
+  const message = `Recording is off: your laps database (data\\telemetry.db) was made by a newer Paddock (database version ${v}; this Paddock knows up to ${SCHEMA_VERSION}). It is left untouched. Install that newer Paddock to record and see your laps.`;
   console.error(`[db] ${message}`);
   return { version: v, supported: SCHEMA_VERSION, message };
 })();
