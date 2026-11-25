@@ -35,11 +35,15 @@ export const inputState = (L, i) => INPUTS.findIndex((s) => s.is(L, i));
 const dataCache = new Map(); // "laps|ref" -> compare payload (small: last few)
 // comparisons the driver chose to see although they are not comparable ("laps|ref"), for this page visit (PL4.2)
 const accepted = new Set();
+/** The key a "Compare anyway" is remembered under: the same on the Telemetry and the Racing line replay tab. */
+export const compatKey = (laps, ref) => `${laps.slice(0, MAX_LAPS).join(',')}|${String(ref)}`;
+export const compatAccepted = (key) => accepted.has(key);
+export const acceptCompat = (key) => { accepted.add(key); };
 
 // ---------------------------------------------------------------- comparison compatibility (src/compat.js, PL4.2)
 // compatible: one quiet line; caveats: a closed list, each caveat with what it changes; incompatible: the analysis
 // waits behind "Compare anyway". The charts only use readings checked against the game (data.compat.basis).
-function compatHtml(data, lapTxt, gated) {
+export function compatHtml(data, lapTxt, gated) {
   const laps = data.laps.filter((l) => l.compat);
   if (!laps.length) return '';
   const level = data.compat?.level || 'compatible';
@@ -128,7 +132,7 @@ export async function mountTelemetry(root, opts, cleanup) {
     };
     const refText = `${esc(data.ref.label)} · ${fmt(data.ref.lapTimeMs)}`;
     // not comparable (another car or layout): the analysis waits until the driver says so (PL4.2)
-    const cmpKey = `${st.laps.join(',')}|${st.ref}`;
+    const cmpKey = compatKey(st.laps, st.ref);
     const gated = data.compat?.level === 'incompatible' && !accepted.has(cmpKey);
     root.innerHTML = `
       <div class="card tele-pick">

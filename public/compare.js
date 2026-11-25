@@ -1,7 +1,7 @@
 // Compare page (#/compare): laps against a reference (public/telemetry.js) and the racing line replay. Split from app.js.
 import { $, esc, fmt, prettyName } from './util.js';
 import { mountReplay } from './replay.js';
-import { mountTelemetry, getCompare } from './telemetry.js';
+import { mountTelemetry, getCompare, compatHtml, compatKey, compatAccepted, acceptCompat } from './telemetry.js';
 
 // ================================================================== COMPARE: laps against a reference (public/telemetry.js) and the racing line replay
 export async function viewCompare(view, params, cleanup, { hasKey }) {
@@ -24,8 +24,17 @@ export async function viewCompare(view, params, cleanup, { hasKey }) {
     <div id="tabBody"></div>`;
   view.querySelectorAll('[data-tab]').forEach((a) => a.onclick = (e) => { e.preventDefault(); location.hash = url(st, a.dataset.tab); });
   if (tab === 'line') {
-    mountReplay($('#tabBody'), data, cleanup, { at: params.has('at') ? +params.get('at') : null,
-      mode: params.get('mode'), inputs: params.has('inputs') ? params.get('inputs') === '1' : null });
+    // the same caveats and the same "Compare anyway" gate as the Telemetry tab (PL4.2)
+    const key = compatKey(lapIds, ref);
+    const lapTxt = (id) => { const m = data.laps.find((l) => l.id === id)?.meta; return m ? `Lap ${m.lap_number ?? '?'} · ${fmt(m.lap_time_ms)}` : `Lap #${id}`; };
+    const drawLine = () => {
+      const gated = data.compat?.level === 'incompatible' && !compatAccepted(key);
+      $('#tabBody').innerHTML = `${compatHtml(data, lapTxt, gated)}${gated ? '' : '<div id="rpBody"></div>'}`;
+      if (gated) { $('#tabBody [data-force]').onclick = () => { acceptCompat(key); drawLine(); }; return; }
+      mountReplay($('#rpBody'), data, cleanup, { at: params.has('at') ? +params.get('at') : null,
+        mode: params.get('mode'), inputs: params.has('inputs') ? params.get('inputs') === '1' : null });
+    };
+    drawLine();
     return;
   }
   await mountTelemetry($('#tabBody'), { ...st, hasKey: hasKey, onState: (s) => { st = s; history.replaceState(null, '', url(s)); } }, cleanup);

@@ -50,12 +50,15 @@ export function merge(list) {
     if (vals.some((v) => !known(v))) return null;
     return vals.every((v) => v === vals[0]) ? vals[0] : MIXED;
   };
+  // a layout can be '' (a track with one layout, src/shm.js): '' is a value, only null / undefined is not known
+  const layouts = list.map((p) => p.layout);
+  const layout = layouts.some((v) => v == null) ? null : layouts.every((v) => v === layouts[0]) ? layouts[0] : MIXED;
   const setups = list.map((p) => p.setup?.id ?? null);
   const temp = (k) => { const v = list.map((p) => p[k]); return v.every((x) => x != null) ? { min: Math.min(...v), max: Math.max(...v) } : null; };
   const t = { air: temp('airC'), road: temp('roadC') };
   const mid = (r) => (r ? Math.round(((r.min + r.max) / 2) * 10) / 10 : null);
   return {
-    id: 'ideal', car: one('car'), track: one('track'), layout: one('layout'), source: one('source'), game: one('game'), reader: one('reader'),
+    id: 'ideal', car: one('car'), track: one('track'), layout, source: one('source'), game: one('game'), reader: one('reader'),
     setup: setups.some((s) => !s) ? null : setups.every((s) => s === setups[0]) ? list[0].setup : { id: MIXED, name: null },
     setupName: one('setupName'), airC: mid(t.air), roadC: mid(t.road), tempRange: t,
     weather: one('weather'), grip: one('grip'), aids: one('aids'), sessionType: one('sessionType'), parts: list.length,
@@ -79,7 +82,8 @@ export function classify(a, b, { statusOf } = {}) {
   const refName = b.id === 'ideal' ? 'the ideal lap' : 'the reference';
 
   // track and car: anything else is a different comparison altogether
-  if (!known(a.track) || !known(b.track) || a.track !== b.track || a.layout !== b.layout) {
+  // ('' is a real layout name: equal '' matches; null = not known, MIXED = several)
+  if (!known(a.track) || !known(b.track) || a.track !== b.track || a.layout == null || b.layout == null || b.layout === MIXED || a.layout !== b.layout) {
     add('track', 'incompatible', 'Another track or layout', `This lap is from ${a.track || '?'} ${a.layout || ''}, ${refName} from ${b.track || '?'} ${b.layout || ''}.`.replace(/\s+/g, ' '),
       'Distances and corners do not line up, so the gap and the corner times mean nothing.');
   } else matched.push('track');
@@ -104,7 +108,7 @@ export function classify(a, b, { statusOf } = {}) {
   else if (a.setup.id !== b.setup.id) {
     const same = a.setupName && a.setupName === b.setupName;
     add('setup', 'caveat', same ? 'Same setup file, other values' : 'Different setups',
-      same ? `Both laps were driven on "${a.setupName}", but its values had changed in between.` : `This lap: ${a.setupName || 'not named'}; ${refName}: ${b.setupName || 'not named'}.`,
+      `${same ? `Both laps were driven on "${a.setupName}", but its values had changed in between.` : `This lap: ${a.setupName || 'not named'}; ${refName}: ${b.setupName || 'not named'}.`}${probe !== 'verified' ? ' (setup recognition is not checked against the game yet)' : ''}`,
       'A setup change moves braking points, speed and balance: part of the gap may be the setup.');
   } else if (probe !== 'verified') {
     add('setup', 'caveat', 'Same setup, recognition not confirmed', `Both laps were recognised as "${a.setupName || 'the same setup'}", but setup recognition is not checked against the game yet.`,
@@ -115,13 +119,14 @@ export function classify(a, b, { statusOf } = {}) {
   const cond = st('conditions');
   if (cond === 'mismatch') unknown.push('temperatures (marked as wrong)');
   else {
-    const diffs = [];
+    const diffs = [], close = [];
     for (const [k, label] of [['roadC', 'track'], ['airC', 'air']]) {
       if (a[k] == null || b[k] == null) { unknown.push(`${label} temperature`); continue; }
       const range = b.tempRange?.[k === 'roadC' ? 'road' : 'air'];
       const far = range ? Math.max(Math.abs(a[k] - range.min), Math.abs(a[k] - range.max)) : Math.abs(a[k] - b[k]);
       if (far > LIMITS[k]) diffs.push(`${label} ${a[k]} °C against ${range && range.min !== range.max ? `${range.min}–${range.max}` : b[k]} °C`);
-      else matched.push(`${label} temperature`);
+      else if (cond === 'verified') matched.push(`${label} temperature`);
+      else close.push(`${label} ${a[k]} against ${b[k]} °C`); // not checked against the game: not counted as a match
     }
     for (const [k, label] of [['weather', 'weather'], ['grip', 'grip']]) {
       if (!known(a[k]) || !known(b[k])) { if (b[k] === MIXED) diffs.push(`${refName} mixes ${label}`); else unknown.push(label); continue; }
@@ -129,6 +134,8 @@ export function classify(a, b, { statusOf } = {}) {
     }
     if (diffs.length) add('conditions', 'caveat', 'Different conditions', `${diffs.join('; ')}${cond !== 'verified' && diffs.some((d) => d.includes('°C')) ? ' (temperatures not checked against the game yet)' : ''}.`,
       'Track temperature, weather and grip change how much grip there is: part of the gap may be the conditions.');
+    else if (close.length) add('conditions', 'caveat', 'Similar temperatures, not confirmed', `${close.join('; ')}: within ${LIMITS.roadC} °C, but the temperature readings are not checked against the game yet.`,
+      'If the readings are wrong, the conditions may differ more than shown. Check them once in Setups → Setup recognition.');
   }
 
   // driving aids (through the Paddock HUD)
@@ -138,6 +145,8 @@ export function classify(a, b, { statusOf } = {}) {
   else if (!known(a.aids) || !known(b.aids)) unknown.push('driving aids');
   else if (a.aids !== b.aids) add('aids', 'caveat', 'Different driving aids', `This lap: ${AIDS_TEXT[a.aids] || a.aids}; ${refName}: ${AIDS_TEXT[b.aids] || b.aids}${aid !== 'verified' ? ' (aid readings not checked against the game yet)' : ''}.`,
     'TC and ABS change how late you can brake and how early you can accelerate: part of the gap may be the aids.');
+  else if (aid !== 'verified') add('aids', 'caveat', 'Same driving aids, not confirmed', `Both laps: ${AIDS_TEXT[a.aids] || a.aids}, but the aid readings are not checked against the game yet.`,
+    'If the readings are wrong, a difference in TC or ABS could explain part of the gap. Check them once in Setups → Setup recognition.');
   else matched.push('driving aids');
 
   // session type: a race lap has traffic and fuel, a hotlap has neither
@@ -163,10 +172,12 @@ export function basis(car) {
 }
 
 /**
- * A group of laps (Consistency, Progress): which recorded factors vary between them, as caveats in the same form.
- * Factors not recorded for some of the laps are listed once. Returns {level, items, laps}.
+ * A group of laps (Consistency, Progress): which recorded factors differ between them, as caveats in the same form.
+ * Only values that were recorded and actually differ make an item (OD-PL-18 (b)); what is not recorded is returned in
+ * `unknown` (not shown). Setups and aids are left out when their readings are marked as wrong. Returns {level, items, unknown, laps}.
  */
-export function mix(list) {
+export function mix(list, { statusOf } = {}) {
+  const st = statusOf || ((g) => channels.status(g, { car: list[0]?.car ?? null }));
   const items = [];
   const vary = (k, title, effect, fmt = (v) => v) => {
     const vals = list.map((p) => (k === 'setup' ? p.setup?.id ?? null : p[k]));
@@ -175,12 +186,12 @@ export function mix(list) {
     if (seen.length > 1) items.push({ key: k, level: 'caveat', title, detail: `${seen.length} different: ${seen.slice(0, 4).map(fmt).join(', ')}${seen.length > 4 ? ', …' : ''}.`, effect });
     return missing;
   };
+  const wrong = (g) => st(g) === 'mismatch';
   const missing = {
     'game version': vary('game', 'Laps from different game versions', 'A game update can change grip and braking: a trend across an update may be the update.', (v) => `AC EVO ${v}`),
-    setup: vary('setup', 'Laps on different setups', 'Setup changes move lap times: part of a trend may be the setup.', (v) => list.find((p) => p.setup?.id === v)?.setupName || 'a setup'),
-    'driving aids': vary('aids', 'Laps with different driving aids', 'TC and ABS change lap times: compare laps with the same aids for a fair trend.', (v) => AIDS_TEXT[v] || v),
+    setup: wrong('setupProbe') ? 0 : vary('setup', 'Laps on different setups', 'Setup changes move lap times: part of a trend may be the setup.', (v) => list.find((p) => p.setup?.id === v)?.setupName || 'a setup'),
+    'driving aids': wrong('aids') ? 0 : vary('aids', 'Laps with different driving aids', 'TC and ABS change lap times: compare laps with the same aids for a fair trend.', (v) => AIDS_TEXT[v] || v),
   };
   const unk = Object.entries(missing).filter(([, n]) => n > 0).map(([k, n]) => `${k} (${n} of ${list.length} laps)`);
-  if (unk.length) items.push({ key: 'unknown', level: 'caveat', title: 'Not recorded for some laps', detail: `${unk.join(', ')}.`, effect: 'Paddock cannot tell whether those laps match the others.' });
-  return { level: items.length ? 'caveats' : 'compatible', items, laps: list.length };
+  return { level: items.length ? 'caveats' : 'compatible', items, unknown: unk, laps: list.length };
 }

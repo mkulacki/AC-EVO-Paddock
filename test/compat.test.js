@@ -103,12 +103,42 @@ test('provenance from a database row: JSON columns, stock setups, damaged JSON',
   assert.equal(bad.game, null); assert.equal(bad.setup, null);
 });
 
-test('mix: what varies between the laps of a trend, and what is not recorded', () => {
-  const r = compat.mix([lap(), lap({ id: 2, game: '0.7.0' }), lap({ id: 3, aids: null })]);
+test('mix: only recorded values that differ make a note (OD-PL-18 (b)); what is not recorded is returned, not shown', () => {
+  const r = compat.mix([lap(), lap({ id: 2, game: '0.7.0' }), lap({ id: 3, aids: null })], { statusOf: all('verified') });
   assert.equal(r.level, 'caveats');
-  assert.deepEqual(r.items.map((i) => i.key), ['game', 'unknown']);
-  assert.match(r.items[1].detail, /driving aids \(1 of 3 laps\)/);
-  assert.equal(compat.mix([lap(), lap({ id: 2 })]).level, 'compatible');
+  assert.deepEqual(r.items.map((i) => i.key), ['game']);
+  assert.ok(r.unknown.some((u) => /driving aids \(1 of 3 laps\)/.test(u)));
+  const quiet = compat.mix([lap(), lap({ id: 2, game: null, setup: null, aids: null })], { statusOf: all('verified') });
+  assert.equal(quiet.level, 'compatible', 'unknowns alone: no note');
+  assert.deepEqual(quiet.items, []);
+  assert.equal(compat.mix([lap(), lap({ id: 2 })], { statusOf: all('verified') }).level, 'compatible');
+});
+
+test('mix: setups and aids marked as wrong are not used (review 7)', () => {
+  const laps = [lap(), lap({ id: 2, setup: { id: 'snap:z', name: 'B' }, setupName: 'B', aids: 'assisted' })];
+  assert.deepEqual(compat.mix(laps, { statusOf: all('verified') }).items.map((i) => i.key), ['setup', 'aids']);
+  assert.deepEqual(compat.mix(laps, { statusOf: (g) => (g === 'setupProbe' || g === 'aids' ? 'mismatch' : 'verified') }).items, []);
+});
+
+test('classify: unconfirmed readings are never a match (review 7)', () => {
+  const unv = (g) => (g === 'conditions' || g === 'aids' || g === 'setupProbe' ? 'unverified' : 'verified');
+  const r = compat.classify(lap(), lap({ id: 2, roadC: 29, airC: 21 }), { statusOf: unv });
+  assert.ok(!r.matched.includes('track temperature') && !r.matched.includes('driving aids'));
+  assert.equal(r.items.find((i) => i.key === 'conditions').title, 'Similar temperatures, not confirmed');
+  assert.equal(r.items.find((i) => i.key === 'aids').title, 'Same driving aids, not confirmed');
+  const s = compat.classify(lap(), lap({ id: 2, setup: { id: 'snap:q', name: 'Quali' }, setupName: 'Quali' }), { statusOf: unv });
+  assert.match(s.items.find((i) => i.key === 'setup').detail, /setup recognition is not checked/);
+});
+
+test("layouts named '' (one-layout tracks) match, also in the ideal lap (review 1)", () => {
+  const e = (o) => lap({ layout: '', ...o });
+  const m = compat.merge([e(), e({ id: 2 })]);
+  assert.equal(m.layout, '');
+  assert.notEqual(compat.classify(e(), m, { statusOf: all('verified') }).level, 'incompatible');
+  assert.equal(compat.classify(e(), e({ id: 2 }), { statusOf: all('verified') }).level, 'compatible');
+  assert.equal(compat.merge([e(), lap({ id: 2 })]).layout, compat.MIXED);
+  assert.equal(compat.classify(e(), compat.merge([e(), lap({ id: 2 })]), { statusOf: all('verified') }).level, 'incompatible');
+  assert.equal(compat.classify(e(), lap({ id: 2, layout: null }), { statusOf: all('verified') }).level, 'incompatible', 'not known is not a match');
 });
 
 // ---------------------------------------------------------------- the payloads
@@ -133,7 +163,9 @@ test('compare: with conditions and game version recorded, a game update shows as
   svc.invalidate();
   const c = svc.compare([local[1].id], String(local[0].id)).laps[0].compat;
   assert.ok(c.items.some((i) => i.key === 'game' && /0\.7\.0/.test(i.detail)));
-  assert.ok(c.matched.includes('track temperature'));
+  // temperatures within 5 °C, but not checked against the game: a caveat, not a match (review 7)
+  assert.ok(!c.matched.includes('track temperature'));
+  assert.ok(c.items.some((i) => i.title === 'Similar temperatures, not confirmed'));
 });
 
 test('compare: a lap of another car is incompatible (the page asks before showing it)', async () => {
@@ -162,4 +194,16 @@ test('consistency and progress name what varies between their laps', () => {
   assert.ok(cons.compat.items.some((i) => i.key === 'game'), 'two game versions recorded above');
   const prog = svc.progress(combo);
   assert.ok(prog.compat.items.length >= 1);
+});
+
+test('AI setup history: temperatures marked as not matching the game are left out (review 2)', async () => {
+  const setuphistory = await import('../src/setuphistory.js');
+  db.setSessionConditions(local[2].session_id, { airC: { avg: 22 }, roadC: { avg: 31 } });
+  svc.invalidate();
+  const rows = () => setuphistory.forAi([combo]);
+  assert.ok(rows().some((r) => r.air_c != null || r.track_c != null), 'temperatures sent while not marked wrong');
+  channels.confirm('conditions', false);
+  assert.ok(rows().length && rows().every((r) => r.air_c === undefined && r.track_c === undefined));
+  assert.match(channels.forAi(['conditions']).conditions, /left out/);
+  channels.confirm('conditions', null);
 });

@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import * as db from './db.js';
 import { describeName, GROUPS } from './carsetup.js';
 import { valuesOfRel, STANDARD } from './setupmatch.js';
+import * as channels from './channels.js';
 
 export const NOT_RECORDED = 'Not recorded';
 const CLEAN_WITHIN = 1.07; // same "clean lap" rule as the report and the Progress page
@@ -138,6 +139,7 @@ export function forAi(combos, currentRel = null) {
   // the setup being engineered = the entry driven with the file's current values; other entries of that file are
   // marked apart (older values, or values unknown), so their lap times are not credited to the current values
   const cur = currentRel ? valuesOfRel(currentRel) : null;
+  const temps = channels.usable('conditions'); // temperatures marked as not matching the game are left out (PL4 review)
   const curSnap = cur ? snapOf(cur) : null;
   for (const c of combos) {
     for (const g of history(c)) {
@@ -146,7 +148,7 @@ export function forAi(combos, currentRel = null) {
         this_setup: exact ? true : undefined, this_setup_other_values: mine && !exact ? true : undefined,
         layout: combos.length > 1 ? c.layout : undefined, laps: g.laps, valid_laps: g.validLaps, best_ms: g.bestMs,
         median_clean_ms: g.medianMs, spread_ms: g.sdMs ?? undefined, last_driven: new Date(g.lastAt).toISOString().slice(0, 10),
-        air_c: g.conditions.airC ?? undefined, track_c: g.conditions.roadC ?? undefined });
+        air_c: temps ? g.conditions.airC ?? undefined : undefined, track_c: temps ? g.conditions.roadC ?? undefined : undefined });
     }
   }
   return rows;

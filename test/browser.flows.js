@@ -390,6 +390,9 @@ test('compare: a lap of another car waits behind "Compare anyway" (PL4.2)', { sk
   lap.meta.car = 'mock_gt4'; lap.meta.driver = 'Other Driver';
   const r = await api('/api/laps/import', { method: 'POST', headers: { origin: base }, body: zlib.gzipSync(JSON.stringify(lap)) });
   assert.equal(r.status, 200, JSON.stringify(r.body));
+  // the Racing line replay tab waits behind the same gate (review 4)
+  await go(`#/compare?laps=${r.body.id}&ref=${own[1].id}&tab=line`, "document.querySelector('#view .compat-bad [data-force]')");
+  assert.equal(await js("!!document.querySelector('#view #rpCanvas')"), false, 'no replay until the driver says so');
   await go(`#/compare?laps=${r.body.id}&ref=${own[1].id}`, "document.querySelector('#view .compat-bad [data-force]')");
   assert.equal(await js("!!document.querySelector('#view .uplot')"), false, 'no charts until the driver says so');
   assert.match(await js("document.querySelector('#view .compat-bad').textContent"), /Another car/);
@@ -398,6 +401,9 @@ test('compare: a lap of another car waits behind "Compare anyway" (PL4.2)', { sk
   await press('Enter');
   await waitFor("document.querySelector('#view .uplot')", 'the charts after Compare anyway');
   assert.match(await js("document.querySelector('#view .compat-bad').textContent"), /Compared anyway/);
+  // the choice counts for the replay tab too, which shows the same list
+  await go(`#/compare?laps=${r.body.id}&ref=${own[1].id}&tab=line`, "document.querySelector('#view #rpCanvas')");
+  assert.match(await js("document.querySelector('#view .compat-bad').textContent"), /Another car/);
   assert.equal((await api(`/api/laps/${r.body.id}`, { method: 'DELETE', headers: { origin: base } })).status, 200);
   assert.deepEqual(errors, []);
 });
