@@ -23,32 +23,67 @@ const DEFAULTS = { geminiApiKey: '', geminiModel: 'gemini-2.5-flash', driverName
   boardUrl: '', // leaderboard server; empty = the default
   boardToken: '', // Steam sign-in on the leaderboard: the login token (secret: never sent to the page)
   boardSteam: null, // who that sign-in is: {steamId, name}
+  assistOff: false, // PL9 kill switch: the Paddock HUD and every cue (spotter countdowns) off at once, until switched on again
+  assistKey: '', // desktop app: global shortcut (Electron accelerator) for that switch; empty = none (opt-in, like markKey)
+  hudLayouts: null, // PL9 saved HUD layouts and context profiles (see normLayouts); null = none saved, no automatic switch
   onboarding: null }; // the setup guide (src/onboarding.js): {state: 'done' | 'dismissed', at, skipped}; null = not finished
 
 // Paddock HUD (in game and desktop overlay): which parts are shown, its size and background opacity
+// PL9: 'summary' (post-lap summary) and 'consistency' (lap-time spread) are new and off by default (OD-PL-55, OD-PL-56)
 export const HUD_PARTS = ['lap', 'ref', 'delta', 'current', 'speed', 'predicted', 'best', 'session', 'last', 'cues', 'ideal', 'corners', 'footer',
-  'shift', 'inputs', 'sectors', 'fuel', 'target', 'board'];
-const HUD_OFF = new Set(['speed']);
-export const HUD_DEFAULTS = { parts: Object.fromEntries(HUD_PARTS.map((k) => [k, !HUD_OFF.has(k)])), scale: 100, opacity: 85 };
+  'shift', 'inputs', 'sectors', 'fuel', 'target', 'board', 'summary', 'consistency'];
+const HUD_OFF = new Set(['speed', 'summary', 'consistency']);
+// cueHoldMs: how long the HUD shows "braked 6 m later" / "throttle 4 m earlier" after a corner (PL9; 6 s as before)
+export const HUD_DEFAULTS = { parts: Object.fromEntries(HUD_PARTS.map((k) => [k, !HUD_OFF.has(k)])), scale: 100, opacity: 85, cueHoldMs: 6000 };
 const clampNum = (v, lo, hi, d) => (v !== null && v !== '' && Number.isFinite(+v) ? Math.max(lo, Math.min(hi, Math.round(+v))) : d);
 function normHud(h) {
   const parts = { ...HUD_DEFAULTS.parts };
   for (const k of HUD_PARTS) if (typeof h?.parts?.[k] === 'boolean') parts[k] = h.parts[k];
-  return { parts, scale: clampNum(h?.scale, 60, 160, HUD_DEFAULTS.scale), opacity: clampNum(h?.opacity, 0, 100, HUD_DEFAULTS.opacity) };
+  return { parts, scale: clampNum(h?.scale, 60, 160, HUD_DEFAULTS.scale), opacity: clampNum(h?.opacity, 0, 100, HUD_DEFAULTS.opacity),
+    cueHoldMs: clampNum(h?.cueHoldMs, 2000, 10000, HUD_DEFAULTS.cueHoldMs) };
 }
+
+// PL9 HUD layouts: named looks (parts, size, background) the driver applies in one go, and context profiles that
+// apply one when a session of a given type starts (off by default, OD-PL-54). Built-in layouts are not stored.
+const only = (on) => Object.fromEntries(HUD_PARTS.map((k) => [k, on.includes(k)]));
+export const HUD_PRESETS = {
+  Default: { parts: HUD_DEFAULTS.parts, scale: 100, opacity: 85 },
+  Minimal: { parts: only(['lap', 'ref', 'delta', 'current', 'cues', 'footer']), scale: 100, opacity: 85 },
+  Race: { parts: only(['lap', 'ref', 'delta', 'current', 'predicted', 'last', 'shift', 'inputs', 'sectors', 'fuel', 'target', 'board', 'footer']), scale: 100, opacity: 85 },
+};
+export const SESSION_CONTEXTS = ['0', '1', '2', '3']; // AC EVO session types (src/compat.js SESSION_TYPES)
+export const MAX_LAYOUTS = 12;
+// eslint-disable-next-line no-control-regex
+const layoutName = (n) => (typeof n === 'string' ? n.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 40) : '');
+/** Saved layouts and context profiles, as far as they are valid: {list: [{name, parts, scale, opacity}], auto, byType}. */
+export function normLayouts(x) {
+  const list = [];
+  for (const l of Array.isArray(x?.list) ? x.list : []) {
+    const name = layoutName(l?.name);
+    if (!name || HUD_PRESETS[name] || list.some((o) => o.name === name) || list.length >= MAX_LAYOUTS) continue;
+    const h = normHud(l);
+    list.push({ name, parts: h.parts, scale: h.scale, opacity: h.opacity });
+  }
+  const names = new Set([...Object.keys(HUD_PRESETS), ...list.map((l) => l.name)]);
+  const byType = {};
+  for (const t of SESSION_CONTEXTS) { const n = layoutName(x?.byType?.[t]); byType[t] = names.has(n) ? n : ''; }
+  return { list, auto: x?.auto === true, byType };
+}
+export const cleanLayoutName = layoutName;
 
 // audio brake spotter: voice clips or beeps counting down to the reference lap's brake points
 // sound: a voice (clips in public/audio/spotter/<voice>/) or 'beep'
 export const SPOTTER_VOICES = ['orus', 'algenib'];
 // points: 'best' = the HUD reference lap's brake points, 'mine' = the driver's own marks (only those)
-export const SPOTTER_DEFAULTS = { on: false, sound: 'orus', volume: 80, countdown: 'full', corners: 'all', offsetMs: 0, points: 'best' };
+// cooldownMs (PL9): the least time between two spoken cues; 0 = none (as before). It can only drop cues, never add any.
+export const SPOTTER_DEFAULTS = { on: false, sound: 'orus', volume: 80, countdown: 'full', corners: 'all', offsetMs: 0, points: 'best', cooldownMs: 0 };
 const pick = (v, allowed, d) => (allowed.includes(v) ? v : d);
 function normSpotter(p) {
   const D = SPOTTER_DEFAULTS;
   return { on: typeof p?.on === 'boolean' ? p.on : D.on, sound: pick(p?.sound === 'voice' ? 'orus' : p?.sound, [...SPOTTER_VOICES, 'beep'], D.sound),
     volume: clampNum(p?.volume, 0, 100, D.volume), countdown: pick(p?.countdown, ['full', 'brake'], D.countdown),
     corners: pick(p?.corners, ['all', 'big'], D.corners), offsetMs: clampNum(p?.offsetMs, -500, 500, D.offsetMs),
-    points: pick(p?.points, ['best', 'mine'], D.points) };
+    points: pick(p?.points, ['best', 'mine'], D.points), cooldownMs: clampNum(p?.cooldownMs, 0, 3000, D.cooldownMs) };
 }
 
 // A file from disk (or brought back by a restore) is trusted only as far as the types go: each known setting with a
@@ -90,6 +125,7 @@ export function update(patch) {
   const nextHud = patch.hud !== undefined ? normHud(patch.hud) : hud;
   const nextSpotter = patch.spotter !== undefined ? normSpotter({ ...spotter, ...patch.spotter }) : spotter;
   if (patch.hud !== undefined) next.hud = nextHud;
+  if (patch.hudLayouts !== undefined) next.hudLayouts = patch.hudLayouts === null ? null : normLayouts(patch.hudLayouts);
   if (patch.spotter !== undefined) next.spotter = nextSpotter;
   writeJsonAtomic(FILE, next); // temp file + rename: a crash never leaves half a file
   current = next; hud = nextHud; spotter = nextSpotter;
@@ -167,4 +203,5 @@ export function deleteKeptCopy(name) {
 }
 
 // settings safe to send to the browser
-export const publicView = () => ({ ...pageView(current), hud, spotter, hasKey: !!current.geminiApiKey });
+export const publicView = () => ({ ...pageView(current), hud, spotter, hudLayouts: normLayouts(current.hudLayouts), hudPresets: Object.keys(HUD_PRESETS),
+  hasKey: !!current.geminiApiKey });
