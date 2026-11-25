@@ -98,6 +98,9 @@ hud.targetSource = (s) => board.target(s); // the HUD's leaderboard target (src/
 // the in-game board window (P1-P3, you and the drivers around you); nothing when that part is switched off
 hud.boardSource = (s) => (settings.hudConfig().parts.board === false ? null : board.boardWindow(s));
 updates.setCurrent(VERSION);
+// telemetry checks are measured against the game version and readers in use now (PL4.1, src/channels.js)
+channels.configure({ gameVersion: () => game.gameVersion(), hudVersion: () => hudInstall.installedVersion() });
+try { if (channels.migrate()) console.log('[channels] earlier telemetry checks kept as records without a game version: check them again in Setups'); } catch (e) { console.log(`[channels] checks not migrated: ${e.message}`); }
 if (mockIdx < 0 || process.env.PADDOCK_UPDATE_CHECK) updates.schedule(VERSION);
 if (db.restoreResult) console.log(`[backup] restore at start: ${db.restoreResult.ok ? `done (${db.restoreResult.files.join(', ')})` : `FAILED: ${db.restoreResult.error}`}`);
 // every start of the game goes through here: the HUD is brought up to date first (the game is still closed)
@@ -151,6 +154,8 @@ function setupTelemetry(setup, trackId, layout) {
 
 // a session is loaded in the game (driving, paused, in the pits or watching a replay)
 const inSession = () => ['live', 'pause', 'replay'].includes(recorder.state.status) && Date.now() - recorder.state.lastFrameAt < 5000;
+// the car on track now (checks of readings whose meaning depends on the car are made with it), or null
+const liveCar = () => (inSession() ? recorder.session?.car || source.lastRaw?.frame?.car || null : null);
 const clients = new Set();
 const broadcast = (type, data) => { const msg = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`; for (const c of clients) c.write(msg); };
 // audio brake spotter: the open Paddock page plays what it says (sound and volume travel with each cue)
@@ -627,7 +632,7 @@ async function route(req, res) {
   // ---- setup fingerprint check (Setups tab): what Paddock reads in the pits against the saved setups
   if (p === '/api/setupcheck' && m === 'GET') {
     return send(res, 200, { live: setupTracker.live(), current: setupTracker.current(), conditions: setupTracker.conditions(),
-      probe: source.lastRaw?.frame?.probe ?? null, carData: source.lastRaw?.frame?.carData ?? null, inSession: inSession(), confirmed: channels.trusted('setupProbe'), channels: channels.list(), aids: aidsTracker.live() });
+      probe: source.lastRaw?.frame?.probe ?? null, carData: source.lastRaw?.frame?.carData ?? null, inSession: inSession(), confirmed: channels.trusted('setupProbe'), channels: channels.list({ car: liveCar() }), checkContext: channels.context(), aids: aidsTracker.live() });
   }
   // car & setup report of a session (tyres, brakes, suspension, balance): Car & setup tab
   if (p === '/api/carreport' && m === 'GET') {
@@ -645,12 +650,12 @@ async function route(req, res) {
     // Without a group (Paddock before 0.6): the pit-box readings and the temperatures.
     const { group, ok = null } = await readJson(req);
     try {
-      for (const g of group ? [group] : ['setupProbe', 'conditions']) channels.confirm(g, ok);
-      return send(res, 200, { confirmed: channels.trusted('setupProbe'), channels: channels.list() });
+      for (const g of group ? [group] : ['setupProbe', 'conditions']) channels.confirm(g, ok, { car: liveCar() });
+      return send(res, 200, { confirmed: channels.trusted('setupProbe'), channels: channels.list({ car: liveCar() }), checkContext: channels.context() });
     } catch (e) { return send(res, 400, { error: e.message }); }
   }
   // what each telemetry reading is worth: checked against the game or not (src/channels.js)
-  if (p === '/api/channels') return send(res, 200, channels.list());
+  if (p === '/api/channels') return send(res, 200, channels.list({ car: liveCar() }));
   // ---- application management (Settings): backups, export, diagnostics, updates
   if (p.startsWith('/api/backup')) {
     const busy = () => (inSession() ? send(res, 409, { error: 'You are on track: back up or restore when you are in the menus or AC EVO is closed (it would stall the lap recording).' }) : null);
@@ -725,7 +730,9 @@ async function route(req, res) {
     if (loader?.gameMatch === false) add('warning', `AC EVO was updated (${loader.game}); the bundled ACE UI App Loader is for ${loader.builtFor}. Update Paddock when a new version is out.`, '#/game', 'Game');
     const unchecked = channels.list().filter((g) => g.confirmable && g.status !== 'verified');
     const wrong = unchecked.filter((g) => g.status === 'mismatch');
+    const again = unchecked.filter((g) => g.status === 'unverified' && g.needsRecheck);
     if (wrong.length) add('warning', `${wrong.length} telemetry reading group${wrong.length === 1 ? '' : 's'} marked as not matching the game: their hints are left out.`, '#/setups', 'Setups → Setup recognition');
+    else if (again.length) add('info', `${again.length} telemetry reading group${again.length === 1 ? ' was' : 's were'} checked on another game version or with an older reader: check ${again.length === 1 ? 'it' : 'them'} again. Until then their hints are shown as unconfirmed.`, '#/setups', 'Setups → Setup recognition');
     else if (unchecked.length) add('info', `${unchecked.length} of ${channels.CONFIRMABLE.length} telemetry reading groups are not checked against the game yet, so tyre, brake and suspension hints are shown as unconfirmed.`, '#/setups', 'Setups → Setup recognition');
     const up = updates.status();
     if (up.enabled && up.latest) add('info', `AC EVO Paddock ${up.latest.version} is out.`, '#/settings', 'Settings → Updates');

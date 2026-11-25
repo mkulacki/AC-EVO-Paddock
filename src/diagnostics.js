@@ -79,7 +79,7 @@ export function build(parts) {
     settings: { geminiKey: s.geminiApiKey ? 'set' : 'not set', geminiModel: s.geminiModel, language: s.language, port: s.port, gamePath: s.gamePath || 'automatic',
       aceDir: s.aceDir || 'automatic', updateCheck: s.updateCheck !== false, spotter: s.spotter?.on ? 'on' : 'off', markButton: s.markButton ? 'set' : 'none' },
     telemetry: { source: parts.source, status: parts.recorder?.status, lastFrame: parts.recorder?.lastFrameAt ? new Date(parts.recorder.lastFrameAt).toISOString() : null, savedLapsThisRun: parts.recorder?.savedLaps },
-    checkedAgainstGame: channels.summary(),
+    checkedAgainstGame: channels.summary(), checkContext: channels.context(),
     game: parts.game, loader: parts.loader, hud: parts.hud, paths: parts.paths,
     // telemetry loop timing, slow jobs and requests since start (src/perf.js): numbers only
     ...(parts.performance ? { performance: parts.performance } : {}),

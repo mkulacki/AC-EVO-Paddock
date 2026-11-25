@@ -1,5 +1,5 @@
 // Racing line replay: follow-camera track view, tick-by-tick stepping, compact telemetry panel.
-import { $, css, esc, fmt, fmtGap, idxAt, gearTxt, getMirror, setMirror, sideTxt, SERIES } from './util.js';
+import { $, css, esc, fmt, fmtGap, idxAt, gearTxt, getMirror, setMirror, sideTxt, SERIES, prov } from './util.js';
 
 const TICK_MS = 1000 / 60;
 const CAR_L = 4.6, CAR_W = 1.9; // metres
@@ -60,7 +60,7 @@ export function mountReplay(root, data, cleanup, opts = {}) {
         <table class="rp-table"><thead><tr><th></th>${cars.map((c) => `<th><span class="sw" style="background:${c.color}"></span>${esc(c.name)}</th>`).join('')}</tr></thead>
         <tbody>${ROWS.map(([k, label]) => `<tr><td class="muted">${label}</td>${cars.map((_, ci) => `<td id="c-${k}-${ci}"></td>`).join('')}</tr>`).join('')}</tbody></table>
       </div>
-      <div class="card"><div class="row"><h2 style="margin:0">G-forces</h2><span class="muted" style="font-size:12px">rings: 1 g, 2 g</span></div><canvas id="gcirc" class="gcirc"></canvas></div>
+      <div class="card"><div class="row"><h2 style="margin:0">G-forces ${prov('unverified', 'The game shows no G values to compare with, so these cannot be checked.')}</h2><span class="muted" style="font-size:12px">rings: 1 g, 2 g</span></div><canvas id="gcirc" class="gcirc"></canvas></div>
       <div class="card muted" style="font-size:12px">${bandNote(data.band)}
         “Line vs ref” is the distance from the reference line.</div>
     </div>

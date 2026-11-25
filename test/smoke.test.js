@@ -26,6 +26,9 @@ let server, base, port, log = '';
 
 before(async () => {
   fs.writeFileSync(path.join(env.ACEVO_DATA, 'settings.json'), JSON.stringify({ geminiApiKey: FAKE_KEY, driverName: 'Test Driver' }));
+  // a game log as AC EVO writes it: the game version telemetry checks are recorded with (PL4.1)
+  fs.mkdirSync(path.join(env.ACE_DIR, 'Logs'), { recursive: true });
+  fs.writeFileSync(path.join(env.ACE_DIR, 'Logs', 'log-test.txt'), 'Assetto Corsa EVO version 0.6.1, test build');
   execFileSync(process.execPath, node(path.join(ROOT, 'src/mock.js'), '--seed', '6'), { env: childEnv, cwd: ROOT, stdio: 'ignore' });
   port = await freePort();
   base = `http://127.0.0.1:${port}`;
