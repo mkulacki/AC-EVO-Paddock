@@ -126,6 +126,11 @@ const TrainerHud = (function () {
         return out;
     };
 
+    /** true when json is an older copy than the data shown (and that data arrived less than 3 s ago). */
+    const isOlder = function (cur, json, receivedAt, now) {
+        return !!(cur && json && cur.now && json.now && json.now < cur.now && now - receivedAt < 3000);
+    };
+
     const fmtSpread = function (c) {
         if (!c) {
             return "";
@@ -442,6 +447,12 @@ const TrainerHud = (function () {
             }
             state.netError = null;
             state.failures = 0;
+            // never step back to an older copy (PL9 review): slots are written in turn, so one read can bring data older
+            // than the last (after a skipped window); taking it would undo a newer state, e.g. show the HUD again just
+            // after the kill switch hid it. Only within 3 s of the newer copy, so a clock step cannot freeze the HUD.
+            if (!DEMO && isOlder(state.data, json, state.receivedAt, Date.now())) {
+                return;
+            }
             state.data = DEMO ? demoData(json) : json;
             state.receivedAt = Date.now();
             if (LOADER) {
@@ -916,7 +927,8 @@ const TrainerHud = (function () {
         const p = state.pedals;
         setTransformEl(state, "thrFill", p.thrFill, "scaleY(" + (gas === null ? 0 : Math.max(0, Math.min(1, gas))).toFixed(3) + ")");
         setTransformEl(state, "brkFill", p.brkFill, "scaleY(" + (brk === null ? 0 : Math.max(0, Math.min(1, brk))).toFixed(3) + ")");
-        const ah = d && d.ahead ? d.ahead : null;
+        // no reference-pedal markers moved along with the car from data that is too old (PL9 review): none at all
+        const ah = d && d.ahead && !(state.quality && (state.quality.stale || state.quality.tel === "stale")) ? d.ahead : null;
         let rt = null;
         let rb = null;
         if (ah) {
@@ -2533,6 +2545,7 @@ const TrainerHud = (function () {
         fmtLap: fmtLap,
         fmtDelta: fmtDelta,
         dataQuality: dataQuality,
+        isOlder: isOlder,
         fmtSpread: fmtSpread,
         fmtSummary: fmtSummary
     };
