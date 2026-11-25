@@ -7,6 +7,8 @@ import * as settings from './settings.js';
 export class LayoutError extends Error { constructor(msg, code = 400) { super(msg); this.code = code; } }
 
 const stored = () => settings.normLayouts(settings.get().hudLayouts);
+// own keys only: 'constructor' or 'toString' are not layouts (PL9 review)
+const preset = (name) => (typeof name === 'string' && Object.hasOwn(settings.HUD_PRESETS, name) ? settings.HUD_PRESETS[name] : null);
 
 /** For the Settings page: {presets: [name], list: [{name, parts, scale, opacity}], auto, byType, max}. */
 export function view() {
@@ -17,7 +19,7 @@ export function view() {
 export function save(name) {
   const n = settings.cleanLayoutName(name);
   if (!n) throw new LayoutError('Give the layout a name');
-  if (settings.HUD_PRESETS[n]) throw new LayoutError(`"${n}" is a built-in layout: choose another name`);
+  if (preset(n)) throw new LayoutError(`"${n}" is a built-in layout: choose another name`);
   const cur = stored(), h = settings.hudConfig();
   const list = cur.list.filter((l) => l.name !== n);
   if (list.length >= settings.MAX_LAYOUTS) throw new LayoutError(`At most ${settings.MAX_LAYOUTS} layouts can be saved: delete one first`);
@@ -28,7 +30,7 @@ export function save(name) {
 
 /** Make a layout the current look. The cue timing (cueHoldMs) is not part of a layout and stays as it is. */
 export function apply(name) {
-  const l = settings.HUD_PRESETS[name] || stored().list.find((x) => x.name === name);
+  const l = preset(name) || stored().list.find((x) => x.name === name);
   if (!l) throw new LayoutError('No layout of that name', 404);
   const h = settings.hudConfig();
   settings.update({ hud: { ...h, parts: { ...l.parts }, scale: l.scale, opacity: l.opacity } });

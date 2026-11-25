@@ -375,7 +375,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice|experiments)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7); experiments: setup names, journal and lap ids (PL8)
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice|experiments|hudlayouts|assist)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7); experiments: setup names, journal and lap ids (PL8); hudlayouts, assist: Paddock's pages only (PL9 review)
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -432,7 +432,8 @@ async function route(req, res) {
     return;
   }
   // ---- in-game HUD app (ACE UI App Loader) and desktop overlay: cross-origin, small payloads
-  if (p.startsWith('/api/hud')) {
+  // only the HUD's own routes (/api/hudlayouts is Paddock's pages only: PL9 review)
+  if (p === '/api/hud' || p.startsWith('/api/hud/')) {
     res.setHeader('access-control-allow-origin', '*');
     res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
     res.setHeader('access-control-allow-headers', 'content-type');

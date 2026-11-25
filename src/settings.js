@@ -60,7 +60,7 @@ export function normLayouts(x) {
   const list = [];
   for (const l of Array.isArray(x?.list) ? x.list : []) {
     const name = layoutName(l?.name);
-    if (!name || HUD_PRESETS[name] || list.some((o) => o.name === name) || list.length >= MAX_LAYOUTS) continue;
+    if (!name || Object.hasOwn(HUD_PRESETS, name) || list.some((o) => o.name === name) || list.length >= MAX_LAYOUTS) continue;
     const h = normHud(l);
     list.push({ name, parts: h.parts, scale: h.scale, opacity: h.opacity });
   }
