@@ -81,6 +81,7 @@ Tests: one failing regression test per verified finding before its fix, plus the
 
 - Extend `src/analysis.js` `cornerMetrics`/`techniqueMetrics` and `src/report.js`: ranked opportunities with entry/apex/exit split, brake release, throttle hesitation, gear choice, corner distributions, PB explanation, multi-session trend, repeatability target lap.
 - `docs/platform/ANALYSIS.md`; fixtures with known answers; minimum-sample rules; PL4.2 classes respected.
+- **Done 2026-11-25** (`docs/platform/PL6-report.md`): Lap analysis page `#/analysis` (`src/opportunities.js`, `src/stats.js`, `svc.lapAnalysisAsync` in slices, `GET /api/analysis`); no DB change. Follow-ups: Home `nextStep` not fed yet (OD-PL-31); PL7 can turn the top opportunities and their findings into prescriptions; PL8 can reuse `src/stats.js`; the Consistency page and AI coach still read all traces at once.
 
 ## PL7: Structured practice (P2)
 

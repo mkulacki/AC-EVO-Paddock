@@ -47,7 +47,7 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | Session analysis | Done | session page: telemetry, report, Car & setup |
 | Driver performance score | Partial | consistency score only; no overall score |
 | Driving style analysis | Missing | channels exist (thr/brk/str at 60 Hz) to measure trail braking, release, throttle pickup and steering corrections |
-| Corner-by-corner rankings | Partial | best/weakest 3 per session, focus corners on Consistency; no ranking of all corners across passes |
+| Corner-by-corner rankings | Done (PL6) | best/weakest 3 per session, focus corners on Consistency; Lap analysis page (`#/analysis`) ranks every corner by its repeatable gain |
 | Session timeline | Partial | lap list, trend chart, invalid-lap locations; no single timeline view |
 | Speed & braking analysis | Done | corner table, charts |
 | Throttle & steering analysis | Done | charts + corner metrics (throttle-on, coasting) |
@@ -130,7 +130,7 @@ How the platform plan PL1–PL11 (a local operator plan, not in the repo; phase 
 | PL3 recording performance | 60 Hz loop in `src/server.js` | Missing: no measurements, no `docs/platform/PERFORMANCE.md` |
 | PL4 compatibility and provenance | P2 `src/channels.js`, laps `cond` (game + Paddock version + reader) | Done (PL4): version-aware checks (verified / unverified / unsupported), comparison classes on Compare with caveats and an incompatible gate, "Mixed laps" on Consistency/Progress, integration health panel on the Game page |
 | PL5 onboarding | P4 shell + palette, P5 Home | Done (PL5): setup guide `#/welcome` (opens by itself only for a new driver; AI, online and mods skippable), Home "now" row (last session, practice objective, recent progress, next step with evidence), session notes, tags and corner bookmarks (schema v2, local only), tag filter on Sessions, palette finds tags and bookmarks, accessible colours (contrast test), focus rings on fields, empty states with actions |
-| PL6 actionable analysis | P6 technique metrics, report, Consistency | Partial: corner rankings, ideal lap and score exist; no ranked opportunity list with entry/apex/exit split, no `docs/platform/ANALYSIS.md` |
+| PL6 actionable analysis | P6 technique metrics, report, Consistency | Done (PL6): Lap analysis page with the top three opportunities (entry/apex/exit split, braking, brake release, throttle hesitation, gear), corner distributions, repeatable target lap next to the ideal, PB explanation, session trends; `docs/platform/ANALYSIS.md` |
 | PL7 structured practice | P8 training plans, P9 goals/challenges/planner | Partial: no prescriptions with evidence + success criterion + review point |
 | PL8 setup experiments | P7 setup history and comparison | Partial: no experiment/A-B object, no matched-condition filter |
 | PL9 HUD and live assistance | `src/live.js`, `src/gamebridge.js`, `mod/trainerhud` 0.14.0, `src/spotter.js` | Partial: fixed layouts (parts on/off, scale, opacity); no freshness indicator; no bridge stress test |

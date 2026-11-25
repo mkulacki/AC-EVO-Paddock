@@ -4,6 +4,12 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
+### Lap analysis (platform phase PL6)
+
+- **Lap analysis** page for every car and track (Sessions → **Analysis**, the Consistency page, or Ctrl+K "analysis"): where your time is, worked out from your own valid laps without AI. The three biggest opportunities come first, each readable on its own: how much a lap you can gain by driving the corner as you already do in 1 pass out of 4, whether it goes on the entry, around the apex or on the exit, what your quicker passes did differently (braking point, brake release, speed at the apex, throttle, hesitation on the throttle, exit speed, gear), kept apart from what that may mean, and links to Compare at that corner.
+- Every corner's spread of times, a **repeatable target lap** next to the ideal lap, what made your **personal best** faster than the one before, and the trend **across sessions**. Nothing is concluded from fewer than 5 passes of a corner; each number shows how many laps it rests on, and differences are labelled as associations, not proven causes. Laps that cannot be compared with your newest one are left out and listed; mixed game versions, setups or aids are labelled, and you can keep only laps of the same game version or setup.
+- The Consistency page's technique table has a new column, **Throttle hesitation**.
+
 ### Onboarding and usability (platform phase PL5)
 
 - **Setup guide** (`#/welcome`): find AC EVO, check the connections, read what stays on your computer and what is optional (AI, online leaderboards, game mods: each can be skipped; skipping switches nothing on or off), drive a first session and open a first comparison. It never opens by itself: Home (before your first lap), Settings and Ctrl+K ("setup guide") offer it. Skipping game mods there tells Paddock not to install or update the HUD and App Loader in the game folder; **Settings → In-game HUD** turns that on or off at any time (on, as before, unless you change it).
