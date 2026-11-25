@@ -761,3 +761,47 @@ body.hide-hud .ace-trainerhud-board {
 .ace-trainerhud-board .tb-row.tb-behind .tb-time {
     color: #3ddc84;
 }
+
+/* ---- PL9 (0.15.0) ----------------------------------------------------------------------------- */
+
+/* kill switch: Paddock turned the HUD and cues off; the children go, so a display the loader sets on the root stays its own */
+.ace-trainerhud.th-killed > * {
+    display: none;
+}
+
+/* data quality: too old, telemetry stopped changing, a delta Paddock could not trust (shown whatever parts are on) */
+.ace-trainerhud .th-qual.bad {
+    color: #fff;
+    background-color: #ff2b2e;
+}
+
+.ace-trainerhud .th-qual.warn {
+    color: #0b0c0e;
+    background-color: #ffb020;
+}
+
+.ace-trainerhud.th-stale .th-time,
+.ace-trainerhud.th-stale .th-delta,
+.ace-trainerhud.th-stale .th-sec-t,
+.ace-trainerhud.th-stale .th-bar {
+    opacity: 0.45;
+}
+
+.ace-trainerhud.th-stale .th-cue {
+    display: none;
+}
+
+/* post-lap summary and lap-time spread (parts off by default) */
+.ace-trainerhud .th-sum,
+.ace-trainerhud .th-cons {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.ace-trainerhud .th-sum.pb {
+    color: #e08cff;
+}
+
+.ace-trainerhud.th-hide-summary .th-sum,
+.ace-trainerhud.th-hide-consistency .th-cons {
+    display: none;
+}

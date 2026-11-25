@@ -139,6 +139,8 @@ function updateTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open AC EVO Paddock', click: showMain },
     { label: 'Desktop overlay', type: 'checkbox', checked: !!overlay, click: (m) => setOverlay(m.checked) },
+    // PL9 kill switch (src/assist.js): the Paddock HUD and every cue off at once
+    { label: 'HUD and cues off', type: 'checkbox', checked: !!globalThis.__paddockAssist?.isOff(), enabled: !!globalThis.__paddockAssist, click: (m) => globalThis.__paddockAssist?.set(m.checked) },
     { type: 'separator' },
     { label: 'In-game HUD', submenu: [
       { label: 'Install / update (game must be closed)', click: () => installHud(false) },
@@ -176,6 +178,15 @@ app.whenReady().then(async () => {
     try { if (globalShortcut.register(accel, onPress)) { markKey = accel; return true; } } catch { /* invalid accelerator */ }
     return false;
   };
+  // PL9 kill switch shortcut (Settings, empty by default): a global shortcut like the brake-mark key
+  let assistKey = null;
+  globalThis.__paddockSetAssistKey = (accel, onPress) => {
+    if (assistKey) { try { globalShortcut.unregister(assistKey); } catch { /* already gone */ } assistKey = null; }
+    if (!accel) return true;
+    try { if (globalShortcut.register(accel, onPress)) { assistKey = accel; return true; } } catch { /* invalid accelerator */ }
+    return false;
+  };
+  globalThis.__paddockAssistChanged = () => updateTray(); // the tray checkbox follows the switch
   // bring the window to the front on a page (src/server.js: the last session when the game closes)
   globalThis.__paddockOpen = (hash) => { showMain(); if (hash) win?.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {}); };
   // "Session report ready" (src/server.js, end of a session): a Windows notification; a click opens the report

@@ -14,6 +14,7 @@ import { viewMods } from './mods.js';
 import { viewLeaderboard } from './leaderboard.js';
 import { viewSetups } from './setups.js';
 import { initSpotter } from './spotter.js';
+import { initAssist } from './assist.js';
 import { viewSessions } from './sessions.js';
 import { viewHome } from './home.js';
 import { viewWelcome } from './welcome.js';
@@ -33,6 +34,7 @@ const statusEl = $('#status');
 // ?noevents disables the live stream (used for headless screenshots)
 const events = location.search.includes('noevents') ? new EventTarget() : new EventSource('/api/events');
 initSpotter(events); // audio brake cues play from this page
+initAssist(events); // PL9: the switch for the HUD and every cue (sidebar, Alt+Q, Ctrl+K)
 // brake points marked in the game: the track page listens for these
 events.addEventListener('brakemarks', (e) => window.dispatchEvent(new CustomEvent('paddock:brakemarks', { detail: JSON.parse(e.data) })));
 events.addEventListener('status', (e) => {

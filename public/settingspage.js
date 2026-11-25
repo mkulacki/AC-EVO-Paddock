@@ -1,5 +1,6 @@
 // Settings page (#/settings). Split from app.js. Application management cards: public/system.js.
 import { $, esc, api, post } from './util.js';
+import { setAssist, assistOff } from './assist.js';
 import { spotterAudioState, loadVoice } from './spotter.js';
 import { systemHtml, bindSystem } from './system.js';
 
@@ -13,7 +14,13 @@ const HUD_GROUPS = [
   ['Chips under the strip', [['cues', 'Brake / throttle cues'], ['corners', 'Corner gain/loss and next corner'], ['ideal', 'Ideal lap and potential'], ['speed', 'Speed and gear'],
     ['fuel', 'Fuel: litres, use per lap, laps left'], ['target', 'Leaderboard target: the driver to beat, predicted gap, sector split'], ['footer', 'Status (saved laps, connection)']]],
   ['Separate window (in game only)', [['board', 'Leaderboard: P1–P3, you and the two drivers either side. Drag it on its own; right-click it for the HUD settings']]],
+  ['After each lap (off until you switch them on)', [['summary', 'Post-lap summary: the lap against your reference, the corner that gained most and the one that lost most'],
+    ['consistency', 'Lap-time spread this session (the middle half of your valid laps), from 5 valid laps on']]],
 ];
+// AC EVO session types (src/compat.js SESSION_TYPES), for the context profiles
+const SESSION_CONTEXTS = [['0', 'Time attack'], ['1', 'Race'], ['2', 'Hot stint'], ['3', 'Cruise']];
+const holdTxt = (ms) => `${(ms / 1000).toFixed(ms % 1000 ? 1 : 0)} s`;
+const coolTxt = (ms) => (+ms ? `${(ms / 1000).toFixed(ms % 1000 ? 2 : 0)} s` : 'none');
 // what the preview is drawn over, to judge the HUD against bright and dark scenes
 const HUD_PREVIEW_BG = [['dark', 'Dark'], ['light', 'Light'], ['track', 'Track']];
 const THEMES = [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']];
@@ -106,12 +113,28 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
           <fieldset><legend>Look</legend>
             <label class="hud-slider">Size <input type="range" id="hudScale" min="60" max="160" step="5" value="${s.hud.scale}"><b id="hudScaleV">${s.hud.scale}%</b></label>
             <label class="hud-slider">Background <input type="range" id="hudOpacity" min="0" max="100" step="5" value="${s.hud.opacity}"><b id="hudOpacityV">${s.hud.opacity}%</b></label>
+            <label class="hud-slider" title="How long “braked 6 m later” / “throttle 4 m earlier” stays after a corner">Cue result <input type="range" id="hudCueHold" min="2000" max="10000" step="500" value="${s.hud.cueHoldMs}"><b id="hudCueHoldV">${holdTxt(s.hud.cueHoldMs)}</b></label>
           </fieldset>
           <div class="hint" style="margin:0">In game you can choose the same things: right-click the strip, or open Paddock HUD's options in the loader's app drawer (right edge of the screen). Both places stay in sync.</div>
         </div>
         <div class="hud-preview"><div class="row hud-preview-head"><span class="muted small-caps">Preview (sample numbers)</span><span class="spacer"></span>
           <span class="seg" id="hudBg">${HUD_PREVIEW_BG.map(([k, label]) => `<button class="small" data-bg="${k}">${label}</button>`).join('')}</span></div>
           <iframe id="hudFrame" title="Paddock HUD preview"></iframe></div>
+      </div>
+      <h3 id="hudLayouts">Layouts and context profiles</h3>
+      <p class="muted" style="margin-top:0">A layout is a saved choice of parts, size and background. Applying one changes the look above (and in game) at once. Built in: ${(s.hudPresets || []).map(esc).join(', ')}.</p>
+      <div class="form">
+        <label for="hlPick">Layout</label><div class="row"><select id="hlPick"></select><button class="small" id="hlApply">Apply</button><button class="small ghost" id="hlDelete">Delete</button></div>
+        <label for="hlName">Save the look above as</label><div class="row"><input id="hlName" maxlength="40" style="width:200px" placeholder="Name, e.g. Night race" autocomplete="off"><button class="small" id="hlSave">Save layout</button></div>
+        <label>Context profiles</label><label class="row"><input type="checkbox" id="hlAuto"> When a session starts, switch to the layout chosen for its type</label>
+        <span></span><div class="hl-types">${SESSION_CONTEXTS.map(([t, label]) => `<label class="row">${label} <select data-hltype="${t}"></select></label>`).join('')}</div>
+        <span></span><div class="hint" style="margin:0" id="hlMsg" role="status">Off by default. While on, starting a session of a type with a layout replaces the current look; “keep the current look” leaves it alone.</div>
+      </div>
+      <h3>Switch the HUD and cues off</h3>
+      <div class="form">
+        <label>HUD and cues</label><label class="row"><input type="checkbox" id="asOff" ${s.assistOff ? 'checked' : ''}> Off: the Paddock HUD hides and the spotter says nothing, until you switch them on again</label>
+        <label for="assistKey">Global shortcut</label><div class="row"><input id="assistKey" style="width:180px" placeholder="click, then press keys" value="${esc(s.assistKey || '')}" autocomplete="off"><button class="small ghost" id="akClear">Remove</button><span id="akState" class="muted"></span></div>
+        <span></span><div class="hint" style="margin:0">In Paddock: <kbd>Alt</kbd> <kbd>Q</kbd>, the switch at the bottom of the sidebar, or Ctrl+K → “HUD and cues”. The global shortcut (none by default) works in the desktop app while the game has the focus; the game no longer gets that key. Brake-mark confirmation beeps still play: they answer your button.</div>
       </div>
       <h3>Installing and showing it</h3>
       <ol class="muted" style="margin:0 0 8px 18px;padding:0">
@@ -136,6 +159,8 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
         <label>Volume</label><label class="hud-slider"><input type="range" id="spVolume" min="0" max="100" step="5" value="${s.spotter.volume}"><b id="spVolumeV">${s.spotter.volume}%</b></label>
         <label>Timing</label><label class="hud-slider"><input type="range" id="spOffset" min="-500" max="500" step="25" value="${s.spotter.offsetMs}"><b id="spOffsetV"></b></label>
         <span></span><div class="hint" style="margin:0">If “brake” comes too late for you, move Timing to the right so it comes earlier.</div>
+        <label>Quiet time</label><label class="hud-slider"><input type="range" id="spCool" min="0" max="3000" step="250" value="${s.spotter.cooldownMs}"><b id="spCoolV">${coolTxt(s.spotter.cooldownMs)}</b></label>
+        <span></span><div class="hint" style="margin:0">The least time between two things the spotter says. A word that would come sooner is left out (corners close together get fewer words). It never adds any. Nothing is said while the telemetry has stopped updating.</div>
       </div>
       <div class="hint" id="spState" style="margin:8px 0 0"></div></div>
     ${systemHtml()}
@@ -224,6 +249,7 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
   $('#spCorners').onchange = (e) => spSave({ corners: e.target.value });
   $('#spVolume').oninput = (e) => { $('#spVolumeV').textContent = `${e.target.value}%`; spSave({ volume: +e.target.value }); };
   $('#spOffset').oninput = (e) => { $('#spOffsetV').textContent = spOffsetTxt(e.target.value); spSave({ offsetMs: +e.target.value }); };
+  $('#spCool').oninput = (e) => { $('#spCoolV').textContent = coolTxt(+e.target.value); spSave({ cooldownMs: +e.target.value }); };
   $('#spTest').onclick = async () => {
     clearTimeout(spT);
     try { sp = (await post('/api/settings', { spotter: sp })).spotter; await post('/api/spotter/test', {}); } catch (e) { $('#spSaved').textContent = e.message; }
@@ -266,12 +292,80 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
     document.querySelectorAll('[data-part]').forEach((c) => { c.checked = !!hudCfg.parts[c.dataset.part]; });
     $('#hudScale').value = hudCfg.scale; $('#hudScaleV').textContent = `${hudCfg.scale}%`;
     $('#hudOpacity').value = hudCfg.opacity; $('#hudOpacityV').textContent = `${hudCfg.opacity}%`;
+    $('#hudCueHold').value = hudCfg.cueHoldMs; $('#hudCueHoldV').textContent = holdTxt(hudCfg.cueHoldMs);
   };
   document.querySelectorAll('[data-part]').forEach((c) => {
     c.onchange = () => { hudCfg = { ...hudCfg, parts: { ...hudCfg.parts, [c.dataset.part]: c.checked } }; hudSave(); };
   });
   $('#hudScale').oninput = (e) => { hudCfg = { ...hudCfg, scale: +e.target.value }; hudShow(); hudSave(); };
   $('#hudOpacity').oninput = (e) => { hudCfg = { ...hudCfg, opacity: +e.target.value }; hudShow(); hudSave(); };
+  $('#hudCueHold').oninput = (e) => { hudCfg = { ...hudCfg, cueHoldMs: +e.target.value }; hudShow(); hudSave(); };
+  // PL9 layouts and context profiles (/api/hudlayouts, src/hudlayouts.js)
+  let hl = { presets: s.hudPresets || [], ...s.hudLayouts };
+  const hlNames = () => [...hl.presets, ...hl.list.map((l) => l.name)];
+  const hlShow = () => {
+    const pick = $('#hlPick'), was = pick.value;
+    pick.innerHTML = `<optgroup label="Built in">${hl.presets.map((n) => `<option>${esc(n)}</option>`).join('')}</optgroup>`
+      + (hl.list.length ? `<optgroup label="Saved">${hl.list.map((l) => `<option>${esc(l.name)}</option>`).join('')}</optgroup>` : '');
+    if (hlNames().includes(was)) pick.value = was;
+    $('#hlDelete').disabled = hl.presets.includes(pick.value);
+    $('#hlAuto').checked = !!hl.auto;
+    document.querySelectorAll('[data-hltype]').forEach((sel) => {
+      sel.innerHTML = `<option value="">keep the current look</option>${hlNames().map((n) => `<option>${esc(n)}</option>`).join('')}`;
+      sel.value = hl.byType?.[sel.dataset.hltype] || '';
+      sel.disabled = !hl.auto;
+    });
+  };
+  const hlDo = async (body, done) => {
+    try {
+      const r = await post('/api/hudlayouts', body);
+      hl = { presets: r.presets, list: r.list, auto: r.auto, byType: r.byType };
+      if (r.hud) { hudCfg = r.hud; hudShow(); }
+      hlShow(); $('#hlMsg').textContent = done;
+    } catch (e) { $('#hlMsg').textContent = e.message; hlShow(); }
+  };
+  hlShow();
+  $('#hlPick').onchange = () => { $('#hlDelete').disabled = hl.presets.includes($('#hlPick').value); };
+  $('#hlApply').onclick = () => { clearTimeout(hudT); hlDo({ action: 'apply', name: $('#hlPick').value }, `“${$('#hlPick').value}” applied ✓`); };
+  $('#hlDelete').onclick = () => hlDo({ action: 'delete', name: $('#hlPick').value }, 'Deleted ✓');
+  $('#hlSave').onclick = async () => {
+    clearTimeout(hudT);
+    const name = $('#hlName').value.trim();
+    // the look above is saved first (a change may still be waiting), then stored under the name
+    try { hudCfg = (await post('/api/settings', { hud: hudCfg })).hud; } catch (e) { $('#hlMsg').textContent = e.message; return; }
+    await hlDo({ action: 'save', name }, `Saved as “${name}” ✓`);
+    if (hlNames().includes(name)) { $('#hlPick').value = name; $('#hlName').value = ''; hlShow(); }
+  };
+  $('#hlAuto').onchange = (e) => hlDo({ action: 'contexts', auto: e.target.checked }, e.target.checked ? 'Context profiles on ✓' : 'Context profiles off ✓');
+  document.querySelectorAll('[data-hltype]').forEach((sel) => {
+    sel.onchange = () => hlDo({ action: 'contexts', byType: { [sel.dataset.hltype]: sel.value } }, 'Saved ✓');
+  });
+  // PL9 kill switch (the same switch as the sidebar button, Alt+Q and Ctrl+K)
+  const asShow = (off) => { $('#asOff').checked = !!off; };
+  asShow(assistOff() ?? s.assistOff);
+  const onAssist = (e) => { if (document.body.contains($('#asOff'))) asShow(e.detail.off); else window.removeEventListener('paddock:assist', onAssist); };
+  window.addEventListener('paddock:assist', onAssist);
+  $('#asOff').onchange = async (e) => {
+    try { const r = await setAssist(e.target.checked); asShow(r.off); if (!r.saved) $('#akState').textContent = `Switched, but not saved: ${r.error}`; }
+    catch (err) { e.target.checked = !e.target.checked; $('#akState').textContent = err.message; }
+  };
+  const akShow = (st) => { $('#akState').innerHTML = MK_TEXT[st] ?? ''; };
+  akShow(s.assistKeyState);
+  const akSave = async (accel) => {
+    $('#assistKey').value = accel;
+    if (accel && accel === $('#markKey').value) { $('#akState').innerHTML = '<span class="g-bad">That is the brake-mark shortcut: choose another.</span>'; return; }
+    try { akShow((await post('/api/settings', { assistKey: accel })).assistKeyState); } catch (err) { $('#akState').textContent = err.message; }
+  };
+  $('#assistKey').onkeydown = (e) => {
+    e.preventDefault();
+    if (e.key === 'Escape' || e.key === 'Backspace') return akSave('');
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+    const key = /^F\d{1,2}$/.test(e.key) ? e.key : e.code.startsWith('Key') ? e.code.slice(3) : e.code.startsWith('Digit') ? e.code.slice(5)
+      : e.code.startsWith('Numpad') ? `num${e.code.slice(6).toLowerCase()}` : e.key === ' ' ? 'Space'
+      : e.key.startsWith('Arrow') ? e.key.slice(5) : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    akSave([e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', key].filter(Boolean).join('+'));
+  };
+  $('#akClear').onclick = () => akSave('');
   $('#hudReset').onclick = async () => {
     clearTimeout(hudT);
     try { hudCfg = (await post('/api/settings', { hud: {} })).hud; hudShow(); $('#hudSaved').textContent = 'Defaults restored ✓'; }

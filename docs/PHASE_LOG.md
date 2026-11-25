@@ -534,3 +534,19 @@
 - **Review round (2026-11-25):** interval floor ±50 ms; overlapping stints refused, one stint per lap; warm-up per run; a real `.carsetup` import/export/copy round trip; no clean difference on laps without recorded conditions (OD-PL-46 refinement); own-key enum checks; empty stints not driven. Fixed in `ea78bdf` with regression tests (D-PL8-9 … 14). Tests: check 149/149, test 397/397, test:electron 397/397, test:browser 24/24.
 - **Open decisions:** OD-PL-42 … 53 and the OD-PL-46 refinement, OPEN (operator), recommended defaults applied; the user reviews them in the app.
 - **User approval:** pending. Push/merge not done.
+
+## PL9: HUD and live assistance
+
+- **Started / finished:** 2026-11-25 · branch `platform/pl9-hud-live` (from `9bab779`, the PL8 merge) · scope in `docs/platform/BACKLOG.md` (PL9); report `docs/platform/PL9-report.md`; bridge audit in `docs/platform/HUD_BRIDGE.md`
+- **Objectives:** HUD layouts and context profiles, telemetry freshness and quality labels, cue cooldowns and timing, optional post-lap summary, live consistency only as far as PL6 supports it, one switch for the HUD and all cues, bridge audit and stress tests; never more assistance by default; protocol unchanged.
+- **Changes:**
+  - `src/assist.js` (kill switch), `src/hudlayouts.js` (layouts, context profiles), settings keys, spotter quiet time and blocking, `src/live.js` quality / summary / spread, bridge counters and slow-write back-off, `/api/assist`, `/api/hudlayouts`.
+  - Paddock HUD **0.15.0** (hides on the switch, labels old data, stale telemetry and an invalid delta; summary and spread chips, off by default).
+  - Sidebar switch, Alt+Q, Ctrl+K, tray checkbox, optional global shortcut; Settings for layouts, profiles, cue result time, quiet time.
+  - Commits: `1e2ae79`, `1138f6e`, `7b11e0b`, `23ea295`, `1b85227`, `8834b7c`, `638969e`, `90d17c4`, plus the docs commit.
+- **Findings:** stalls cannot break the slot discipline; only a single write slower than ~150 ms can overlap a read (now backed off and counted); a backwards clock step stops HUD reads until a page reload (kept, static only); a same-size log rewrite is not noticed (not expected).
+- **Tests:** `npm run check` 149/149 → 154/154; `npm test` 397/397 → 418/418 (Node 22.23.4); `npm run test:electron` 418/418 (Node 24.22.2); `npm run test:browser` 24/24 → 26/26.
+- **Known limitations:** nothing verified in AC EVO; packaged smoke and bench not run (port 8080 in use by the user's app); aids / assists checks need confirming again with HUD 0.15.0 (OD-PL-13 (a)).
+- **Review round (2026-11-25):** the back-off starved a slightly slow disk and left old kill-switch state in some slots (HUD flicker): back-off only near the read window, slot w+5 when it is behind, the HUD keeps the newer copy, monotonic pause (OD-PL-60 refinement, D-PL9-10); reference-pedal markers from stale data hidden (D-PL9-11); `/api/hudlayouts` out of the open CORS branch, private GETs, own-key presets (D-PL9-12). Fixes `f2d4e9f`, `eee30ee`, `d5da044`, tests `31285e9`. Tests: check 154/154, test 426/426, test:electron 426/426, test:browser 26/26. HUD stays 0.15.0.
+- **Open decisions:** OD-PL-54 … 63, OPEN (operator), recommended defaults applied; the user reviews them in the app. D-PL9-1 … 9 to confirm.
+- **User approval:** pending. Push/merge not done.

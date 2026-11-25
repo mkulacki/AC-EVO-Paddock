@@ -21,6 +21,10 @@
  * under Settings > Paddock HUD. hud.html?demo shows made-up numbers (the preview there).
  *
  * Cohtml rules followed: markup built once; per frame only textContent, classes and transforms.
+ *
+ * 0.15.0 (PL9): Paddock's kill switch (d.off) hides the whole HUD until it is switched on again; data that is too
+ * old, telemetry that stopped changing and a delta Paddock could not trust are labelled (dataQuality), and countdowns
+ * are not drawn from them; an optional post-lap summary and lap-time consistency chip (parts off by default).
  */
 const TrainerHud = (function () {
 
@@ -35,6 +39,9 @@ const TrainerHud = (function () {
     const RANGES = { "0.5 s": 500, "1 s": 1000, "2 s": 2000 };
     const PAD = new Array(2001).join("-"); // the game log cuts lines at about 2,090 characters
     const CUE_RANGES = { "100 m": 100, "200 m": 200, "300 m": 300 };
+    // PL9: data older than this is labelled and nothing is extrapolated from it (a normal in-game read is ~0.2-0.45 s
+    // old: written 4 windows ahead, read 5 times a second; "Paddock not running" stays at 3 s)
+    const STALE_DATA_MS = 1000;
 
     const DEFAULTS = {
         host: "127.0.0.1:8080",
@@ -87,6 +94,68 @@ const TrainerHud = (function () {
         }
         const sign = ms < 0 ? "-" : "+";
         return sign + (Math.abs(ms) / 1000).toFixed(decimals);
+    };
+
+    // ---- data quality (PL9) ----------------------------------------------------------
+
+    /**
+     * How far the numbers can be trusted. d: the last data from Paddock (or null); now: this clock.
+     * -> {ageMs, stale (data too old), tel ('ok' | 'stale' | 'paused' | 'none' | null), badDelta, label, cls}
+     * label is "" when all is well; cls is "warn" or "bad".
+     */
+    const dataQuality = function (d, now) {
+        const out = { ageMs: null, stale: false, tel: null, badDelta: false, label: "", cls: "" };
+        if (!d || !d.now) {
+            return out;
+        }
+        out.ageMs = Math.max(0, now - d.now);
+        out.stale = out.ageMs > STALE_DATA_MS;
+        const q = d.q || null;
+        out.tel = q ? q.tel : null;
+        out.badDelta = !!(q && q.delta === "invalid");
+        if (out.stale) {
+            out.label = "DATA " + (out.ageMs / 1000).toFixed(1) + " s OLD";
+            out.cls = "bad";
+        } else if (out.tel === "stale") {
+            out.label = "TELEMETRY STALE" + (q.telAgeMs ? " " + (q.telAgeMs / 1000).toFixed(1) + " s" : "");
+            out.cls = "bad";
+        } else if (out.badDelta) {
+            out.label = "DELTA N/A";
+            out.cls = "warn";
+        }
+        return out;
+    };
+
+    /** true when json is an older copy than the data shown (and that data arrived less than 3 s ago). */
+    const isOlder = function (cur, json, receivedAt, now) {
+        return !!(cur && json && cur.now && json.now && json.now < cur.now && now - receivedAt < 3000);
+    };
+
+    const fmtSpread = function (c) {
+        if (!c) {
+            return "";
+        }
+        if (c.spreadMs === null || c.spreadMs === undefined) {
+            return "CONSISTENCY: " + c.n + "/" + c.need + " VALID LAPS";
+        }
+        return "SPREAD " + (c.spreadMs / 1000).toFixed(2) + " s · " + c.n + " LAPS · " + String(c.confidence || "").toUpperCase();
+    };
+
+    const fmtSummary = function (sm) {
+        if (!sm) {
+            return "";
+        }
+        let t = "LAP " + fmtLap(sm.lapMs) + (sm.valid ? "" : " INVALID");
+        if (sm.vsRefMs !== null && sm.vsRefMs !== undefined) {
+            t += " " + fmtDelta(sm.vsRefMs, 3) + " vs " + (sm.refMode === "ideal" ? "IDEAL" : (sm.refMode === "session" ? "SESSION" : "BEST"));
+        }
+        if (sm.gain) {
+            t += " · " + sm.gain.name + " " + fmtDelta(sm.gain.deltaMs, 3);
+        }
+        if (sm.loss) {
+            t += " · " + sm.loss.name + " " + fmtDelta(sm.loss.deltaMs, 3);
+        }
+        return t;
     };
 
     // ---- networking ---------------------------------------------------------------
@@ -250,7 +319,8 @@ const TrainerHud = (function () {
         const S = LOADER.settings;
         const parts = {};
         PARTS.forEach(function (p) {
-            parts[p] = S.get(NAME, partKey(p)) !== false;
+            const v = S.get(NAME, partKey(p));
+            parts[p] = PARTS_OFF[p] ? v === true : v !== false;
         });
         return { parts: parts, scale: S.get(NAME, "hudScale"), opacity: S.get(NAME, "hudOpacity") };
     };
@@ -338,6 +408,9 @@ const TrainerHud = (function () {
             ahead: { step: 5, speedMs: 0, thr: [braking ? 0 : 1], brk: [braking ? 0.85 : 0] },
             sectors: { n: 3, k: lapMs > 68502 ? 2 : 1, cur: lapMs > 68502 ? [31112, 37390] : [31112], prev: [31250, 37480, 33600], best: [31112, 37200, 33410], sess: [31180, 37390, 33500] },
             fuel: { l: 23.4, perLap: 2.31, lapsLeft: 10.1 },
+            q: { tel: "ok", telAgeMs: 16, delta: "ok" },
+            summary: { lapMs: 103110, valid: true, pb: false, vsRefMs: 792, refMode: "best", gain: { name: "T4", deltaMs: -41 }, loss: { name: "T9", deltaMs: 212 }, ageMs: 0 },
+            consistency: { n: 7, need: 5, spreadMs: 420, medianMs: 102900, confidence: "low" },
             target: { rank: 3, of: 12, name: "Driver", lapMs: 101800, gapMs: 234 - Math.round(210 * wave), splitMs: lapMs > 68502 ? -120 : null, splitK: 2 },
             saved: null
         };
@@ -374,6 +447,12 @@ const TrainerHud = (function () {
             }
             state.netError = null;
             state.failures = 0;
+            // never step back to an older copy (PL9 review): slots are written in turn, so one read can bring data older
+            // than the last (after a skipped window); taking it would undo a newer state, e.g. show the HUD again just
+            // after the kill switch hid it. Only within 3 s of the newer copy, so a clock step cannot freeze the HUD.
+            if (!DEMO && isOlder(state.data, json, state.receivedAt, Date.now())) {
+                return;
+            }
             state.data = DEMO ? demoData(json) : json;
             state.receivedAt = Date.now();
             if (LOADER) {
@@ -443,6 +522,7 @@ const TrainerHud = (function () {
         + "<div class=\"th-sectors\"></div>"
         + "</div>"
         + "<div class=\"th-line\">"
+        + "<div class=\"th-chip th-bg th-qual th-empty\"></div>"
         + "<div class=\"th-chip th-bg th-tag th-empty\"></div>"
         + "<div class=\"th-chip th-bg th-pot th-empty\"><div class=\"th-ideal\"></div><div class=\"th-gap\"></div></div>"
         + "<div class=\"th-chip th-bg th-spd th-empty\"><div class=\"th-gear\"></div><div class=\"th-speed\"></div><div class=\"th-unit\">KM/H</div></div>"
@@ -451,6 +531,8 @@ const TrainerHud = (function () {
         + "<div class=\"th-chip th-bg th-nextc th-empty\"></div>"
         + "<div class=\"th-chip th-bg th-lastc th-empty\"></div>"
         + "<div class=\"th-chip th-bg th-cue th-off\"><div class=\"th-cue-fill\"></div><div class=\"th-cue-a\"></div><div class=\"th-cue-b\"></div></div>"
+        + "<div class=\"th-chip th-bg th-sum th-empty\"></div>"
+        + "<div class=\"th-chip th-bg th-cons th-empty\"></div>"
         + "<div class=\"th-chip th-bg th-foot th-empty\"><div class=\"th-link\"></div><div class=\"th-saved\"></div></div>"
         + "</div>";
 
@@ -460,7 +542,7 @@ const TrainerHud = (function () {
 
     const create = function (root) {
         root.classList.add("ace-trainerhud");
-        if (!q(root, ".th-leds") || !q(root, ".th-inputs")) {
+        if (!q(root, ".th-leds") || !q(root, ".th-inputs") || !q(root, ".th-qual")) {
             root.innerHTML = MARKUP;
         }
         return {
@@ -486,7 +568,10 @@ const TrainerHud = (function () {
                 nextc: q(root, ".th-nextc"),
                 pot: q(root, ".th-pot"),
                 spd: q(root, ".th-spd"),
-                foot: q(root, ".th-foot")
+                foot: q(root, ".th-foot"),
+                qual: q(root, ".th-qual"),
+                sum: q(root, ".th-sum"),
+                cons: q(root, ".th-cons")
             },
             el: {
                 lapno: q(root, ".th-lapno"),
@@ -516,7 +601,10 @@ const TrainerHud = (function () {
                 fuelL: q(root, ".th-fuel-l"),
                 fuelX: q(root, ".th-fuel-x"),
                 tgtL: q(root, ".th-tgt-l"),
-                tgtX: q(root, ".th-tgt-x")
+                tgtX: q(root, ".th-tgt-x"),
+                qual: q(root, ".th-qual"),
+                sum: q(root, ".th-sum"),
+                cons: q(root, ".th-cons")
             },
             host: opt("host"),
             liveBase: me && me.base ? me.base : "ACEUIAppLoader/trainerhud/",
@@ -528,6 +616,8 @@ const TrainerHud = (function () {
             failures: 0,
             netError: null,
             flash: null,
+            killed: false,
+            quality: null,
             cfgKey: "",
             texts: {},
             classes: {},
@@ -607,7 +697,7 @@ const TrainerHud = (function () {
         let mode = "";
         let near = false;
         let thrCls = "";
-        if (cue) {
+        if (cue && !(state.quality && (state.quality.stale || state.quality.tel === "stale"))) {
             const range = CUE_RANGES[opt("cueRange")] || 200;
             let inM = null;
             if (cue.next) {
@@ -645,7 +735,9 @@ const TrainerHud = (function () {
     // ---- look: parts on/off, size, background (from Paddock's settings; kept while offline) ----------
 
     const PARTS = ["lap", "ref", "delta", "current", "speed", "predicted", "best", "session", "last", "cues", "ideal", "corners", "footer",
-        "shift", "inputs", "sectors", "fuel", "target", "board"];
+        "shift", "inputs", "sectors", "fuel", "target", "board", "summary", "consistency"];
+    // parts that are off unless switched on (the in-game settings window may not have a stored value for them yet)
+    const PARTS_OFF = { speed: true, summary: true, consistency: true };
     const ROWS = { strip: ["lap", "current", "predicted", "delta", "best", "session", "last", "inputs"] };
 
     const applyCfg = function (state, cfg) {
@@ -835,7 +927,8 @@ const TrainerHud = (function () {
         const p = state.pedals;
         setTransformEl(state, "thrFill", p.thrFill, "scaleY(" + (gas === null ? 0 : Math.max(0, Math.min(1, gas))).toFixed(3) + ")");
         setTransformEl(state, "brkFill", p.brkFill, "scaleY(" + (brk === null ? 0 : Math.max(0, Math.min(1, brk))).toFixed(3) + ")");
-        const ah = d && d.ahead ? d.ahead : null;
+        // no reference-pedal markers moved along with the car from data that is too old (PL9 review): none at all
+        const ah = d && d.ahead && !(state.quality && (state.quality.stale || state.quality.tel === "stale")) ? d.ahead : null;
         let rt = null;
         let rb = null;
         if (ah) {
@@ -978,6 +1071,23 @@ const TrainerHud = (function () {
         let deltaMs = null;
         let rate = 0;
 
+        // PL9 kill switch: Paddock sends {off: true} and nothing live; the HUD hides until it is switched on again.
+        // While Paddock cannot be reached the last known state holds (no fallback numbers pop up behind the driver).
+        if (d) {
+            state.killed = d.off === true;
+        }
+        setClass(state, root, "root", "th-killed", state.killed);
+        if (state.killed) {
+            renderBoard(state, null);
+            return;
+        }
+        const qual = dataQuality(d, now);
+        state.quality = qual;
+        setClass(state, root, "root", "th-stale", qual.stale || qual.tel === "stale");
+        setText(state, "qual", qual.label);
+        setClass(state, state.el.qual, "qual", "bad", qual.cls === "bad");
+        setClass(state, state.el.qual, "qual", "warn", qual.cls === "warn");
+
         setClass(state, root, "root", "th-offline", !d);
         if (LOADER && opts) {
             // in game: the settings window's values (kept in line with Paddock's copy), also offline
@@ -996,7 +1106,7 @@ const TrainerHud = (function () {
             setText(state, "lapno", lp && lp.lapNumber ? String(lp.lapNumber) : "-");
             if (lp && lp.timeMs > 0) {
                 const since = LOADER ? d.now : state.receivedAt;
-                const age = lp.inPit ? 0 : Math.min(1000, Math.max(0, now - since));
+                const age = lp.inPit || qual.stale ? 0 : Math.min(1000, Math.max(0, now - since));
                 state.curMs = lp.timeMs + age;
                 setText(state, "curtime", fmtLap(state.curMs));
             } else {
@@ -1008,7 +1118,7 @@ const TrainerHud = (function () {
             const ref = d.ref || {};
             setText(state, "ref", "vs " + (LABELS[ref.mode] || "BEST") + (ref.timeMs ? "  " + fmtLap(ref.timeMs) : "  (none yet)"));
             if (d.delta) {
-                const age = Math.min(EXTRAPOLATE_MAX_MS, now - state.receivedAt);
+                const age = qual.stale ? 0 : Math.min(EXTRAPOLATE_MAX_MS, now - state.receivedAt);
                 rate = d.delta.rate || 0;
                 deltaMs = d.delta.ms + (rate * Math.max(0, age)) / 1000;
             }
@@ -1075,6 +1185,9 @@ const TrainerHud = (function () {
                 setText(state, "saved", "");
             }
             setClass(state, state.el.saved, "saved", "pb", !!(d.saved && d.saved.pb));
+            setText(state, "sum", fmtSummary(d.summary));
+            setClass(state, state.el.sum, "sum", "pb", !!(d.summary && d.summary.pb));
+            setText(state, "cons", fmtSpread(d.consistency));
             setText(state, "link", d.combo ? "" : "PADDOCK · waiting for track");
         } else {
             const g = gameView();
@@ -1095,6 +1208,8 @@ const TrainerHud = (function () {
             setText(state, "lastc", "");
             setText(state, "nextc", "");
             setText(state, "saved", "");
+            setText(state, "sum", "");
+            setText(state, "cons", "");
             let why = "Paddock offline (" + (state.netError || "connecting") + ") @ " + state.host;
             if (LOADER) {
                 why = "Paddock offline: " + (state.netError || "connecting") + " - start it with start.bat";
@@ -1116,6 +1231,9 @@ const TrainerHud = (function () {
         setClass(state, state.chips.pot, "chipPot", "th-empty", !tx.ideal);
         setClass(state, state.chips.spd, "chipSpd", "th-empty", !tx.speed);
         setClass(state, state.chips.foot, "chipFoot", "th-empty", !tx.link && !tx.saved);
+        setClass(state, state.chips.qual, "chipQual", "th-empty", !tx.qual);
+        setClass(state, state.chips.sum, "chipSum", "th-empty", !tx.sum);
+        setClass(state, state.chips.cons, "chipCons", "th-empty", !tx.cons);
 
         renderCue(state, now);
         renderCar(state, now);
@@ -2325,6 +2443,8 @@ const TrainerHud = (function () {
             show("fuel", "Fuel"),
             show("target", "Leaderboard target"),
             show("footer", "Status"),
+            show("summary", "Post-lap summary", false),
+            show("consistency", "Lap-time spread", false),
             { key: "secWin", type: "section", label: "Separate window", flow: "chips" },
             show("board", "Leaderboard window"),
             { key: "secLook", type: "section", label: "Look" },
@@ -2423,7 +2543,11 @@ const TrainerHud = (function () {
         attach: attach,
         detach: detach,
         fmtLap: fmtLap,
-        fmtDelta: fmtDelta
+        fmtDelta: fmtDelta,
+        dataQuality: dataQuality,
+        isOlder: isOlder,
+        fmtSpread: fmtSpread,
+        fmtSummary: fmtSummary
     };
 }());
 

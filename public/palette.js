@@ -2,6 +2,7 @@
 // Finds pages, Settings sections, your track/car combos, recent sessions, tracks and layouts, and cars with saved
 // setups, plus a few commands. Nothing here starts the game: that stays a deliberate click on the Race tab.
 import { esc, api, post, prettyName } from './util.js';
+import { toggleAssist, assistOff } from './assist.js';
 
 const PAGES = [
   ['Home', '#/home', 'Your driving at a glance'], ['Race', '#/race', 'Set up and start a session'], ['Sessions', '#/', 'Your sessions by track and car'], ['Sessions by date', '#/?by=date', 'Newest first'], ['Development', '#/development', 'Goals, challenges, achievements and race weekends'], ['Leaderboards', '#/leaderboard', 'Online lap times and sectors, by track and car'],
@@ -11,13 +12,13 @@ const PAGES = [
 ];
 // Settings sections: [label, element id or heading text on the Settings page]
 const SECTIONS = [
-  ['Paddock HUD settings', 'Paddock HUD'], ['Brake spotter settings', 'Brake spotter'], ['Updates', '#sysUpdates'], ['Backup and restore', '#sysBackup'],
+  ['Paddock HUD settings', 'Paddock HUD'], ['HUD layouts and context profiles', '#hudLayouts'], ['Brake spotter settings', 'Brake spotter'], ['Updates', '#sysUpdates'], ['Backup and restore', '#sysBackup'],
   ['Export laps and sessions (CSV)', 'Export'], ['Diagnostics for a bug report', '#sysDiag'], ['Telemetry debug (raw values)', 'Telemetry debug'],
   ['Setup recognition (check readings against the game)', null, '#/setups'],
 ];
 export const SHORTCUTS = [
   ['Ctrl K', 'Search and commands'], ['?', 'This list'], ['Alt 1 … 9, 0', 'Home, Race, Sessions, Development, Leaderboards, Tracks, Cars, Setups, Game; 0 Settings'],
-  ['Ctrl B', 'Collapse or expand the sidebar'], ['Esc', 'Close a dialog'], ['Ctrl + / Ctrl − / Ctrl 0', 'Larger, smaller or normal text and page size'],
+  ['Alt Q', 'Switch the Paddock HUD and the spotter cues off, or on again'], ['Ctrl B', 'Collapse or expand the sidebar'], ['Esc', 'Close a dialog'], ['Ctrl + / Ctrl − / Ctrl 0', 'Larger, smaller or normal text and page size'],
   ['Ctrl Enter', 'Session notes: save'],
   ['← / →', 'Telemetry: previous or next lap of the session; Replay: step (Shift: 10 samples)'], ['Space', 'Replay: play or pause'], ['[ / ]', 'Replay: previous or next corner'],
   ['F8', 'In game: switch the HUD reference (best, ideal, session best)'], ['F5 · F11 · F12', 'Desktop app: reload, full screen, developer tools'],
@@ -75,6 +76,8 @@ async function sources() {
   }
   for (const c of su?.cars || []) items.push({ kind: 'Setups', label: c.carName, hint: `${c.count} setup${c.count === 1 ? '' : 's'}`, href: `#/setups?car=${encodeURIComponent(c.carId)}` });
   items.push({ kind: 'Command', label: 'Check for Paddock updates', run: async () => { const u = await post('/api/updates/check', {}); window.dispatchEvent(new Event('paddock:updates')); return u.latest ? `${u.latest.version} is out: see Settings → Updates` : u.error ? `Check failed: ${u.error}` : 'You have the newest version'; } });
+  // PL9 kill switch: named for what it will do now
+  items.push({ kind: 'Command', label: assistOff() ? 'HUD and cues: switch on again' : 'HUD and cues: switch off', hint: 'Alt+Q', run: async () => { const r = await toggleAssist(); return `The Paddock HUD and the cues are ${r.off ? 'off' : 'on'}${r.saved ? '' : ' (not saved: they go back after a restart)'}`; } });
   items.push({ kind: 'Command', label: 'Collapse or expand the sidebar', run: () => { toggleSide(); } });
   items.push({ kind: 'Command', label: 'Keyboard shortcuts', run: () => { setTimeout(showShortcuts, 0); } });
   items.push({ kind: 'Command', label: 'Open the setup guide', run: () => { location.hash = '#/welcome'; } });
@@ -212,6 +215,8 @@ export function initShortcuts() {
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'k') { e.preventDefault(); open(); return; }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'b' && !typing(e)) { e.preventDefault(); toggleSide(); return; }
+    // PL9 kill switch: Alt+Q, also in a field (it types nothing there); by key position as well, for other layouts
+    if (e.altKey && !e.ctrlKey && !e.metaKey && (k === 'q' || e.code === 'KeyQ')) { e.preventDefault(); toggleAssist().catch(() => {}); return; }
     if (typing(e)) return;
     if (e.key === '?' && !e.ctrlKey && !e.altKey) { e.preventDefault(); showShortcuts(); return; }
     // by key position, so it also works on keyboards where the digits need Shift (AZERTY)

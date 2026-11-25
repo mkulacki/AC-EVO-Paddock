@@ -8,19 +8,49 @@ import * as cars from './cars.js';
 import * as settings from './settings.js';
 import * as marks from './brakemarks.js';
 import { perf } from './perf.js';
+import { summary as statSummary } from './stats.js';
+import { RULES as ANALYSIS_RULES } from './opportunities.js';
 
 const MODES = ['best', 'ideal', 'session'];
 const LABELS = { best: 'All-time best', ideal: 'Ideal lap', session: 'Session best' };
 const TREND_WINDOW_MS = 1000;
 const CORNER_SHOW_MS = 8000;
 const SAVED_SHOW_MS = 8000;
-const CUE_SHOW_MS = 6000;
+// PL9: how long a brake / throttle result shows is a setting (hud.cueHoldMs, default 6 s as before)
 const LIFT_SAMPLES = 5;   // ~80 ms at 60 Hz
 const PICKUP_SAMPLES = 4;
 const AHEAD_STEP_M = 5;   // the reference lap's pedals ahead of the car, for the HUD's input markers:
 const AHEAD_N = 40;       // 40 points 5 m apart = 200 m, enough for the 0.2 s between the game's reads
 const SHIFT_AT = 0.96;    // share of the redline where the shift lights flash (outside the game)
 const FUEL_LAPS = 5;      // laps averaged for fuel use
+const SUMMARY_SHOW_MS = 8000; // the post-lap summary (part 'summary', off by default), as long as "saved"
+export const TEL_STALE_MS = 500; // live, but the game's telemetry has not changed for this long: labelled stale (PL9)
+const DELTA_MAX_MS = 120000;  // a delta beyond 2 minutes is not a delta (a reset, a teleport): labelled invalid
+
+/**
+ * PL9 telemetry freshness for the HUD. status: the recorder's ('live', 'pause', 'replay', 'menu', ...); packetAt: when
+ * the game's packet id last changed (src/server.js). -> {state: 'ok' | 'stale' | 'paused' | 'none', ageMs}
+ * (server.js already treats 3 s without a change as "game not running"; between TEL_STALE_MS and that it is stale).
+ */
+export function freshness({ status, packetAt, now }) {
+  if (status === 'pause') return { state: 'paused', ageMs: null };
+  if (status !== 'live') return { state: 'none', ageMs: null };
+  const ageMs = packetAt > 0 ? Math.max(0, now - packetAt) : null;
+  return { state: ageMs != null && ageMs > TEL_STALE_MS ? 'stale' : 'ok', ageMs };
+}
+
+/**
+ * PL9 live consistency (part 'consistency', off by default): the spread of this session's valid lap times. Nothing is
+ * shown from fewer than the PL6 minimum (5 valid laps); the spread is the middle half (IQR, robust to one bad lap)
+ * and the confidence word follows PL6 (docs/platform/ANALYSIS.md). Lap times only: no corner thresholds.
+ */
+export function lapConsistency(times) {
+  const n = times.length, R = ANALYSIS_RULES;
+  if (n < R.minPasses) return { n, need: R.minPasses, spreadMs: null, medianMs: null, confidence: 'insufficient' };
+  const s = statSummary(times);
+  return { n, need: R.minPasses, spreadMs: Math.round(s.iqr), medianMs: Math.round(s.median),
+    confidence: n < R.confidence.medium ? 'low' : n < R.confidence.high ? 'medium' : 'high' };
+}
 
 export class LiveHud {
   constructor(recorder) {
@@ -40,8 +70,11 @@ export class LiveHud {
     this.lastSectors = null; // the previous lap's sector times, shown until this lap overwrites them
     this.fuel = { lap: null, start: null, pit: false, used: [] }; // litres used per lap
     this.redline = { key: null, rpm: null, seen: 0 }; // from the car catalogue, else the highest rpm seen
+    this.prevCorners = [];   // the corner gains / losses of the lap that just ended (post-lap summary)
+    this.summary = null;     // {lapMs, valid, pb, vsRefMs, refMode, gain, loss, at}
+    this.sessLaps = [];      // this session's valid lap times (live consistency)
     recorder.on('lap', (l) => this.onLap(l));
-    recorder.on('session', () => { this.refsKey = null; this.loading = null; this.fuel.used = []; this.redline.key = null; });
+    recorder.on('session', () => { this.refsKey = null; this.loading = null; this.fuel.used = []; this.redline.key = null; this.sessLaps = []; this.summary = null; });
   }
 
   setMode(mode) {
@@ -58,6 +91,17 @@ export class LiveHud {
   onLap(l) {
     const prevBest = this.refs?.best?.timeMs ?? null;
     this.saved = { id: l.id, lapTimeMs: l.lapTimeMs, valid: l.valid, pb: l.valid && (prevBest == null || l.lapTimeMs < prevBest), at: Date.now() };
+    if (l.valid && l.lapTimeMs > 0) { this.sessLaps.push(l.lapTimeMs); if (this.sessLaps.length > 200) this.sessLaps.shift(); }
+    // post-lap summary: the time against the reference the HUD was using, the corner that gained most and lost most
+    const ref = this.refs?.[this.mode] ?? null, cs = this.prevCorners || [];
+    let gain = null, loss = null;
+    for (const c of cs) {
+      if (c.deltaMs < 0 && (!gain || c.deltaMs < gain.deltaMs)) gain = c;
+      if (c.deltaMs > 0 && (!loss || c.deltaMs > loss.deltaMs)) loss = c;
+    }
+    this.summary = { lapMs: l.lapTimeMs, valid: !!l.valid, pb: this.saved.pb, vsRefMs: ref?.timeMs ? l.lapTimeMs - ref.timeMs : null, refMode: this.mode,
+      gain: gain && { name: gain.name, deltaMs: gain.deltaMs }, loss: loss && { name: loss.name, deltaMs: loss.deltaMs }, at: this.saved.at };
+    this.prevCorners = [];
     this.refsKey = null; this.loading = null; // best / ideal / session best may have changed: loaded again
   }
 
@@ -114,6 +158,9 @@ export class LiveHud {
 
   refFor(mode) { return this.loadRefs()?.[mode] ?? null; }
 
+  /** Live, but the game's telemetry stopped changing (PL9): no cue is worked out from it. */
+  telemetryStale(now = Date.now()) { return freshness({ status: this.rec.state.status, packetAt: this.rec.state.packetAt, now }).state === 'stale'; }
+
   // ------------------------------------------------------------ per frame
   onFrame(f) {
     this.frame = f;
@@ -130,8 +177,8 @@ export class LiveHud {
     // new lap: close the corner that ended at the line, and the last sector
     if (!this.cur || this.cur.lap !== lap) {
       if (this.cur && ref) this.closeCorner(this.cur, ref, this.cur.lastD, this.cur.lastT, true);
-      if (this.cur) this.closeSectors(this.cur, f);
-      this.cur = { lap, cross: new Map([[0, 0]]), lastD: null, lastT: null, k: 0, sk: 0, secs: [], secStart: 0 };
+      if (this.cur) { this.closeSectors(this.cur, f); this.prevCorners = this.cur.corners; }
+      this.cur = { lap, cross: new Map([[0, 0]]), lastD: null, lastT: null, k: 0, sk: 0, secs: [], secStart: 0, corners: [] };
       this.ring = [];
     }
     if (!ref) { this.delta = null; return; }
@@ -264,6 +311,7 @@ export class LiveHud {
     const R = ref.R;
     const refDt = interp(R.t, dEnd / R.step) - R.t[c.a];
     this.lastCorner = { name: c.name, deltaMs: Math.round((tEnd - ta) - refDt), at: Date.now() };
+    if (cur.corners && cur.corners.length < 100) cur.corners.push({ name: c.name, deltaMs: this.lastCorner.deltaMs });
   }
 
   // the next brake (or lift) point ahead of the car on the reference lap, for the audio spotter.
@@ -310,19 +358,27 @@ export class LiveHud {
     const refs = (s && this.loadRefs()) || null;
     const ref = refs?.[this.mode] ?? null;
     const live = st.status === 'live' && f;
+    const hc = settings.hudConfig();
+    // PL9: is the data the HUD gets fresh? Stale telemetry is labelled and gets no countdowns (cue, ahead); a delta
+    // that cannot be right is not sent, and says so
+    const fr = freshness({ status: st.status, packetAt: st.packetAt, now });
+    const stale = fr.state === 'stale';
+    const okDelta = !this.delta || (Number.isFinite(this.delta.ms) && Math.abs(this.delta.ms) < DELTA_MAX_MS);
+    const delta = okDelta ? this.delta : null;
     const out = {
       v: 1, now,
+      q: { tel: fr.state, telAgeMs: fr.ageMs, delta: okDelta ? 'ok' : 'invalid' },
       game: st.status, connected: st.connected,
       combo: s ? { track: s.track, layout: s.layout, car: s.car } : null,
       lap: live && lap ? {
         timeMs: f.lapTimeMs, timed: !!lap.full && !f.inPit, valid: !lap.invalid, inPit: f.inPit, tyresOut: f.tyresOut ?? 0,
-        lapNumber: lap.lapNumber, d: this.delta?.d ?? null, speed: Math.round(f.speed || 0), gear: f.gear ?? null, length: ref?.R.L ?? f.trackLength,
+        lapNumber: lap.lapNumber, d: delta?.d ?? null, speed: Math.round(f.speed || 0), gear: f.gear ?? null, length: ref?.R.L ?? f.trackLength,
       } : null,
       ref: {
         mode: this.mode, label: LABELS[this.mode], timeMs: ref?.timeMs ?? null,
         available: Object.fromEntries(MODES.map((m) => [m, !!refs?.[m]])),
       },
-      delta: this.delta && ref ? { ms: this.delta.ms, rate: this.delta.rate, predictedMs: ref.timeMs + this.delta.ms } : null,
+      delta: delta && ref ? { ms: delta.ms, rate: delta.rate, predictedMs: ref.timeMs + delta.ms } : null,
       times: {
         bestMs: refs?.best?.timeMs ?? null, bestAt: refs?.best?.at ?? null,
         idealMs: refs?.ideal?.timeMs ?? null, sessionBestMs: refs?.session?.timeMs ?? null,
@@ -334,8 +390,8 @@ export class LiveHud {
     };
     if (this.lastCorner && now - this.lastCorner.at < CORNER_SHOW_MS) out.corner.last = { name: this.lastCorner.name, deltaMs: this.lastCorner.deltaMs };
     // next corner: first apex ahead of the car on the reference lap
-    if (ref && this.delta && refs.corners.length) {
-      const d = this.delta.d;
+    if (ref && delta && refs.corners.length) {
+      const d = delta.d;
       const k = ref.metrics.findIndex((m) => m.apexAt > d);
       if (k >= 0) {
         const m = ref.metrics[k];
@@ -346,9 +402,9 @@ export class LiveHud {
       }
     }
     // brake / throttle cues: the countdown is extrapolated in the HUD from `now`, the distance and the speed
-    if (ref && this.delta && live && lap?.full && !f.inPit) {
+    if (ref && delta && live && !stale && lap?.full && !f.inPit) {
       const n = out.corner.next;
-      const fresh = (r) => (r && now - r.at < CUE_SHOW_MS ? { corner: r.corner, kind: r.kind, refKind: r.refKind, deltaM: r.deltaM, ageMs: now - r.at } : null);
+      const fresh = (r) => (r && now - r.at < hc.cueHoldMs ? { corner: r.corner, kind: r.kind, refKind: r.refKind, deltaM: r.deltaM, ageMs: now - r.at } : null);
       out.cue = {
         next: n && n.brakeInM != null ? { corner: n.name, kind: n.brakeKind, inM: n.brakeInM } : null,
         speedMs: Math.round((f.speed / 3.6) * 10) / 10,
@@ -357,7 +413,7 @@ export class LiveHud {
       // the reference lap's pedals over the next 200 m: the HUD moves along it with the car's speed
       const R = ref.R, ahead = { step: AHEAD_STEP_M, speedMs: out.cue.speedMs, thr: [], brk: [] };
       for (let i = 0; i < AHEAD_N; i++) {
-        const x = this.delta.d + i * AHEAD_STEP_M;
+        const x = delta.d + i * AHEAD_STEP_M;
         if (x > R.L) break;
         ahead.thr.push(Math.round(interp(R.thr, x / R.step) * 100) / 100);
         ahead.brk.push(Math.round(interp(R.brk, x / R.step) * 100) / 100);
@@ -365,7 +421,7 @@ export class LiveHud {
       out.ahead = ahead;
     }
     // own brake marks: the HUD's "brake in N m" counts to the same points as the spotter
-    if (settings.spotterConfig().points === 'mine' && live && lap?.full && !f.inPit && s) {
+    if (settings.spotterConfig().points === 'mine' && live && !stale && lap?.full && !f.inPit && s) {
       const nb = this.nextMark();
       const inM = nb ? Math.round(nb.inM) : null;
       if (out.corner.next) Object.assign(out.corner.next, { brakeInM: nb && inM < out.corner.next.toApexM ? inM : null, brakeKind: nb?.kind ?? 'brake' });
@@ -407,6 +463,9 @@ export class LiveHud {
     // the board window: only on track (s), from the board the target uses
     const bw = s && this.boardSource ? this.boardSource(s) : null;
     if (bw) out.board = bw;
+    // PL9 parts that are off by default: sent only when switched on
+    if (hc.parts.summary && this.summary && now - this.summary.at < SUMMARY_SHOW_MS) out.summary = { ...this.summary, ageMs: now - this.summary.at };
+    if (hc.parts.consistency && s) out.consistency = lapConsistency(this.sessLaps);
     return out;
   }
 }

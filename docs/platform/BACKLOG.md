@@ -96,6 +96,7 @@ Tests: one failing regression test per verified finding before its fix, plus the
 ## PL9: HUD and live assistance (P2)
 
 - HUD profiles, freshness indicator, cue cooldowns, post-lap summary, one kill switch; bridge stress test on the slot files (PL3 harness). Bump `mod/trainerhud/app.json` if the HUD changes. In-game behaviour unverifiable here.
+- **Done 2026-11-25** (`docs/platform/PL9-report.md`, audit in `docs/platform/HUD_BRIDGE.md`): HUD 0.15.0, `src/assist.js`, `src/hudlayouts.js`, bridge counters and slow-write back-off; OD-PL-54 … 63 applied as operator defaults. Follow-ups: check 0.15.0 in game; the HUD does not show the active drill or running stint (D-PL9-9); a backwards clock step still stops HUD reads until a page reload.
 
 ## PL10: Leaderboard integrity (P1 code, P3 community)
 
