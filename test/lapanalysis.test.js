@@ -124,3 +124,20 @@ test('no valid lap: a plain error, not a made-up analysis', async () => {
   await assert.rejects(svc.lapAnalysisAsync({ track: 'nowhere', layout: '', car: 'none' }), /No valid laps/);
   assert.ok(lapData().lapTimeMs > 0);
 });
+
+test('a new personal best is explained against the previous best: the corner, its phase and the measured difference', async () => {
+  const s = db.createSession({ ...COMBO, sessionType: 0, driver: 'Me', startedAt: 3e9 });
+  // no early braking at T1 and no held throttle at T2: quicker than every earlier lap
+  const id = insertLap(db, { sessionId: s, recordedAt: 3e9, params: { brake: [1, 1, 1], hold: [0, 0, 0], gear: [0, 0, 0] } });
+  svc.invalidate(COMBO);
+  const r = await svc.lapAnalysisAsync(COMBO);
+  assert.equal(r.pb.lapId, id);
+  assert.equal(r.pb.prev.lapId, ids[0], 'the best lap before it (the first of the equal ones)');
+  assert.ok(r.pb.deltaMs < 0);
+  const t1 = r.pb.gains.find((g) => g.name === 'T1');
+  assert.ok(t1 && t1.phases.entry < 0, JSON.stringify(r.pb.gains));
+  assert.ok(t1.findings.some((f) => /^Your best lap started braking \d+ m later/.test(f.observation)), JSON.stringify(t1.findings));
+  assert.equal(r.pb.compat.level !== 'incompatible', true);
+  db.deleteLap(id);
+  svc.invalidate(COMBO);
+});

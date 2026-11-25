@@ -436,7 +436,8 @@ function* analysisSteps(combo, info, { window, match }) {
   const sig = `pl6|${PASS_REV}|${cornerSig.get(info)}`;
   const laps = [];
   for (const l of chosen) {
-    if (!hasLapPoints(l.id, sig) && !resampleCache.has(l.id)) yield;
+    // a lap's metrics cost ~1-2 ms even when its trace is in memory: a chance to yield before every lap not kept yet
+    if (!hasLapPoints(l.id, sig)) yield;
     const p = lapPasses(info, l.id);
     if (!p) continue; // deleted meanwhile (the result is not kept)
     if (p.n !== refN) { excluded.push({ id: l.id, reason: 'recorded on another track length' }); continue; }
