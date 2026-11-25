@@ -580,3 +580,15 @@
 - **Needs approval:** push/merge; everything in `EXTENSIBILITY_DESIGN.md`.
 - **Open decisions:** OD-PL-74 … 82, OPEN (operator), recommended defaults applied; the user reviews them in the app. D-PL11-1 … 4 to confirm.
 - **User approval:** pending. Push/merge not done.
+
+## RB: Research backlog
+
+- **Started / finished:** 2026-11-25 · branch `platform/rb-research` (from `6e06801`, the PL11 merge) · report `docs/platform/RB-report.md`; reports in `docs/platform/research/`
+- **Objectives:** one short feasibility report per research topic (interfaces verified vs assumed, restrictions, failure modes, proof-of-concept scope, maintenance cost, verdict); no implementation.
+- **Changes:** nine reports plus an index in `docs/platform/research/`; `docs/platform/RB-report.md`; this entry and `docs/DEVELOPMENT_STATE.md`. No code changed.
+- **Findings:** the repo exposes opponent world coordinates and ids only (`src/shm.js:22`); setup files can be written but no live-apply interface is known; no 3D ghost, results feed or game-signed lap attestation is known; client-supplied data cannot be authoritative.
+- **Verdicts:** opponent spotter feasible position-only, unverified; race engineer narrow digest only; fuel feasible after an in-game check, tyre prediction not; setup live apply not feasible; 3D ghost not feasible (2D is); championship results and competition-grade verification not feasible from client data; mobile companion feasible but security-heavy; multi-sim not recommended now.
+- **Tests:** `npm run check` 164/164; `npm test` 467/467 (no code changed).
+- **Known limitations:** nothing was checked in AC EVO; other-sim statements are assumptions.
+- **Needs approval:** any proof-of-concept; championship and mobile items need backend, cost and security approval.
+- **User approval:** pending. Push/merge not done.

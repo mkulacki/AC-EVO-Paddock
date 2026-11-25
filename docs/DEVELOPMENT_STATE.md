@@ -1,10 +1,10 @@
 # Development state
 
-_Last updated: 2026-11-25 (PL11)_
+_Last updated: 2026-11-25 (RB)_
 
-**Status:** P0–P10 done; **0.7.0-beta.1 released 2026-11-23**. Platform plan PL0–PL11 (the local operator plan, not in the repo; phase scopes are summarised in `docs/platform/BACKLOG.md`) started.
-**Current phase:** PL11 (data ownership) done on `platform/pl11-data-ownership` (2026-11-25); operator defaults OD-PL-74 … 82 await the user's review. PL10 is merged locally (`d97a278`); its D1 migration 0003 and Worker deploy are still prepared, **not executed**.
-**Branch:** `platform/pl11-data-ownership` (from `d97a278`; not pushed, not merged).
+**Status:** All phases done (P0–P10, PL0–PL11, RB); **0.7.0-beta.1 released 2026-11-23**. Platform plan PL0–PL11 (the local operator plan, not in the repo; phase scopes are summarised in `docs/platform/BACKLOG.md`) started.
+**Current phase:** none; RB (research backlog) done on `platform/rb-research` (reports only). Before that: PL11 (data ownership) done on `platform/pl11-data-ownership` (2026-11-25); operator defaults OD-PL-74 … 82 await the user's review. PL10 is merged locally (`d97a278`); its D1 migration 0003 and Worker deploy are still prepared, **not executed**.
+**Branch:** `platform/rb-research` (from `6e06801`; not pushed, not merged).
 
 ## Phases
 
@@ -34,10 +34,11 @@ _Last updated: 2026-11-25 (PL11)_
 | PL9 | HUD and live assistance | Done 2026-11-25, review fixes applied (`f2d4e9f`, `eee30ee`, `d5da044`), awaiting the user's review (`docs/platform/PL9-report.md`, `docs/platform/HUD_BRIDGE.md`) |
 | PL10 | Leaderboard integrity | Done 2026-11-25, awaiting the user's review; migration and deploy need approval (`docs/platform/PL10-report.md`, `docs/platform/LEADERBOARD_TRUST.md`, `docs/platform/COMMUNITY_DESIGN.md`) |
 | PL11 | Data ownership | Done 2026-11-25, awaiting the user's review (`docs/platform/PL11-report.md`, `docs/platform/DATA_OWNERSHIP.md`, design only: `docs/platform/EXTENSIBILITY_DESIGN.md`) |
+| RB | Research backlog (reports only) | Done 2026-11-25, awaiting the user's review (`docs/platform/RB-report.md`, `docs/platform/research/`) |
 
 ## Current task
 
-None in progress. PL11 is committed on `platform/pl11-data-ownership`: scheduled verified backups (off by default), retention and storage forecast, crash recovery of interrupted sessions, report files (Save as HTML), the demo (`data\demo`); report `docs/platform/PL11-report.md`. The live leaderboard is still unchanged: PL10's `leaderboard/migrations/0003_integrity.sql` is not applied and its `worker.js` is not deployed.
+None in progress. RB wrote nine feasibility reports (no code). PL11 is committed on `platform/pl11-data-ownership`: scheduled verified backups (off by default), retention and storage forecast, crash recovery of interrupted sessions, report files (Save as HTML), the demo (`data\demo`); report `docs/platform/PL11-report.md`. The live leaderboard is still unchanged: PL10's `leaderboard/migrations/0003_integrity.sql` is not applied and its `worker.js` is not deployed.
 
 ## Known problems
 
