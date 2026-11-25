@@ -11,6 +11,8 @@ import * as trackdata from './trackdata.js';
 import { LiveHud } from './live.js';
 import { GameBridge, ACE, ACE_AUTO } from './gamebridge.js';
 import { createSpotter } from './spotter.js';
+import * as assist from './assist.js';
+import * as hudLayouts from './hudlayouts.js';
 import * as marks from './brakemarks.js';
 import { createMarker } from './brakemarks.js';
 import * as wheel from './wheel.js';
@@ -75,11 +77,12 @@ const hud = new LiveHud(recorder);
 // (the leaderboard target is connected below, once the leaderboard exists)
 // TC / ABS / ESC levels and assists per lap, reported by the in-game HUD (src/aids.js)
 const aidsTracker = createAidsTracker({ recorder });
-const hudSnapshot = () => ({ ...hud.snapshot(), cfg: settings.hudConfig() }); // live data + the HUD's look (parts, size, opacity)
+// live data + the HUD's look (parts, size, opacity); with the kill switch on, no live data at all (src/assist.js)
+const hudSnapshot = () => assist.gate({ ...hud.snapshot(), cfg: settings.hudConfig() });
 // in-game HUD: data via the live slot files, commands via the game log (the game's UI cannot do HTTP)
 const runCommand = (c) => {
   try {
-    if (c.cmd === 'ref') hud.setMode(c.arg || 'cycle');
+    if (c.cmd === 'ref' && !assist.isOff()) hud.setMode(c.arg || 'cycle');
     if (c.cmd === 'aids') aidsTracker.onCommand(c.arg); // a few per lap at most
     // a part / size / opacity changed in the in-game settings window: Paddock keeps the one copy
     if (c.cmd === 'hud' && c.arg && typeof c.arg === 'object') {
@@ -89,9 +92,10 @@ const runCommand = (c) => {
     console.log(`[hud] command from game: ${c.cmd} ${typeof c.arg === 'object' ? JSON.stringify(c.arg) : c.arg ?? ''}`);
   } catch (e) { console.log(`[hud] command ${c.cmd} failed: ${e.message}`); }
 };
+let bridge = null; // the in-game HUD bridge (its stats go to Integration health and Diagnostics)
 if (mockIdx < 0 || process.env.ACE_BRIDGE) {
   hudInstall.startAuto(); // keeps the App Loader and the in-game HUD installed and current while the game is closed
-  new GameBridge({ snapshot: () => ({ ...hudSnapshot(), order: game.currentOrder() }), onCommand: runCommand,
+  bridge = new GameBridge({ snapshot: () => ({ ...hudSnapshot(), order: game.currentOrder() }), onCommand: runCommand,
     onLaunchEvent: game.onLaunchEvent, onCatalogue: race.onCatalogue }).start();
 }
 // this Paddock's version, and the daily update check (never in mock runs or tests, unless PADDOCK_UPDATE_CHECK is set)
@@ -168,7 +172,8 @@ const liveCar = () => (inSession() ? recorder.session?.car || source.lastRaw?.fr
 const clients = new Set();
 const broadcast = (type, data) => { const msg = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`; for (const c of clients) c.write(msg); };
 // audio brake spotter: the open Paddock page plays what it says (sound and volume travel with each cue)
-const spotter = createSpotter({ config: settings.spotterConfig,
+// PL9: nothing is said while the kill switch is on or the telemetry has stopped changing
+const spotter = createSpotter({ config: settings.spotterConfig, blocked: () => (assist.isOff() ? 'off' : hud.telemetryStale() ? 'stale' : null),
   emit: (cue) => { const c = settings.spotterConfig(); broadcast('spotter', { ...cue, sound: c.sound, volume: c.volume }); } });
 // own brake marks: marking them with a wheel button / keyboard shortcut, or from the brake pedal on one lap.
 // The confirmation sounds go through the spotter's channel (always beeps, also when the spotter is off).
@@ -187,6 +192,24 @@ function bindMarkKey() {
   markKeyState = globalThis.__paddockSetMarkKey(accel, () => marker.press()) ? 'ok' : 'taken';
 }
 bindMarkKey();
+// PL9 kill switch shortcut (Settings): a global shortcut of the desktop app, empty by default (opt-in)
+let assistKeyState = 'none';
+function bindAssistKey() {
+  const accel = settings.get().assistKey;
+  if (!accel) { globalThis.__paddockSetAssistKey?.(null); assistKeyState = 'none'; return; }
+  if (!globalThis.__paddockSetAssistKey) { assistKeyState = 'desktop-only'; return; }
+  assistKeyState = globalThis.__paddockSetAssistKey(accel, () => assist.set('toggle')) ? 'ok' : 'taken';
+}
+bindAssistKey();
+// every change of the switch: the open pages (header bar) and the desktop app's tray menu
+assist.onChange((off) => { broadcast('assist', { off }); globalThis.__paddockAssistChanged?.(off); });
+globalThis.__paddockAssist = { isOff: () => assist.isOff(), set: (v) => assist.set(v) };
+// PL9 context profiles: a session of a type with a chosen layout starts -> that layout (off unless switched on).
+// Outside the telemetry tick (the 'session' event fires inside it): the settings file is written then.
+recorder.on('session', (s) => setImmediate(() => {
+  try { const n = hudLayouts.forSession(s?.sessionType); if (n) { hudLayouts.apply(n); console.log(`[hud] layout "${n}" for this session type`); } }
+  catch (e) { console.log(`[hud] layout for this session not applied: ${e.message}`); }
+}));
 
 // a new lap: only its track + car is worked out again (service.js invalidate)
 recorder.on('lap', (l) => { svc.invalidate(l); broadcast('lap', l); afterLap(l); console.log(`[lap] ${l.track}/${l.car} ${(l.lapTimeMs / 1000).toFixed(3)}s ${l.valid ? 'valid' : 'INVALID'} -> #${l.id}`); });
@@ -303,6 +326,7 @@ setInterval(() => {
       recorder.state.status = 'game not running';
       return;
     }
+    recorder.state.packetAt = lastPacketChange; // the HUD labels telemetry that stopped changing (PL9, src/live.js freshness)
     // recording off (D-PL5-19): telemetry.db was made by a newer Paddock; the game is seen, nothing is recorded or worked on
     if (db.blocked) { Object.assign(recorder.state, { connected: true, lastFrameAt: Date.now(), status: 'recording off' }); return; }
     recorder.onFrame(f);
@@ -417,8 +441,32 @@ async function route(req, res) {
   if (p === '/api/hud') return send(res, 200, hudSnapshot());
   if (p === '/api/hud/ref' && m === 'POST') {
     const { mode = 'cycle' } = await readJson(req);
-    hud.setMode(mode);
+    if (!assist.isOff()) hud.setMode(mode);
     return send(res, 200, hudSnapshot());
+  }
+
+  // ---- PL9 kill switch (HUD and cues) and HUD layouts: Paddock's own pages only (not under /api/hud, which is open
+  // to the overlay and the in-game app)
+  if (p === '/api/assist') {
+    if (m === 'POST') {
+      const { off } = await readJson(req, 1024);
+      if (typeof off !== 'boolean' && off !== 'toggle') return send(res, 400, { error: 'off must be true, false or "toggle"' });
+      return send(res, 200, assist.set(off));
+    }
+    return send(res, 200, { off: assist.isOff() });
+  }
+  if (p === '/api/hudlayouts') {
+    try {
+      if (m === 'POST') {
+        const b = await readJson(req, 16384);
+        if (b.action === 'save') return send(res, 200, { ...hudLayouts.view(), saved: hudLayouts.save(b.name) && true, hud: settings.hudConfig() });
+        if (b.action === 'apply') return send(res, 200, { ...hudLayouts.view(), hud: hudLayouts.apply(b.name) });
+        if (b.action === 'delete') return send(res, 200, { ...hudLayouts.remove(b.name), hud: settings.hudConfig() });
+        if (b.action === 'contexts') return send(res, 200, { ...hudLayouts.setContexts(b), hud: settings.hudConfig() });
+        return send(res, 400, { error: 'Unknown action' });
+      }
+      return send(res, 200, { ...hudLayouts.view(), hud: settings.hudConfig() });
+    } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
   }
 
   // ---- Tracks tab: every track/layout in the game, from AC EVO's own track data
@@ -462,6 +510,7 @@ async function route(req, res) {
       mock: mockIdx >= 0, aceFound: fs.existsSync(ACE), game: g,
       telemetry: { ...recorder.state, source: source.name, packetAgeMs: lastPacket == null ? null : Date.now() - lastPacketChange, stale },
       perf: perf.summary(), hud: safe(() => hudInstall.status({ quick: true })), channels: channels.list({ car: liveCar() }), checkContext: channels.context(),
+      bridge: bridge ? bridge.stats() : null, assistOff: assist.isOff(),
       board: safe(() => board.health()), updates: safe(() => updates.status()), dbBlocked: db.blocked,
     }));
   }
@@ -752,6 +801,7 @@ async function route(req, res) {
       game: (() => { try { const g = game.status(); return { running: g.running, version: g.version ?? g.gameVersion ?? null, hudVersion: g.hudVersion ?? null }; } catch (e) { return { error: e.message }; } })(),
       loader: (() => { try { return loaderInstall.status(); } catch (e) { return { error: e.message }; } })(),
       hud: (() => { try { return hudInstall.status(); } catch (e) { return { error: e.message }; } })(),
+      bridge: bridge ? bridge.stats() : null, assistOff: assist.isOff(),
       paths: { gameFiles: ACE, gameFilesExists: fs.existsSync(ACE), contentArchive: (() => { try { return trackdata.archive()?.file ?? 'not found'; } catch (e) { return `not found (${e.message})`; } })() },
     });
     return send(res, 200, url.searchParams.get('format') === 'text' ? { text: d.text } : d.data);
@@ -1003,14 +1053,17 @@ async function route(req, res) {
       if (body.markButton !== undefined && body.markButton !== null) delete body.markButton; // set only by /api/wheel/capture
       delete body.channelChecks; delete body.probeConfirmed; // set only by /api/setupcheck/confirm
       for (const k of sensitive.SIGN_IN_FIELDS) delete body[k]; // set only by the Steam sign-in (src/sensitive.js)
-      const oldPath = settings.get().gamePath, oldKey = settings.get().markKey;
+      const oldPath = settings.get().gamePath, oldKey = settings.get().markKey, oldAssistKey = settings.get().assistKey;
+      delete body.assistOff; // the kill switch goes through /api/assist (it acts at once, also when the file cannot be saved)
+      delete body.hudLayouts; // through /api/hudlayouts (checked there)
       settings.update(body);
       if (settings.get().gamePath !== oldPath) { trackdata.reset(); svc.invalidate(); }
       if (settings.get().markKey !== oldKey) bindMarkKey();
+      if (settings.get().assistKey !== oldAssistKey) bindAssistKey();
     }
     // the game files folder in use (read at start) and the one Windows reports, for the Settings page; damaged or
     // unreadable files of the driver's (OD-PL-5) and whether settings can be saved
-    return send(res, 200, { ...settings.publicView(), aceInUse: ACE, aceAuto: ACE_AUTO, aceExists: fs.existsSync(ACE), markKeyState,
+    return send(res, 200, { ...settings.publicView(), assistOff: assist.isOff(), aceInUse: ACE, aceAuto: ACE_AUTO, aceExists: fs.existsSync(ACE), markKeyState, assistKeyState,
       fileNotices: settings.fileNotices(), canSave: settings.saveable() });
   }
   if (p === '/api/ai/models') return send(res, 200, await ai.listModels());
