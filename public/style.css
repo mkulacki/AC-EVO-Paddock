@@ -1045,3 +1045,4 @@ button.linklike { background: none; border: 0; padding: 0; color: var(--accent-t
 .drill-actions { margin-top: 8px; }
 .drill-revisit { margin: 0 0 8px; }
 @media (max-width: 760px) { .drill-rx { grid-template-columns: 1fr; } .drill-rx dt { padding-top: 6px; } }
+.drill-noversion { flex-basis: 100%; margin: 4px 0 0; color: var(--text-secondary); }

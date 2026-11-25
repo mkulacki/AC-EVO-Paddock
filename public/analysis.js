@@ -2,7 +2,7 @@
 // (src/opportunities.js, docs/platform/ANALYSIS.md). The three biggest opportunities first, each readable on its own:
 // what was measured, kept apart from what it may mean, with links to the comparison and the corner's distribution.
 import { $, esc, api, post, fmt, fmtGap, prettyName, mixHtml, emptyHtml, prov } from './util.js';
-import { DRILLABLE, drillHtml, wireDrills, masteryBadge } from './practice.js';
+import { DRILLABLE, drillHtml, wireDrills, masteryBadge, noVersionHtml } from './practice.js';
 
 const s2 = (ms) => (ms == null ? '–' : `${(ms / 1000).toFixed(2)} s`);
 const CONF = { high: 'High', medium: 'Medium', low: 'Low', insufficient: 'Not enough laps' };
@@ -45,7 +45,7 @@ export async function viewAnalysis(view, params) {
   // the drill's numbers come from the default view (newest laps, any game version or setup)
   const canDrill = !!pr && window === 'recent' && match === 'any';
   d.mastery = new Map((pr?.mastery || []).map((m) => [m.name, m]));
-  d.drill = { can: canDrill, active };
+  d.drill = { can: canDrill, active, ready: pr?.ready ?? { ok: true } }; // ready: false = no recorded game version (D-PL7-13)
 
   const ex = d.sample.excluded || [];
   view.innerHTML = `${head}
@@ -137,15 +137,17 @@ function practiseBtn(t, f, d) {
   if (!d.drill?.can || !DRILLABLE.has(f.key)) return '';
   const a = d.drill.active;
   if (a && a.corner === t.name && a.key === f.key) return ' <span class="badge chal">your drill</span>';
+  if (!d.drill.ready.ok) return ` <button type="button" class="small linklike" disabled aria-disabled="true" aria-describedby="anNoVersion" data-practise-off>Practise this ›</button>`;
   return ` <button type="button" class="small linklike" data-practise="${esc(JSON.stringify([t.name, f.key]))}" title="Make this one behaviour your practice drill here: an exercise, a measurable target and a review point, checked on the passes you drive next.">Practise this ›</button>`;
 }
 function drillSection(d, pr, key) {
   if (!pr) return '<div class="card"><span class="muted">Practice drills could not be worked out just now.</span></div>';
   const a = d.drill.active;
+  const noVersion = d.drill.can && !d.drill.ready.ok ? noVersionHtml('anNoVersion', d.drill.ready.reason) : '';
   if (a) return `<section class="card" id="anDrill"><div class="row"><h2 style="margin:0">Your practice drill here</h2><span class="spacer"></span><a class="s" href="#/development">All drills ›</a></div>
-    <p class="muted s" style="margin:4px 0 8px">One focus at a time: checked on the passes you drive from now on, by what you do in the corner, not by time spent.</p>${drillHtml(a, { combo: false })}</section>`;
+    ${noVersion}<p class="muted s" style="margin:4px 0 8px">One focus at a time: checked on the passes you drive from now on, by what you do in the corner, not by time spent.</p>${drillHtml(a, { combo: false })}</section>`;
   if (!d.top.length) return '';
-  return `<div class="card" id="anDrill"><span class="muted s">${d.drill.can ? 'Pick one finding below and choose <b>Practise this</b>: Paddock turns it into a drill with one exercise and a measurable target, checked on the laps you drive next.' : 'Drills are made from the default view (newest laps, any game version or setup): switch back to it to start one.'}</span>
+  return `<div class="card" id="anDrill">${noVersion}<span class="muted s">${d.drill.can ? 'Pick one finding below and choose <b>Practise this</b>: Paddock turns it into a drill with one exercise and a measurable target, checked on the laps you drive next.' : 'Drills are made from the default view (newest laps, any game version or setup): switch back to it to start one.'}</span>
     ${pr.revisits.filter((r) => `${r.combo.track}|${r.combo.layout}|${r.combo.car}` === key).map((r) => `<p class="s" style="margin:6px 0 0"><span class="badge bad">Revisit</span> ${esc(r.corner)}: ${esc(r.label)} may be slipping (Development).</p>`).join('')}</div>`;
 }
 

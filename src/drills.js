@@ -101,7 +101,22 @@ export async function list({ combo = null } = {}) {
     drills.push(await evaluateOne(g, events, { superseded: seen.has(k), corners }));
     seen.add(k);
   }
-  return { drills, summary: practice.progressSummary(drills), revisits: drills.filter((d) => d.slip?.slipping).map((d) => ({ id: d.id, combo: d.combo, corner: d.corner ?? d.cornerAtStart, key: d.key, label: d.label, share: d.slip.share, n: d.slip.n })), rules: practice.PRACTICE };
+  const readyOf = new Map();
+  for (const d of drills) { const k = `${d.combo.track}|${d.combo.layout}|${d.combo.car}`; if (!readyOf.has(k)) readyOf.set(k, versionReady(d.combo)); d.versionOk = readyOf.get(k).ok; }
+  return { ready: combo ? versionReady(combo) : null, noVersion: NO_VERSION, drills, summary: practice.progressSummary(drills), revisits: drills.filter((d) => d.slip?.slipping).map((d) => ({ id: d.id, combo: d.combo, corner: d.corner ?? d.cornerAtStart, key: d.key, label: d.label, share: d.slip.share, n: d.slip.n })), rules: practice.PRACTICE };
+}
+
+/** Why a drill cannot be made or renewed (D-PL7-13): the pages show it next to the disabled control. */
+export const NO_VERSION = "This lap has no recorded game version, so a drill can't be checked";
+/**
+ * Can a drill be made on this car + track now? Only laps of the newest valid lap's recorded game version count
+ * (OD-PL-34, D-PL7-9), so without that version none could: {ok, game} or {ok: false, reason}.
+ */
+export function versionReady(combo) {
+  const newest = db.lapsForCombo(combo.track, combo.layout, combo.car, true).filter((l) => l.valid)
+    .reduce((x, y) => (!x || y.recorded_at > x.recorded_at || (y.recorded_at === x.recorded_at && y.id > x.id) ? y : x), null);
+  let game = null; try { game = JSON.parse(newest?.cond || 'null')?.game ?? null; } catch { /* old row */ }
+  return game ? { ok: true, game } : { ok: false, game: null, reason: NO_VERSION };
 }
 
 /** Corner mastery of a car + track (the lap analysis's corner rows and its drills); null without valid laps. */
@@ -145,10 +160,9 @@ export function create(body, now = Date.now()) {
     if (active && !body.replace) throw fail(409, `You are practising ${active.extra.corner.name} (${active.extra.label}) on this car and track. One drill at a time: replace it?`, { code: 'active', active: brief(active) });
     // the "before": the corner's passes in the analysed laps, on the newest lap's game version
     const ids = (row.values || []).map((v) => v.lapId);
-    const newest = ids.map((i) => db.getLapMeta(i)).filter(Boolean).reduce((x, y) => (!x || y.recorded_at > x.recorded_at ? y : x), null);
-    let game = null; try { game = JSON.parse(newest?.cond || 'null')?.game ?? null; } catch { /* old row */ }
     // unknown never matches (PL4, OD-PL-34; review fix 3): without the newest lap's game version no lap could count
-    if (!game) throw fail(409, 'Paddock has no game version recorded for your newest lap here, so it cannot tell which laps are comparable: drive a lap with this Paddock first.');
+    const ready = versionReady(combo), game = ready.game;
+    if (!ready.ok) throw fail(409, `${ready.reason}.`, { code: 'noVersion' });
     const spec = { corner: { name: row.name, apex: row.apex }, key, channel: practice.METRICS[key].channel };
     const base = await svc.drillPassesAsync(combo, spec, { ids, game });
     if (!base.found) throw fail(409, base.reason);

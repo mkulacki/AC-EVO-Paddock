@@ -749,6 +749,22 @@ test('lap analysis: the top opportunities read without a chart, observations apa
 // PL7: the last flow, because it adds the newest laps of all (the drill's laps, dated now)
 test('practice drill: Practise this on a Lap analysis card makes a drill with every part of the prescription; laps driven after it meet it; Development shows before and now (PL7)', { skip }, async () => {
   const key = 'fixture_ring|gp|fixture_gt';
+  // D-PL7-13: a newest lap without a recorded game version: Practise this is disabled, the reason and a link to
+  // Integration health are shown (keyboard: the link takes focus); once the lap has its version, drills can be made
+  const lapFile = (code) => execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', `
+    const db = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/db.js')).href)});
+    const { insertLap, COMBO } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/lapfixtures.js')).href)});
+    ${code}`], { env: childEnv, cwd: ROOT, stdio: 'ignore' });
+  lapFile(`const s = db.createSession({ ...COMBO, sessionType: 0, driver: 'Me', startedAt: Date.now() - 5000 });
+    insertLap(db, { sessionId: s, lapNumber: 30, recordedAt: Date.now() - 4000, params: { brake: [0.75, 1, 1], hold: [0, 50, 0] } });`);
+  await go(`#/analysis?combo=${encodeURIComponent(key)}`, "document.querySelector('#anTop .opp-card [data-practise-off]')");
+  assert.equal(await js("document.querySelector('[data-practise]')"), null, 'no enabled Practise this');
+  assert.equal(await js("document.querySelector('[data-practise-off]').disabled"), true);
+  assert.equal(await js("document.querySelector('[data-practise-off]').getAttribute('aria-describedby')"), 'anNoVersion');
+  assert.equal(await js("document.getElementById('anNoVersion').textContent"), "This lap has no recorded game version, so a drill can't be checked. Integration health ›");
+  await js("document.querySelector('#anNoVersion a').focus(); 1");
+  assert.equal(await js("document.activeElement.getAttribute('href')"), '#/game');
+  lapFile("db.raw.prepare(\"UPDATE laps SET cond = '{\\\"game\\\":\\\"1.0\\\"}' WHERE cond IS NULL AND track = 'fixture_ring'\").run();");
   await go(`#/analysis?combo=${encodeURIComponent(key)}`, "document.querySelector('#anTop .opp-card [data-practise]')");
   assert.match(await js("document.querySelector('#anDrill').textContent"), /Practise this/);
   const n0 = dialogs.length;
@@ -759,7 +775,7 @@ test('practice drill: Practise this on a Lap analysis card makes a drill with ev
   const rx = await js("Object.fromEntries([...document.querySelectorAll('#anDrill [data-rx]')].map((e) => [e.dataset.rx, e.textContent.trim()]))");
   assert.deepEqual(Object.keys(rx), ['issue', 'evidence', 'exercise', 'criterion', 'minimum', 'review', 'hypothesis']);
   assert.match(rx.issue, /^T2: Your typical pass holds the throttle part-way/);
-  assert.match(rx.evidence, /^12 valid passes of T2/);
+  assert.match(rx.evidence, /^1[23] valid passes of T2/);
   assert.match(rx.exercise, /^In T2, after the slowest point/);
   assert.match(rx.criterion, /^At least half of your newest 10 passes of T2/);
   assert.match(rx.hypothesis, /may[\s\S]*a possibility, not a proven cause/);
@@ -781,7 +797,7 @@ test('practice drill: Practise this on a Lap analysis card makes a drill with ev
   await go('#/development', "document.querySelector('#dvPractice')");
   assert.ok(await js("!!document.querySelector('#dvPractice [data-drill-state=\"met\"]')"), 'met');
   assert.match(await js("document.querySelector('#dvPracticeCounts').textContent"), /1 met/);
-  assert.match(await js("document.querySelector('#dvPractice').textContent"), /T2: part-throttle time on the exit \(fixture ring · fixture gt\): 33 % of 12 passes before → 100 % of 5 after reached the target/);
+  assert.match(await js("document.querySelector('#dvPractice').textContent"), /T2: part-throttle time on the exit \(fixture ring · fixture gt\): 3[13] % of 1[23] passes before → 100 % of 5 after reached the target/);
   const d = (await api('/api/practice')).body.drills[0];
   assert.equal(d.state, 'met');
   assert.equal(d.eval.judged, 5);

@@ -89,3 +89,7 @@ An independent review found five issues; each is fixed in `d0097a2` with a regre
 5. Pass counts are shown beside the before / after shares (D-PL7-12).
 
 After the fixes: check 144/144, test 369/369 (Node 22.23.4), test:electron 369/369 (Node 24.22.2), test:browser 23/23.
+
+## User decision D-PL7-13 (2026-11-25)
+
+Kept the strict game-version rule; when the newest lap has no recorded version, Practise this / Renew target / Practise again are disabled with the reason and a link to Integration health (Game page); keyboard reachable (the link takes focus; the disabled control points at the reason with `aria-describedby`). Tests: `test/practice-corners.test.js` (`versionReady`, `ready`, `versionOk`, the 409 `noVersion` message) and the PL7 browser flow (disabled control, reason text, focusable link, then a drill once the lap has its version). Counts unchanged: check 144/144, test 369/369, test:electron 369/369, test:browser 23/23.

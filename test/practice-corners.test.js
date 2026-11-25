@@ -34,7 +34,10 @@ function drive(k, at, p, game = '1.0') {
 let d;
 
 test('fix 3: no drill when the newest lap has no game version; laps without one are left out of the "before" and said', async () => {
-  await assert.rejects(drills.create({ combo: COMBO, corner: 'T2', key: 'holdMs' }, T0), (e) => e.status === 409 && /no game version recorded/.test(e.message));
+  // D-PL7-13: the pages are told why, before anything is tried
+  assert.deepEqual(drills.versionReady(COMBO), { ok: false, game: null, reason: "This lap has no recorded game version, so a drill can't be checked" });
+  assert.equal((await drills.list({ combo: COMBO })).ready.ok, false);
+  await assert.rejects(drills.create({ combo: COMBO, corner: 'T2', key: 'holdMs' }, T0), (e) => e.status === 409 && e.code === 'noVersion' && e.message === "This lap has no recorded game version, so a drill can't be checked.");
   db.setLapCond(newest, { game: '1.0' });
   svc.invalidate(COMBO);
   // fix 2: events an older Paddock left for a deleted goal whose id the new drill gets (goals ids are reused)
@@ -48,7 +51,9 @@ test('fix 3: no drill when the newest lap has no game version; laps without one 
   assert.match(d.prescription.evidence.text, /1 of the 13 analysed laps was left out of the "before" \(another or unrecorded game version\)\.$/);
   // a drill lap without a game version does not count either
   drive(1, T0 + 1e6, { hold: [0, 0, 0] }, null);
-  const e = (await drills.list({ combo: COMBO })).drills[0].eval;
+  const listed = await drills.list({ combo: COMBO });
+  assert.equal(listed.drills[0].versionOk, false, 'the newest lap has no version: Renew / Practise again are disabled on the page');
+  const e = listed.drills[0].eval;
   assert.equal(e.passes, 0);
   assert.deepEqual(e.excludedReasons, ['game version not recorded']);
 });

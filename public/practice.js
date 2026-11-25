@@ -43,12 +43,15 @@ function progressHtml(d) {
 export function drillHtml(d, { combo = true } = {}) {
   const p = d.prescription, open = d.active;
   const slip = d.slip?.slipping ? `<p class="s"><b>May be slipping:</b> ${d.slip.n ? `only ${pct(d.slip.share)} of your newest ${d.slip.n} passes since it was met reach the target.` : ''} A short drill again may help.</p>` : '';
+  // without a recorded game version on the newest lap no new drill can be checked (D-PL7-13): disabled, with the reason
+  const blocked = d.versionOk === false && d.corner && ((open && d.state === 'review') || d.slip?.slipping);
+  const off = blocked ? ` disabled aria-disabled="true" aria-describedby="drill-nv-${d.id}"` : '';
   const actions = [
     open && d.state === 'review' ? `<button class="small primary" data-drill-act="keep" data-id="${d.id}">Keep practising</button>` : '',
-    open && d.state === 'review' && d.corner ? `<button class="small" data-drill-act="renew" data-id="${d.id}">Renew target from my latest laps</button>` : '',
-    d.slip?.slipping && d.corner ? `<button class="small primary" data-drill-act="again" data-id="${d.id}">Practise again</button>` : '',
+    open && d.state === 'review' && d.corner ? `<button class="small" data-drill-act="renew" data-id="${d.id}"${off}>Renew target from my latest laps</button>` : '',
+    d.slip?.slipping && d.corner ? `<button class="small primary" data-drill-act="again" data-id="${d.id}"${off}>Practise again</button>` : '',
     open ? `<button class="small ghost" data-drill-act="stop" data-id="${d.id}">Stop</button>` : `<button class="small ghost" data-drill-act="remove" data-id="${d.id}" aria-label="Delete this drill">Delete</button>`,
-  ].join('');
+  ].join('') + (blocked ? noVersionHtml(`drill-nv-${d.id}`) : '');
   return `<article class="drill${open ? ' drill-active' : ''}" id="drill-${d.id}" data-drill="${d.id}">
     <div class="row"><h3 style="margin:0">${esc(d.corner ?? d.cornerAtStart)} · ${esc(p.label)}</h3>${d.corner && d.corner !== d.cornerAtStart ? `<span class="muted s" data-corner-renamed title="Corner names are numbered from the start line on your best lap: a new best lap with another corner renumbers them. The drill follows the corner by where it is.">(${esc(d.cornerAtStart)} when the drill started)</span>` : ''}${stateBadge(d)}<span class="spacer"></span>
       <span class="muted s">started ${esc(day(d.createdAt))}${d.met ? ` · met ${esc(day(d.met.at))}` : d.endedAt ? ` · ${d.endKind === 'replaced' ? 'replaced' : 'stopped'} ${esc(day(d.endedAt))}` : ''}</span></div>
@@ -107,4 +110,13 @@ export function masteryBadge(m) {
     steady: 'Your typical pass is within 0.03 s of your quicker quarter.',
   }[m.level];
   return `<span class="badge ${cls}" data-mastery="${esc(m.level)}" title="${esc(`${tip}${m.drillsMet ? ` Drills met here: ${m.drillsMet}.` : ''}`)}">${esc(m.label)}</span>`;
+}
+
+const NO_VERSION = "This lap has no recorded game version, so a drill can't be checked"; // src/drills.js NO_VERSION
+/**
+ * Why a drill cannot be made or renewed (D-PL7-13): a short visible line, referenced by the disabled control
+ * (aria-describedby = id), with a link to Integration health on the Game page.
+ */
+export function noVersionHtml(id, reason = NO_VERSION) {
+  return `<p class="s drill-noversion" id="${esc(id)}" role="note">${esc(reason)}. <a href="#/game">Integration health ›</a></p>`;
 }
