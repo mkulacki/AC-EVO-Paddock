@@ -75,7 +75,7 @@ export const emptyHtml = (title, body = '', action = '') => `<div class="card em
 /** Something failed: what, a retry button (data-retry) and where to get help. */
 export const errorHtml = (err, { retry = true } = {}) => `<div class="card state-error" role="alert"><h2>This page could not be shown</h2>
   <p>${esc(err?.message || String(err))}</p>
-  <div class="row">${retry ? '<button data-retry>Try again</button>' : ''}<span class="muted" style="font-size:12px">If it keeps happening, copy <a href="#/settings">Settings → Diagnostics</a> into a bug report.</span></div></div>`;
+  <div class="row">${retry ? '<button data-retry>Try again</button>' : ''}<a href="#/home">Home</a><span class="muted" style="font-size:12px">If it keeps happening, <a href="#/game">Game → Integration health</a> says what is not working; for a bug report, copy <a href="#/settings">Settings → Diagnostics</a>.</span></div></div>`;
 
 // ---------------------------------------------------------------- provenance (src/channels.js, docs/DECISIONS.md)
 // Where a value comes from and whether it was checked against the game. Kinds: a channel status (verified,

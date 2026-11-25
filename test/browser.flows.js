@@ -448,3 +448,225 @@ test('integration health on the Game page: every part with its state in words, s
   await waitFor("location.hash === '#/game' && document.querySelector('#gHealth .health-item')", 'the Game page with the panel');
   assert.deepEqual(errors, []);
 });
+
+// ---------------------------------------------------------------- PL5: setup guide, Home, notes/tags/bookmarks, keyboard, reflow
+/** A second Paddock on a fresh, empty data folder (a new driver), on its own port. */
+async function freshServer() {
+  const dir = path.join(env.dir, 'fresh');
+  const e = { ACEVO_DATA: path.join(dir, 'data'), ACE_DIR: path.join(dir, 'ACE') };
+  fs.mkdirSync(e.ACEVO_DATA, { recursive: true }); fs.mkdirSync(e.ACE_DIR, { recursive: true });
+  const port = await freePort();
+  const proc = spawn(process.execPath, node(path.join(ROOT, 'src/server.js'), '--mock', '1'), { env: { ...childEnv, ...e, PORT: String(port) }, cwd: ROOT });
+  let out = '';
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`fresh server did not start:\n${out}`)), 20000);
+    proc.stdout.on('data', (b) => { out += b; if (out.includes(`running: http://localhost:${port}`)) { clearTimeout(timer); resolve(); } });
+    proc.stderr.on('data', (b) => { out += b; });
+    proc.once('exit', (code) => { clearTimeout(timer); reject(new Error(`fresh server exited (${code}):\n${out}`)); });
+  });
+  return { base: `http://127.0.0.1:${port}`, data: e.ACEVO_DATA, stop: async () => { if (proc.exitCode == null) { const gone = new Promise((r) => proc.once('exit', r)); proc.kill(); await gone; } } };
+}
+/** Opens a page of another server in the same tab and waits for its first drawn page. */
+async function openAt(url) {
+  await cdp('Page.navigate', { url });
+  await waitFor('document.readyState === "complete" && window.__rendered > 0', `${url} drawn`);
+}
+/** Presses Tab until the element matching sel has focus (at most n times): reachable by keyboard alone. */
+async function tabTo(sel, n = 40) {
+  for (let k = 0; k < n; k++) {
+    await press('Tab');
+    if (await js(`document.activeElement?.matches(${JSON.stringify(sel)}) || false`)) return k + 1;
+  }
+  throw new Error(`Tab never reached ${sel}`);
+}
+
+test('setup guide: a new driver starts on it; every step by keyboard; AI, online and mods skipped; Finish -> Home (PL5)', { skip }, async () => {
+  const f = await freshServer();
+  const settingsOf = () => fetch(`${f.base}/api/settings`).then((r) => r.json());
+  const ob = () => fetch(`${f.base}/api/onboarding`).then((r) => r.json());
+  try {
+    assert.equal((await ob()).show, true, 'no laps: a new driver');
+    await openAt(`${f.base}/`);
+    await waitFor("location.hash.startsWith('#/welcome') && document.querySelector('#wzTitle')", 'opened on the guide');
+    assert.match(await js("document.querySelector('#wzTitle').textContent"), /Find AC EVO/);
+    assert.match(await js("document.querySelector('.wz-steps [aria-current=step]').textContent.trim()"), /^1/);
+    // step 1 -> 2 by keyboard only: Tab to Next, Enter; focus goes to the new step's title
+    await tabTo('[data-next]');
+    await press('Enter');
+    await waitFor("document.querySelector('#wzTitle').textContent === 'Check the connections' && document.activeElement === document.querySelector('#wzTitle')", 'step 2, title focused');
+    await waitFor("document.querySelectorAll('#wzHealth .health-item').length === 6", 'the health checks (reused from the Game page)');
+    await tabTo('[data-next]');
+    await press('Enter');
+    await waitFor("document.querySelector('#wzTitle').textContent === 'Privacy and optional services'", 'step 3');
+    assert.match(await js("document.querySelector('#wzStep').textContent"), /Everything stays on this computer/);
+    // skip each optional service by keyboard; the choice is recorded and changes nothing else
+    for (const k of ['ai', 'online', 'mods']) {
+      await tabTo(`[data-skip="${k}"]`);
+      await press('Enter');
+      await waitFor(`!!document.querySelector('[data-unskip="${k}"]') && document.activeElement === document.querySelector('[data-unskip="${k}"]')`, `${k} skipped, focus on Undo`);
+    }
+    assert.deepEqual((await ob()).skipped, ['ai', 'online', 'mods']);
+    const s = await settingsOf();
+    assert.equal(s.boardShare, false, 'online stays off'); assert.equal(s.hasKey, false, 'no key');
+    // Undo (focused) un-skips; skip again
+    await press('Enter');
+    await waitFor('!!document.querySelector(\'[data-skip="mods"]\')', 'mods un-skipped');
+    assert.deepEqual((await ob()).skipped, ['ai', 'online']);
+    await js('document.querySelector(\'[data-skip="mods"]\').focus(); 1');
+    await press('Enter');
+    await waitFor('!!document.querySelector(\'[data-unskip="mods"]\')', 'mods skipped again');
+    await tabTo('[data-next]');
+    await press('Enter');
+    await waitFor("document.querySelector('#wzTitle').textContent === 'Drive a first session'", 'step 4');
+    assert.equal(await js("document.querySelector('#wzLaps').getAttribute('role')"), 'status');
+    await tabTo('[data-next]');
+    await press('Enter');
+    await waitFor("document.querySelector('#wzTitle').textContent === 'Compare your laps'", 'step 5');
+    assert.equal(await js("!!document.querySelector('[data-next]')"), false, 'last step: Finish instead of Next');
+    // Back by keyboard too
+    await tabTo('[data-back]');
+    await press('Enter');
+    await waitFor("document.querySelector('#wzTitle').textContent === 'Drive a first session'", 'Back to step 4');
+    await js("document.querySelector('[data-next]').focus(); 1");
+    await press('Enter');
+    await waitFor("!!document.querySelector('[data-finish]')", 'step 5 again');
+    await js('window.__rendered = 0; 1');
+    await tabTo('[data-finish]');
+    await press('Enter');
+    await waitFor("location.hash === '#/home' && window.__rendered > 0", 'Home after Finish');
+    const st = await ob();
+    assert.equal(st.state, 'done'); assert.equal(st.show, false);
+    // opened again without an address: Home, not the guide
+    await openAt(`${f.base}/`);
+    await sleep(300);
+    assert.equal(await js('location.hash'), '', 'not sent to the guide again');
+    assert.match(await js("document.querySelector('#view').textContent"), /Welcome to AC EVO Paddock/);
+    assert.ok(await js("!!document.querySelector('#view a[href=\"#/welcome\"]')"), 'Home offers the guide');
+    // the offline workflow: no account, no key, nothing switched on
+    assert.equal((await settingsOf()).boardShare, false);
+  } finally { await openAt(`${base}/#/home`); await f.stop(); }
+  assert.deepEqual(errors, []);
+});
+
+test('setup guide: "Skip the guide" puts it away; an existing driver is never sent to it but finds it in Ctrl+K and Settings (PL5)', { skip }, async () => {
+  assert.equal((await api('/api/onboarding')).body.show, false, 'seeded laps: an existing driver');
+  await openAt(`${base}/`);
+  await sleep(300);
+  assert.equal(await js("location.hash === '' || location.hash === '#/home'"), true, 'opens on Home');
+  await js('document.activeElement?.blur(); 1');
+  await press('k', { ctrl: true });
+  await waitFor("document.querySelector('.palette input') === document.activeElement", 'the palette');
+  await cdp('Input.insertText', { text: 'setup guide' });
+  await waitFor("document.querySelector('.palette-list li.sel')?.textContent.includes('Setup guide')", 'the guide in the palette');
+  await js('window.__rendered = 0; 1');
+  await press('Enter');
+  await waitFor("location.hash.startsWith('#/welcome') && document.querySelector('#wzTitle')", 'the guide from Ctrl+K');
+  // a step in the list goes straight there
+  await js('document.querySelector(\'.wz-steps [data-step="4"]\').focus(); 1');
+  await press('Enter');
+  await waitFor("document.querySelector('#wzTitle').textContent === 'Compare your laps'", 'step 5 from the list');
+  assert.ok(await js("!!document.querySelector('[data-compare]')"), 'with laps: a comparison to open');
+  assert.match(await js("document.querySelector('[data-compare]').getAttribute('href')"), /^#\/compare\?laps=\d+&ref=(best|ideal)$/);
+  await js('window.__rendered = 0; 1');
+  await tabTo('[data-dismiss]');
+  await press('Enter');
+  await waitFor("location.hash === '#/home' && window.__rendered > 0", 'Skip the guide -> Home');
+  assert.equal((await api('/api/onboarding')).body.state, 'dismissed');
+  await go('#/settings', "document.querySelector('#openGuide')");
+  assert.equal(await js("document.querySelector('#openGuide').getAttribute('href')"), '#/welcome');
+  assert.deepEqual(errors, []);
+});
+
+test('Home: last session, practice objective and one next step with its evidence; reachable by keyboard (PL5)', { skip }, async () => {
+  await go('#/home', "document.querySelector('.home-now-row')");
+  const heads = await js("[...document.querySelectorAll('.home-now-row h2')].map((h) => h.textContent)");
+  assert.deepEqual(heads, ['Last session', 'Practice objective', 'Next step']);
+  assert.match(await js("document.querySelector('.hn-why').textContent"), /^Why: \S/);
+  const href = await js('document.querySelector(\'.hn-next a[href^="#/"]\').getAttribute(\'href\')');
+  assert.match(href, /^#\/(compare|race|progress)/);
+  await js('document.activeElement?.blur(); 1');
+  await tabTo('.hn-next a[href^="#/"]', 80);
+  assert.ok(await js("document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), 'a visible focus ring');
+  await js('window.__rendered = 0; 1');
+  await press('Enter');
+  await waitFor(`location.hash.startsWith(${JSON.stringify(href.split('?')[0])}) && window.__rendered > 0`, 'the next step opened');
+  assert.deepEqual(errors, []);
+});
+
+test('session notes, tags and corner bookmarks: by keyboard, saved locally, shown on Sessions and found with Ctrl+K (PL5)', { skip }, async () => {
+  const sid = (await api('/api/overview')).body.sessions[0].id;
+  await go(`#/report?session=${sid}&notes=1`, "document.querySelector('#nText') && document.activeElement === document.querySelector('#nText')");
+  assert.equal(await js("document.querySelector('#notes').open"), true);
+  assert.match(await js("document.querySelector('#notes .hint').textContent"), /never uploaded/);
+  await cdp('Input.insertText', { text: 'Braked too early into the hairpin' });
+  await press('Enter', { ctrl: true });
+  await waitFor("document.querySelector('#nMsg').textContent === 'Saved'", 'Ctrl+Enter saves');
+  assert.equal((await api(`/api/notes?session=${sid}`)).body.text, 'Braked too early into the hairpin');
+  // tags: type, Enter adds (and saves); the chip's × removes it by keyboard
+  await js("document.querySelector('#nTagIn').focus(); 1");
+  for (const t of ['Wet', 'Race prep']) { await cdp('Input.insertText', { text: t }); await press('Enter'); }
+  await waitFor("document.querySelectorAll('#nTags .tag-chip').length === 2 && document.querySelector('#nMsg').textContent === 'Saved'", 'two tags saved');
+  await waitFor(`fetch('/api/notes?session=${sid}').then((r) => r.json()).then((n) => n.tags.join() === 'wet,race prep')`, 'both tags stored');
+  await js('document.querySelector(\'[data-untag="race prep"]\').focus(); 1');
+  await press('Enter');
+  await waitFor(`document.querySelectorAll('#nTags .tag-chip').length === 1`, 'a tag removed');
+  await waitFor(`fetch('/api/notes?session=${sid}').then((r) => r.json()).then((n) => n.tags.join() === 'wet')`, 'the removal stored');
+  // a corner bookmark: corner, Tab, note, Enter
+  await js("document.querySelector('#nBmCorner').focus(); 1");
+  await cdp('Input.insertText', { text: 'T2' });
+  await press('Tab');
+  await cdp('Input.insertText', { text: 'later braking' });
+  await press('Enter');
+  await waitFor("document.querySelectorAll('#nBms [data-unbm]').length === 1", 'the bookmark listed');
+  assert.deepEqual((await api(`/api/notes?session=${sid}`)).body.bookmarks.map((b) => [b.corner, b.note]), [['T2', 'later braking']]);
+  // the page's limits are the server's
+  assert.equal(await js("document.querySelector('#nText').maxLength"), 4000);
+  assert.equal(await js("document.querySelector('#nTagIn').maxLength"), 32);
+  // typed and left at once: kept
+  await js("const t = document.querySelector('#nText'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); 1");
+  await cdp('Input.insertText', { text: ', then too late' });
+  await go('#/home');
+  await waitFor(`fetch('/api/notes?session=${sid}').then((r) => r.json()).then((n) => n.text.endsWith('then too late'))`, 'saved on leaving the page');
+  // Sessions: the tag on the row and a tag filter
+  await go('#/', "document.querySelector('#f-tag')");
+  assert.ok(await js("[...document.querySelectorAll('a.sess-row .tag-chip')].some((c) => c.textContent === 'wet')"), 'the tag on its row');
+  // Ctrl+K: the tag, Enter filters the Sessions page by it
+  await js('document.activeElement?.blur(); 1');
+  await press('k', { ctrl: true });
+  await waitFor("document.querySelector('.palette input') === document.activeElement", 'the palette');
+  await cdp('Input.insertText', { text: 'tag wet' });
+  await waitFor("document.querySelector('.palette-list li.sel .pk')?.textContent === 'Tag'", 'the tag in the palette');
+  await js('window.__rendered = 0; 1');
+  await press('Enter');
+  await waitFor("location.hash === '#/?tag=wet' && window.__rendered > 0 && document.querySelector('#f-tag')?.value === 'wet'", 'Sessions filtered by the tag');
+  assert.ok(await js("document.querySelectorAll('a.sess-row').length >= 1 && [...document.querySelectorAll('a.sess-row')].every((a) => a.textContent.includes('wet'))"), 'only tagged sessions');
+  // the bookmark is in the palette too
+  await js('document.activeElement?.blur(); 1');
+  await press('k', { ctrl: true });
+  await waitFor("document.querySelector('.palette input') === document.activeElement", 'the palette');
+  await cdp('Input.insertText', { text: 'bookmark t2' });
+  await waitFor("document.querySelector('.palette-list li.sel .pk')?.textContent === 'Bookmark'", 'the bookmark in the palette');
+  await press('Escape');
+  await waitFor("!document.querySelector('.palette-back')", 'palette closed');
+  // remove the bookmark by keyboard
+  await go(`#/report?session=${sid}`, "document.querySelector('#nBms [data-unbm]')");
+  await js("document.querySelector('#nBms [data-unbm]').focus(); 1");
+  await press('Enter');
+  await waitFor("!document.querySelector('#nBms [data-unbm]')", 'bookmark removed');
+  assert.equal((await api(`/api/notes?session=${sid}`)).body.bookmarks.length, 0);
+  assert.deepEqual(errors, []);
+});
+
+test('scalable text: at 200 % zoom (700 px wide) Home, the guide, Sessions and a session page fit without sideways scrolling (PL5)', { skip }, async () => {
+  const sid = (await api('/api/overview')).body.sessions[0].id;
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
+  try {
+    for (const h of ['#/home', '#/welcome', '#/', `#/report?session=${sid}`]) {
+      await go(h);
+      await sleep(250);
+      const [sw, iw] = await js('[document.documentElement.scrollWidth, innerWidth]');
+      assert.ok(sw <= iw + 1, `${h}: ${sw} px wide in a ${iw} px window`);
+    }
+  } finally { await cdp('Emulation.clearDeviceMetricsOverride'); }
+  assert.deepEqual(errors, []);
+});

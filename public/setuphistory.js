@@ -19,7 +19,7 @@ export async function viewSetupHistory(view, params, cleanup) {
         <div class="secondary">${esc(prettyName(car))}</div></div><span class="spacer"></span>
       <a href="#/setups"><button>Setups</button></a></div>`;
   if (!E.length) {
-    view.innerHTML = head + emptyHtml('No laps here yet', 'Drive this car on this track: every lap remembers the setup it was driven on.');
+    view.innerHTML = head + emptyHtml('No laps here yet', 'Drive this car on this track: every lap remembers the setup it was driven on.', '<a href="#/race"><button>Set up a session</button></a><a href="#/setups"><button>Setups</button></a>');
     return;
   }
   const label = (g) => `${esc(g.name)}${g.versions > 1 ? ` <span class="badge" title="The same saved file with other values: each version you drove is listed apart">version ${g.version} of ${g.versions}</span>` : ''}`;
