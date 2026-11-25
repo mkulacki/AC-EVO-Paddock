@@ -236,7 +236,10 @@ function trends(corners, list) {
   const verdict = (vals) => {
     const first = summary(vals[0]), last = summary(vals[vals.length - 1]);
     const meds = vals.map((v) => median(v));
-    const slope = theilSen(meds.map((_, i) => i), meds);
+    // a session without a pass of this corner (e.g. a lap measured on another grid): no verdict
+    if (!first || !last) return { firstMs: null, lastMs: null, changeMs: null, slopeMs: null, verdict: 'no clear change', points: meds.map(r0) };
+    const xs = meds.map((_, i) => i).filter((i) => meds[i] != null);
+    const slope = theilSen(xs, xs.map((i) => meds[i]));
     const change = last.median - first.median;
     return { firstMs: r0(first.median), lastMs: r0(last.median), changeMs: r0(change), slopeMs: r0(slope),
       verdict: !apart(first, last) ? 'no clear change' : change < 0 ? 'faster' : 'slower', points: meds.map(r0) };

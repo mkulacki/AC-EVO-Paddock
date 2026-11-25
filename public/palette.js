@@ -54,6 +54,7 @@ async function sources() {
     const key = encodeURIComponent(c.key);
     items.push({ kind: 'Progress', label: name, hint: `${c.laps} laps`, href: `#/progress?combo=${key}` });
     if (c.validLaps >= 2) items.push({ kind: 'Consistency', label: name, href: `#/consistency?combo=${key}` });
+    if (c.validLaps >= 1) items.push({ kind: 'Analysis', label: name, hint: 'Where to gain time, corner by corner', href: `#/analysis?combo=${key}` });
     items.push({ kind: 'Setup history', label: name, href: `#/setuphistory?combo=${key}` });
     items.push({ kind: 'Coach', label: name, href: `#/coach?combo=${key}` });
     if (c.bestLapId && c.idealMs) items.push({ kind: 'Compare', label: `Best lap against ideal · ${name}`, href: `#/compare?laps=${c.bestLapId}&ref=ideal` });
