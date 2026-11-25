@@ -21,7 +21,8 @@ export const noPaths = (s) => (s == null ? s : String(s)
 /**
  * inputs: {now, mock, game: {running, version, hudVersion, liveAgeMs}, telemetry: {source, status, connected, lastFrameAt,
  *   packetAgeMs, stale, savedLaps, lastLap}, perf (src/perf.js summary), hud (hudinstall.status), loader (loaderinstall.status),
- *   channels (channels.list()), checkContext, board (leaderboard.health()), updates (updates.status()), aceFound}
+ *   channels (channels.list()), checkContext, board (leaderboard.health()), updates (updates.status()), aceFound,
+ *   bridge (GameBridge.stats(), PL9), assistOff (the PL9 kill switch)}
  */
 export function build(x) {
   const now = x.now ?? Date.now();
@@ -96,6 +97,18 @@ export function build(x) {
     else if (loader && loader.state && loader.state !== 'current' && hud.state !== 'no-game') { if (state === 'ok') state = 'warn'; details.push(`ACE UI App Loader: ${loader.state}.`); }
     // the HUD writes nothing back: its data feed is the live files Paddock writes for it (only while the game runs)
     if (g.running && hud.state === 'current') details.push(g.liveAgeMs != null && g.liveAgeMs < 2000 ? 'Data feed to the HUD: updating.' : 'Data feed to the HUD: not updating.');
+    // PL9: the kill switch, and how the live-file writer has fared since Paddock started (src/gamebridge.js stats)
+    if (x.assistOff) { if (state === 'ok') state = 'warn'; details.push('HUD and cues are switched off (kill switch).'); steps.push('Turn them on again: the switch in the header bar, Ctrl+K → "HUD and cues", or Alt+Q.'); }
+    const b = x.bridge;
+    if (b && b.windows) {
+      const issues = [];
+      if (b.slowWrites) issues.push(`${b.slowWrites} slow write${b.slowWrites === 1 ? '' : 's'} (longest ${Math.round(b.maxWriteMs)} ms; writing paused for a second after each)`);
+      if (b.lateWrites) issues.push(`${b.lateWrites} write${b.lateWrites === 1 ? '' : 's'} that ended inside the HUD's read window`);
+      if (b.errors) issues.push(`${b.errors} failed write${b.errors === 1 ? '' : 's'}${b.lastError ? ` (last: ${noPaths(String(b.lastError))})` : ''}`);
+      if (b.missedWindows) issues.push(`${b.missedWindows} window${b.missedWindows === 1 ? '' : 's'} skipped while Paddock was held up (longest gap ${Math.round(b.maxGapMs)} ms)`);
+      if (issues.length) details.push(`Data feed since Paddock started: ${issues.join('; ')}. The HUD labels data that is too old.`);
+      if ((b.lateWrites || b.slowWrites > 10) && state === 'ok') state = 'warn';
+    }
     add({ id: 'hud', label: 'Paddock HUD', state, summary, details, steps, href: '#/mods', hrefLabel: 'Mods' });
   }
 

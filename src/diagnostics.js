@@ -81,6 +81,8 @@ export function build(parts) {
     telemetry: { source: parts.source, status: parts.recorder?.status, lastFrame: parts.recorder?.lastFrameAt ? new Date(parts.recorder.lastFrameAt).toISOString() : null, savedLapsThisRun: parts.recorder?.savedLaps },
     checkedAgainstGame: channels.summary(), checkContext: channels.context(),
     game: parts.game, loader: parts.loader, hud: parts.hud, paths: parts.paths,
+    // PL9: the HUD bridge writer's counters and the kill switch (numbers and a flag only)
+    ...(parts.bridge ? { bridge: parts.bridge } : {}), ...(parts.assistOff !== undefined ? { assistOff: parts.assistOff } : {}),
     // telemetry loop timing, slow jobs and requests since start (src/perf.js): numbers only
     ...(parts.performance ? { performance: parts.performance } : {}),
   };
