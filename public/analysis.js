@@ -75,7 +75,7 @@ export async function viewAnalysis(view, params) {
     </section>
     ${trendCard(d, ck)}`;
   wire();
-  const redraw = () => { if (view.isConnected) window.dispatchEvent(new HashChangeEvent('hashchange')); };
+  const redraw = () => { if (view.isConnected) globalThis.dispatchEvent(new HashChangeEvent('hashchange')); }; // ('window' is the lap window here)
   const drillBox = view.querySelector('#anDrill');
   if (drillBox && pr) wireDrills(drillBox, pr.drills, redraw);
   // "Practise this": one finding of a top card becomes the drill of this car + track (one at a time)
