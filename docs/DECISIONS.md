@@ -389,3 +389,32 @@ Operator decisions, **all OPEN (operator), recommended default applied, user rev
 - **D-PL9-10, the HUD never steps back to an older copy** of its data (within 3 s of the newer one): with slots written in turn, one read can bring older data; taking it made the HUD show itself again for a moment after the kill switch hid it.
 - **D-PL9-11, no reference-pedal markers from stale data:** they are hidden like the countdown, not moved along with the car.
 - **D-PL9-12, `/api/hudlayouts` and `/api/assist` are Paddock's pages only:** outside the HUD's open-CORS routes, refused for cross-site and same-site reads; built-in layout names are looked up as own keys only (`constructor` is not a layout).
+
+## PL10: Leaderboard integrity (2026-11-25)
+
+Trust model, tiers, flags, moderation and abuse handling: `docs/platform/LEADERBOARD_TRUST.md`. Community features: design only, `docs/platform/COMMUNITY_DESIGN.md`. Migration 0003 and the Worker are **not** applied or deployed (needs approval).
+
+Made without asking (technical or within the plan; the user may still object):
+
+- **D-PL10-1, legacy label.** Every lap stored before migration 0003 gets the tier `legacy` ("the checks of that time were not recorded for this lap") and is never upgraded automatically; a lap without a tier reads as `legacy`.
+- **D-PL10-2, canonical keys in SQL.** One SQL expression (`worker.js` `KEY`) computes the keys in the migration, on insert and in queries, so old and new rows agree whatever `lower()` does with non-ASCII text on D1.
+- **D-PL10-3, the trail is append-only by code.** No route updates or deletes `moderation_log`; SQLite triggers were left out because the local runner splits migrations on `;`. People with database access can still change it (documented).
+- **D-PL10-4, moderators hide, never delete.** Only drivers delete (their own lap or their account).
+- **D-PL10-5, compatibility.** `/v1/admin/hide` stays for older Paddock versions (logged like `moderate`); new fields (`tier`) are added to responses, none removed; `/v1/health` says version 3.
+- **D-PL10-6, moderation evidence is private in Paddock.** `/api/board/admin/*` GETs are in `PRIVATE_GET` (refused cross-site): they carry reporters' SteamIDs.
+- **D-PL10-7, deploy order.** Backup, migration 0003 once, `RATE_SALT`, the Worker, then `0004_backfill_keys.sql` (updates only; 0003 cannot run twice on D1); the Worker also fills missing keys itself (`healKeys`, every 10 minutes at most). Written in `LEADERBOARD_TRUST.md` section 9 (corrected in the review round).
+- **D-PL10-8, `RATE_SALT` is required (review round).** Without it the sign-in routes answer 503 and `/v1/health` reports `configured.rateSalt: false`: an unsalted IPv4 hash is reversible. The local runner salts itself.
+- **D-PL10-9, older servers (review round).** Against a pre-PL10 Worker, moderators' Hide / Show fall back to `/v1/admin/hide`; the other new actions say the server is too old; a missing tier shows as "–", not Legacy. Account deletion is limited to 5 an hour; reports from suspended drivers are refused (as before the review).
+
+Operator decisions, **all OPEN (operator), recommended default applied, user reviews in the app**:
+
+- **OD-PL-64, what tiers do. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) shown on every board row and in the moderation queue, not used for ranking: every lap not hidden counts as before (built); (b) also a board filter "telemetry consistent or reviewed only"; (c) only telemetry-consistent or reviewed laps rank.
+- **OD-PL-65, canonical IDs. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) keys from the name (ASCII lower case, spaces and dashes as underscores); boards, combos, versions and profiles group by them; the first spelling is shown (built); (b) keys stored, boards still by raw names; (c) (a) plus a curated alias table for renamed cars and tracks.
+- **OD-PL-66, anomaly thresholds. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) at least 3 other drivers on the board; a lap over 2 % or a sector over 3 % faster than all their bests; a lap dated over 10 minutes after it was received; telemetry refused (built); (b) stricter: 1 % / 2 %; (c) no automatic flags, reports only.
+- **OD-PL-67, what a flag does. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) moderators only (queue and evidence); never shown publicly, never hides a lap (built); (b) a public "flagged" marker on the board row; (c) hide automatically above a threshold until reviewed.
+- **OD-PL-68, what stays after a driver deletes their data. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) the moderation-trail entries (SteamID, lap combo and time, no telemetry) and a suspension stay; everything else goes (built); (b) trail entries are kept without the SteamID; (c) everything goes, suspension included.
+- **OD-PL-69, removed laps in Paddock. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) marked removed and never sent again by themselves, not even by Send all again; a new faster lap is sent as usual (built); (b) Send all again sends them again.
+- **OD-PL-70, account deletion and the sharing switch. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) Delete my online data also signs out and switches sharing off (built); (b) sign out only, the sharing switch unchanged.
+- **OD-PL-71, rate limits. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) in D1 per hour: 20 Steam sign-in answers and 30 token swaps per IP (hashed), 120 moderation actions per moderator, 60 own-lap deletions per driver; bodies 256 KB (laps) / 4 KB; existing 60 laps an hour and 30 reports a day unchanged (built); (b) Cloudflare rate-limiting rules instead (dashboard configuration, possibly paid); (c) both.
+- **OD-PL-72, who may report. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) unchanged: any signed-in, not suspended driver, 30 a day, not their own laps (built); (b) only drivers with a lap on the board; (c) only accounts older than a week.
+- **OD-PL-73, moderation reasons. OPEN (operator), recommended default applied, user reviews in the app.** Options: (a) asked for every action in the Leaderboards tab and required for a suspension; optional in the API so older Paddock versions can still hide (built); (b) required for every action in the API.

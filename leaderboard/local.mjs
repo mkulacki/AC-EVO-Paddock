@@ -1,12 +1,14 @@
 // Runs the leaderboard Worker (worker.js) locally under Node, with a D1-shaped wrapper around node:sqlite,
 // so Paddock can be tested against it before anything goes online.
 //   npm run board              -> http://127.0.0.1:8787, database in leaderboard/.local/board.db
-//   BOARD_PORT, BOARD_DB       change the port / database file;  BOARD_ADMINS  SteamIDs of the admins (live: wrangler secret ADMINS)
+//   BOARD_PORT, BOARD_DB       change the port / database file;  BOARD_RATE_SALT  the IP-hash salt (live: wrangler secret
+//                              RATE_SALT, required; here a random one per start unless set);  BOARD_ADMINS  SteamIDs of the admins (live: wrangler secret ADMINS)
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import crypto from 'node:crypto';
 import worker from './worker.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -34,8 +36,9 @@ export function localD1(file) {
 }
 
 /** Serves the Worker on 127.0.0.1:port; resolves to the http server. */
-export function serve({ port = 8787, file = path.join(HERE, '.local', 'board.db'), fetchImpl = null, admins = process.env.BOARD_ADMINS || '' } = {}) {
-  const env = { DB: localD1(file), ADMINS: admins, ...(fetchImpl ? { FETCH: fetchImpl } : {}) };
+export function serve({ port = 8787, file = path.join(HERE, '.local', 'board.db'), fetchImpl = null, admins = process.env.BOARD_ADMINS || '',
+  rateSalt = process.env.BOARD_RATE_SALT ?? crypto.randomBytes(16).toString('hex') } = {}) {
+  const env = { DB: localD1(file), ADMINS: admins, RATE_SALT: rateSalt, ...(fetchImpl ? { FETCH: fetchImpl } : {}) };
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);

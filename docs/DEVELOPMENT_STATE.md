@@ -1,10 +1,10 @@
 # Development state
 
-_Last updated: 2026-11-25 (PL9)_
+_Last updated: 2026-11-25 (PL10)_
 
 **Status:** P0–P10 done; **0.7.0-beta.1 released 2026-11-23**. Platform plan PL0–PL11 (the local operator plan, not in the repo; phase scopes are summarised in `docs/platform/BACKLOG.md`) started.
-**Current phase:** PL9 (HUD and live assistance) done on `platform/pl9-hud-live` (2026-11-25); operator defaults OD-PL-54 … 63 await the user's review in the app. PL8 is merged locally (`9bab779`).
-**Branch:** `platform/pl9-hud-live` (from `9bab779`; not pushed, not merged).
+**Current phase:** PL10 (leaderboard integrity) done on `platform/pl10-leaderboard-integrity` (2026-11-25); operator defaults OD-PL-64 … 73 await the user's review; D1 migration 0003 and the Worker deploy are prepared, **not executed**. PL9 is merged locally (`d2d4564`).
+**Branch:** `platform/pl10-leaderboard-integrity` (from `d2d4564`; not pushed, not merged, not deployed).
 
 ## Phases
 
@@ -32,11 +32,12 @@ _Last updated: 2026-11-25 (PL9)_
 | PL7 | Structured practice | Done 2026-11-25, review fixes applied (`d0097a2`) (`docs/platform/PL7-report.md`) |
 | PL8 | Setup experiments | Done 2026-11-25, review fixes applied (`ea78bdf`), awaiting the user's review (`docs/platform/PL8-report.md`) |
 | PL9 | HUD and live assistance | Done 2026-11-25, review fixes applied (`f2d4e9f`, `eee30ee`, `d5da044`), awaiting the user's review (`docs/platform/PL9-report.md`, `docs/platform/HUD_BRIDGE.md`) |
-| PL10–PL11 | Platform plan | Not started; see `docs/platform/BACKLOG.md` |
+| PL10 | Leaderboard integrity | Done 2026-11-25, awaiting the user's review; migration and deploy need approval (`docs/platform/PL10-report.md`, `docs/platform/LEADERBOARD_TRUST.md`, `docs/platform/COMMUNITY_DESIGN.md`) |
+| PL11 | Platform plan | Not started; see `docs/platform/BACKLOG.md` |
 
 ## Current task
 
-None in progress. PL9 is committed on `platform/pl9-hud-live`: report `docs/platform/PL9-report.md`, bridge audit `docs/platform/HUD_BRIDGE.md`. Paddock HUD is now 0.15.0 (not checked in AC EVO).
+None in progress. PL10 is committed on `platform/pl10-leaderboard-integrity`: report `docs/platform/PL10-report.md`, trust model `docs/platform/LEADERBOARD_TRUST.md`, community design `docs/platform/COMMUNITY_DESIGN.md`. The live leaderboard is unchanged: `leaderboard/migrations/0003_integrity.sql` is not applied and the PL10 `worker.js` is not deployed (the new Leaderboards tab buttons get a 404 from the old server until then).
 
 ## Known problems
 
@@ -59,6 +60,7 @@ None in progress. PL9 is committed on `platform/pl9-hud-live`: report `docs/plat
 - PL6 (2026-11-25, `platform/pl6-analysis`): baseline at `c65fa65` check 131/131, test 307/307, test:browser 21/21; after: `npm run check` 138/138; `npm test` 337/337 (Node 22.23.4); `npm run test:electron` 337/337 (Node 24.22.2); `npm run test:browser` 22/22 (2 runs). Lap analysis of 30 laps: longest hold 12.7 ms. After the review fixes: check 138/138, test 346/346, test:electron 346/346, test:browser 22/22 (2 runs).
 - PL8 (2026-11-25, `platform/pl8-setup-experiments`): baseline at `87b3131` check 144/144, test 369/369, test:browser 23/23; after: `npm run check` 149/149; `npm test` 388/388 (Node 22.23.4); `npm run test:electron` 388/388 (Node 24.22.2); `npm run test:browser` 24/24 (2 runs). Packaged smoke not run (port 8080 in use). After the review fixes: check 149/149, test 397/397, test:electron 397/397, test:browser 24/24.
 - PL9 (2026-11-25, `platform/pl9-hud-live`): baseline at `9bab779` check 149/149, test 397/397, test:browser 24/24; after: `npm run check` 154/154; `npm test` 418/418 (Node 22.23.4); `npm run test:electron` 418/418 (Node 24.22.2); `npm run test:browser` 26/26. Packaged smoke and bench not run (port 8080 in use). After the review fixes (`f2d4e9f` … `31285e9`): check 154/154, test 426/426, test:electron 426/426, test:browser 26/26.
+- PL10 (2026-11-25, `platform/pl10-leaderboard-integrity`): baseline at `d2d4564` check 154/154, test 426/426, test:browser 26/26; after: `npm run check` 155/155; `npm test` 436/436 (Node 22.23.4; one run had one timing failure of the PL9 bridge stress test, passed on rerun); `npm run test:electron` 436/436 (Node 24.22.2); `npm run test:browser` 26/26. Local board on port 8799 with a scratch database; nothing against Cloudflare. After the review fixes (`d3f3a93`): check 155/155, test 439/439, test:browser 26/26.
 - PL7 (2026-11-25, `platform/pl7-practice`): baseline at `ff85248` check 138/138, test 346/346, test:browser 22/22; after: `npm run check` 143/143; `npm test` 365/365 (Node 22.23.4); `npm run test:electron` 365/365 (Node 24.22.2); `npm run test:browser` 23/23. After the review fixes: check 144/144, test 369/369, test:electron 369/369, test:browser 23/23.
 
 ## Pending user decisions
@@ -71,11 +73,13 @@ None in progress. PL9 is committed on `platform/pl9-hud-live`: report `docs/plat
 - None open from PL7: OD-PL-32 … 41 decided (a) by the user on 2026-11-25; D-PL7-1 … 7 confirmed; D-PL7-8 … 12 from the review round.
 - PL8: OD-PL-42 … 53 (setup experiments) applied as operator defaults, **OPEN for the user's review in the app**; D-PL8-1 … 8 to confirm.
 - PL9: OD-PL-54 … 63 and the OD-PL-60 refinement (HUD and live assistance) applied as operator defaults, **OPEN for the user's review in the app**; D-PL9-1 … 12 to confirm.
-- Push / merge of `platform/pl9-hud-live`, `platform/pl8-setup-experiments`, `platform/pl7-practice`, `platform/pl6-analysis`, `platform/pl5-onboarding`, `platform/pl1-decisions`, `platform/pl3-recording-perf` and `platform/pl4-compatibility` (into `platform/integration`, then `main`); after the first push, check both CI jobs.
+- PL10: OD-PL-64 … 73 (leaderboard integrity) applied as operator defaults, **OPEN for the user's review**; D-PL10-1 … 9 to confirm. **Needs approval:** backup, apply D1 migration 0003 once, set `RATE_SALT` (required), deploy the Worker, then `0004_backfill_keys.sql`; community features (design only).
+- Push / merge of `platform/pl10-leaderboard-integrity`, `platform/pl9-hud-live`, `platform/pl8-setup-experiments`, `platform/pl7-practice`, `platform/pl6-analysis`, `platform/pl5-onboarding`, `platform/pl1-decisions`, `platform/pl3-recording-perf` and `platform/pl4-compatibility` (into `platform/integration`, then `main`); after the first push, check both CI jobs.
 
 ## Next action
 
-- User reviews PL9 in the app (OD-PL-54 … 63), ideally with one drive on HUD 0.15.0 (kill switch, labels, Integration health bridge counters; aids / assists checks need confirming again), then merge. Then PL10 (leaderboard integrity). Gate each step with `npm run verify`.
+- User reviews PL9 in the app (OD-PL-54 … 63), ideally with one drive on HUD 0.15.0 (kill switch, labels, Integration health bridge counters; aids / assists checks need confirming again), then merge.
+- User reviews PL10 (OD-PL-64 … 73) and decides on the D1 migration and Worker deploy (order in `docs/platform/LEADERBOARD_TRUST.md` §9). Then PL11 (data ownership). Gate each step with `npm run verify`.
 
 ## How to resume
 

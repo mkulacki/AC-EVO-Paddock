@@ -11,6 +11,11 @@
 // sends the driver to Steam, confirms the answer with Steam, and comes back to this app's own local address
 // (/api/board/callback) with a one-time code and the random `state` made here; the code is swapped for a login
 // token, kept in settings.json (data\, never published) and sent only over https (or to a server on this PC).
+//
+// Trust (docs/platform/LEADERBOARD_TRUST.md): the sign-in proves who sent a lap, not that the lap is real. The checks
+// here (valid lap, sector times, ranges) and on the server catch mistakes and implausible laps; they are not
+// cheat-proof, and nothing a PC sends can be. The server labels each lap with the evidence it has (its tier).
+// Identity (the sign-in), sending laps (boardShare) and light telemetry (boardTel) stay separate switches.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,6 +45,11 @@ const round1 = (v) => Math.round(v * 10) / 10;
 const comboKey = (x) => `${x.track}|${x.layout ?? ''}|${x.car}`;
 const pretty = (s) => String(s ?? '').replace(/_/g, ' ');
 const fmtMs = (ms) => `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, '0')}`;
+/** A reason typed by the driver: one line, at most 200 characters (the server cleans it again). */
+const cleanText = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 200) || null : null);
+/** A route the server does not have (a server older than PL10 answers 404 "not found"): says so in words. */
+export const OLD_SERVER = "The leaderboard server doesn't support this yet (it needs the new server version).";
+const newRoute = (r) => (r.status === 404 && r.body?.error === 'not found' ? { status: 404, oldServer: true, body: { ok: false, error: OLD_SERVER } } : r);
 const BOARD_ROWS = 8; // the in-game board window: P1-P3, then two above you, you, two below
 
 /** Login tokens only travel encrypted: https, or plain http to a server on this PC (local testing). */
@@ -166,6 +176,13 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
       return { status: 0, body: { ok: false, error: e.name === 'AbortError' ? 'the leaderboard server did not answer' : `cannot reach the leaderboard server (${e.cause?.code || e.message})` } };
     } finally { clearTimeout(timer); }
   }
+  /** Marks own laps the server no longer has (removed by the driver): never sent again by themselves. */
+  const markRemoved = (match) => {
+    for (const row of db.boardBests()) {
+      const b = row.board ? JSON.parse(row.board) : null;
+      if (b?.ok && match(b)) db.setLapBoard(row.id, { at: Date.now(), ok: false, retry: false, removed: true, error: 'removed from the leaderboard by you' });
+    }
+  };
   const signedOut = () => { settings.update({ boardToken: '' }); state.lastError = 'signed out: sign in with Steam again'; };
 
   function onFrame(f) {
@@ -203,6 +220,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
         // account goes again), and with its telemetry when that is shared (the server then only adds the telemetry)
         const sentByMe = b?.ok && b.steamId === c.steam?.steamId && b.url === c.url && (b.tel || !c.tel);
         if (b && (sentByMe || (!b.ok && !b.retry)) && !force) continue;
+        if (b?.removed) continue; // removed from the server by the driver: not sent again by itself, not even by Send all again
         const lap = db.getLap(row.id);
         const p = lap && payload(lap, { tel: c.tel });
         if (!p) { db.setLapBoard(row.id, { at: Date.now(), ok: false, error: 'no sector times for this lap', retry: false }); continue; }
@@ -210,7 +228,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
         if (r.status === 401) { signedOut(); failed++; break; } // the login ended: the lap waits for a new sign-in
         if (r.body?.ok) {
           db.setLapBoard(row.id, { at: Date.now(), ok: true, rank: r.body.rank, of: r.body.of, steamId: c.steam?.steamId ?? null, url: c.url,
-            tel: !!p.tel, telError: r.body.telError ?? null, remoteId: r.body.lapId ?? null });
+            tel: !!p.tel, telError: r.body.telError ?? null, remoteId: r.body.lapId ?? null, tier: r.body.tier ?? null });
           if (r.body.telError) console.log(`[board] telemetry of ${row.track}/${row.car} not taken: ${r.body.telError}`);
           console.log(`[board] sent ${row.track}/${row.car} ${(row.lap_time_ms / 1000).toFixed(3)}s: ${r.body.rank ?? '?'} of ${r.body.of ?? '?'}`);
           sent++;
@@ -423,7 +441,37 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     driver: (id) => call(`/v1/driver?id=${encodeURIComponent(id)}`),
     report: (lapId, reason) => call('/v1/report', { method: 'POST', body: JSON.stringify({ lapId, reason }) }, { auth: true }),
     adminReports: () => call('/v1/admin/reports', {}, { auth: true }),
-    adminHide: (lapId, hidden) => call('/v1/admin/hide', { method: 'POST', body: JSON.stringify({ lapId, hidden }) }, { auth: true }),
+    adminHide: (lapId, hidden, reason = null) => call('/v1/admin/hide', { method: 'POST', body: JSON.stringify({ lapId, hidden, reason: cleanText(reason) }) }, { auth: true }),
+    /** Moderators (PL10): every action is written to the server's moderation trail. */
+    // a server older than PL10 has no /admin/moderate: hide and show go through its /admin/hide (not logged there)
+    async adminModerate(lapId, action, reason = null) {
+      const r = newRoute(await call('/v1/admin/moderate', { method: 'POST', body: JSON.stringify({ lapId, action, reason: cleanText(reason) }) }, { auth: true }));
+      if (r.oldServer && (action === 'hide' || action === 'show')) return call('/v1/admin/hide', { method: 'POST', body: JSON.stringify({ lapId, hidden: action === 'hide' }) }, { auth: true });
+      return r;
+    },
+    adminSuspend: async (driver, suspended, reason = null, hideLaps = false) => newRoute(await call('/v1/admin/suspend', { method: 'POST',
+      body: JSON.stringify({ driver, suspended, reason: cleanText(reason), hideLaps }) }, { auth: true })),
+    adminLap: async (id) => newRoute(await call(`/v1/admin/lap?id=${encodeURIComponent(id)}`, {}, { auth: true })),
+    adminLog: async (lap = null) => newRoute(await call(`/v1/admin/log${lap ? `?lap=${encodeURIComponent(lap)}` : ''}`, {}, { auth: true })),
+    /** Removes one of the driver's own laps from the server; the local lap is marked so it is not sent again by itself. */
+    async deleteOwnLap(remoteId) {
+      const r = newRoute(await call('/v1/laps/delete', { method: 'POST', body: JSON.stringify({ lapId: remoteId }) }, { auth: true }));
+      if (r.body?.ok) markRemoved((b) => b.remoteId === remoteId);
+      return r;
+    },
+    /** Removes the driver's account from the server (laps, telemetry, reports, sign-ins), signs out here and switches
+     *  sending off; the local laps stay, marked so that switching sending on again does not send them by itself. */
+    async deleteAccount() {
+      const c = cfg();
+      const r = newRoute(await call('/v1/me/delete', { method: 'POST', body: '{}' }, { auth: true }));
+      if (r.body?.ok) {
+        markRemoved((b) => b.steamId === c.steam?.steamId && b.url === c.url);
+        settings.update({ boardToken: '', boardSteam: null, boardShare: false });
+        profile = null;
+        console.log(`[board] online account removed (${r.body.laps} laps)`);
+      }
+      return r;
+    },
     /** Starts a Steam sign-in: the address to open in the browser. callback = this app's /api/board/callback. */
     loginUrl(callback) {
       const c = cfg();

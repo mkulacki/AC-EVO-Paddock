@@ -489,3 +489,61 @@ test('background work (PL2 review): after stop() nothing new is scheduled, not b
     settings.update({ boardUrl: before.boardUrl, boardShare: before.boardShare, boardAuto: before.boardAuto, boardToken: before.boardToken, boardSteam: before.boardSteam });
   }
 });
+
+test('app (PL10): the payload is unchanged; the tier comes back; a removed lap or account is never sent again by itself', async () => {
+  const before = settings.get();
+  settings.update({ boardUrl: URL0, boardShare: true, boardAuto: true, boardTel: false, boardToken: '', boardSteam: null });
+  try {
+    const app = lb.createLeaderboard({ background: false, recorder: null, appVersion: 'test', gameVersion: () => '0.10.0' });
+    const id = newLap(99000);
+    app.onLap({ id, valid: false }); // conditions only
+    // no new data goes online: the same fields as before PL10 (telemetry only when that is switched on)
+    assert.deepEqual(Object.keys(lb.payload(db.getLap(id), { tel: false })).sort(),
+      ['airC', 'app', 'car', 'carClass', 'drivenAt', 'game', 'grip', 'lapMs', 'layout', 'ref', 'roadC', 'sectors', 'tel', 'track', 'valid', 'weather']);
+    await appSignIn(app, '76561198000000010');
+    await app.sync();
+    const sent = JSON.parse(db.getLapMeta(id).board);
+    assert.deepEqual([sent.ok, sent.tier], [true, 'basic']);
+    assert.equal((await app.deleteOwnLap(sent.remoteId)).body.ok, true);
+    const removed = JSON.parse(db.getLapMeta(id).board);
+    assert.deepEqual([removed.ok, removed.removed, removed.retry], [false, true, false]);
+    await app.sync({ force: true, manual: true }); // Send all again (the other bests of this test file go)
+    assert.equal(JSON.parse(db.getLapMeta(id).board).removed, true, 'not even by Send all again');
+    assert.equal((await app.table({ track: 'nowhere', layout: '', car: 'kart', game: '0.10.0' })).body.rows.length, 0);
+    // the account: removed online, signed out here, sharing off; the lap stays in Paddock
+    const r = await app.deleteAccount();
+    assert.equal(r.body.ok, true);
+    const s = settings.get();
+    assert.deepEqual([s.boardToken, s.boardSteam, s.boardShare], ['', null, false]);
+    assert.ok(db.getLapMeta(id));
+  } finally {
+    settings.update({ boardUrl: before.boardUrl, boardShare: before.boardShare, boardAuto: before.boardAuto, boardTel: before.boardTel, boardToken: before.boardToken, boardSteam: before.boardSteam });
+  }
+});
+
+test('app (PL10 review): against a server older than PL10, Hide/Show fall back to /admin/hide; new routes say the server is too old', async () => {
+  const before = settings.get();
+  const url = 'http://127.0.0.1:4';
+  settings.update({ boardUrl: url, boardToken: 'e'.repeat(64), boardSteam: { steamId: '76561198000000001', name: 'A', admin: true, url } });
+  const calls = [];
+  const fetchImpl = async (u, o) => {
+    calls.push([new URL(String(u)).pathname, o?.body ?? null]);
+    if (String(u).endsWith('/v1/admin/hide')) return new Response(JSON.stringify({ ok: true }));
+    return new Response(JSON.stringify({ ok: false, error: 'not found' }), { status: 404 }); // the old worker
+  };
+  try {
+    const app = lb.createLeaderboard({ background: false, recorder: null, appVersion: 'test', fetchImpl });
+    assert.equal((await app.adminModerate(5, 'hide', 'why')).body.ok, true);
+    assert.deepEqual(calls.map((c) => c[0]), ['/v1/admin/moderate', '/v1/admin/hide']);
+    assert.deepEqual(JSON.parse(calls[1][1]), { lapId: 5, hidden: true });
+    assert.equal((await app.adminModerate(5, 'show')).body.ok, true);
+    const review = await app.adminModerate(5, 'review');
+    assert.equal(review.body.error, lb.OLD_SERVER);
+    for (const r of [await app.deleteOwnLap(5), await app.deleteAccount(), await app.adminLap(5), await app.adminLog(), await app.adminSuspend('76561198000000002', true, 'x')]) {
+      assert.deepEqual([r.status, r.body.ok, r.body.error], [404, false, lb.OLD_SERVER]);
+    }
+    assert.equal(settings.get().boardToken, 'e'.repeat(64), 'a failed account deletion signs nobody out');
+  } finally {
+    settings.update({ boardUrl: before.boardUrl, boardToken: before.boardToken, boardSteam: before.boardSteam });
+  }
+});

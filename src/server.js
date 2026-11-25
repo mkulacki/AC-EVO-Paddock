@@ -375,7 +375,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice|experiments|hudlayouts|assist)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7); experiments: setup names, journal and lap ids (PL8); hudlayouts, assist: Paddock's pages only (PL9 review)
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice|experiments|hudlayouts|assist|board\/admin)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7); experiments: setup names, journal and lap ids (PL8); hudlayouts, assist: Paddock's pages only (PL9 review); board/admin: moderation evidence with reporters' SteamIDs (PL10)
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -1032,7 +1032,15 @@ async function route(req, res) {
   }
   if (p === '/api/board/report' && m === 'POST') { const b = await readJson(req); const r = await board.report(Number(b.lapId), String(b.reason || '').slice(0, 200)); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
   if (p === '/api/board/admin/reports') { const r = await board.adminReports(); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
-  if (p === '/api/board/admin/hide' && m === 'POST') { const b = await readJson(req); const r = await board.adminHide(Number(b.lapId), !!b.hidden); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
+  if (p === '/api/board/admin/hide' && m === 'POST') { const b = await readJson(req); const r = await board.adminHide(Number(b.lapId), !!b.hidden, b.reason); return send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false }); }
+  // PL10: moderation with a trail (the server keeps it), a driver's own deletions
+  const relay = (r) => send(res, r.body?.ok ? 200 : (r.status || 502), r.body ?? { ok: false });
+  if (p === '/api/board/admin/moderate' && m === 'POST') { const b = await readJson(req); return relay(await board.adminModerate(Number(b.lapId), String(b.action || ''), b.reason)); }
+  if (p === '/api/board/admin/suspend' && m === 'POST') { const b = await readJson(req); return relay(await board.adminSuspend(String(b.driver || ''), !!b.suspended, b.reason, !!b.hideLaps)); }
+  if (p === '/api/board/admin/lap') return relay(await board.adminLap(Number(url.searchParams.get('id'))));
+  if (p === '/api/board/admin/log') return relay(await board.adminLog(Number(url.searchParams.get('lap')) || null));
+  if (p === '/api/board/delete-lap' && m === 'POST') { const b = await readJson(req); return relay(await board.deleteOwnLap(Number(b.lapId))); }
+  if (p === '/api/board/delete-account' && m === 'POST') { const r = await board.deleteAccount(); return send(res, r.body?.ok ? 200 : (r.status || 502), { ...(r.body ?? { ok: false }), status: board.status() }); }
   if (p === '/api/board/sync' && m === 'POST') { const r = await board.sync({ force: !!(await readJson(req)).force, manual: true }); return send(res, 200, { ...r, status: board.status() }); }
   if (p === '/api/board/combos') { const r = await board.call('/v1/combos'); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }
   if (p === '/api/board/versions') { const r = await board.call(`/v1/versions?${url.searchParams}`); return send(res, r.body?.ok ? 200 : 502, r.body ?? { ok: false }); }

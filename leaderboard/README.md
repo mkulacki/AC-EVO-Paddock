@@ -24,3 +24,12 @@ The local runner applies them by itself.
 | Migration | What |
 |---|---|
 | 0002_classes_telemetry_reports | car class boards, light telemetry per lap, reports, hidden laps |
+| 0003_integrity | canonical keys, evidence tiers (existing laps: legacy), anomaly flags, moderation trail, suspensions, rate limits. **Not applied to the live database yet.** Run **once** (its ALTER TABLE lines fail a second time on D1), before deploying the worker.js that needs it |
+| 0004_backfill_keys | fills keys and the legacy tier of laps an older worker stored after 0003; updates only, safe to run any number of times. Not applied yet |
+
+PL10 deploy (needs approval): 1. back up (`npm run wrangler -- d1 export acevo-paddock-leaderboard --remote --output backup.sql`),
+2. `migrations/0003_integrity.sql` once, 3. `npm run wrangler -- secret put RATE_SALT` (**required**: without it sign-in is refused),
+4. `npm run board:deploy` (check `/v1/health`: version 3, `configured.rateSalt: true`), 5. `migrations/0004_backfill_keys.sql`.
+
+Trust model, evidence tiers, moderation and abuse handling: `docs/platform/LEADERBOARD_TRUST.md`. Required secret `RATE_SALT`
+(any long random text) salts the IP hashes of the rate limits (local runner: random per start, or `BOARD_RATE_SALT`).
