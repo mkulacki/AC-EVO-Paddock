@@ -518,3 +518,18 @@
 - **Review round (2026-11-25):** drills compared stored corner names after a new best lap renumbered corners (now resolved by apex everywhere); 0.7.0 could leave `drill_events` for reused goal ids (pruned at start, cleared on create); laps without a game version counted (now never); "met" raced Stop (now queued); before/after without pass counts (added). Fixed in `d0097a2` with regression tests (D-PL7-8 … 12). User decisions: OD-PL-32 … 41 (a); D-PL7-1 … 7 confirmed. Tests: check 144/144, test 369/369, test:electron 369/369, test:browser 23/23.
 - **Open decisions:** none.
 - **User approval:** pending. Push/merge not done.
+
+## PL8: Controlled setup experiments
+
+- **Started / finished:** 2026-11-25 · branch `platform/pl8-setup-experiments` (from `87b3131`, the PL7 merge) · scope in `docs/platform/BACKLOG.md` (PL8); report `docs/platform/PL8-report.md`; rules in `docs/platform/EXPERIMENTS.md`
+- **Objectives:** extend P7 setup history with A/B experiments: hypothesis and expected outcome, stint plan, change journal, handling feedback by corner phase, matched conditions, lap counts and variability, pace / consistency / validity comparison, an explicit "inconclusive", variants and ancestry, patch-aware warnings; descriptive statistics, never best-lap-only, confounds stated; never applied to the game; `.carsetup` round trips unchanged.
+- **Changes:**
+  - Schema v4 (`setup_experiments`, `experiment_entries`, pre-upgrade copy, v3 fixture); newer-database guards at `user_version` 5.
+  - `src/experimentstats.js` (pure rules), `src/experiments.js` (lifecycle over setup history and saved files), `/api/experiments` (private GET), setup ancestry (`basedOnRel`, `lineage`) in `src/setups.js`.
+  - Pages `#/experiments` / `#/experiment`, card on Setup history, Ctrl+K.
+  - Commits: `846622a`, `60f1b36`, `513c867`, `64a38a8`, `c093f31`, plus the report commit.
+- **Findings:** saved setups named their parent only (now with its path); setup recognition cannot decide A/B on its own while unverified (stints decide, OD-PL-42); `compat.classify` serves as the matched-condition filter with setup and version neutralised.
+- **Tests:** `npm run check` 144/144 → 149/149; `npm test` 369/369 → 388/388 (Node 22.23.4); `npm run test:electron` 388/388 (Node 24.22.2); `npm run test:browser` 23/23 → 24/24 (×2).
+- **Known limitations:** thresholds on synthetic laps only; fuel, tyres and traffic not observable; packaged smoke not run (port 8080 in use by the user's app).
+- **Open decisions:** OD-PL-42 … 53, OPEN (operator), recommended defaults applied; the user reviews them in the app.
+- **User approval:** pending. Push/merge not done.
