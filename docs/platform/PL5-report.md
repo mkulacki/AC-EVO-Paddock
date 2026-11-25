@@ -85,3 +85,24 @@ OD-PL-19 notes in lap exports (default: never), OD-PL-20 notes in backups (defau
 ## Recommended next phase
 
 PL6 (actionable lap analysis): its ranked opportunities can feed Home's next step, and corner bookmarks can mark corners on the analysis. Gate with `npm run verify`.
+
+## Review round (2026-11-25)
+
+Independent review findings and the user's decisions, fixed on the same branch with a regression test each (`test/pl5-review.test.js`, plus additions to notes, dashboard, smoke and browser tests):
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| 1 | `deleteLap` (`src/db.js:157-162`) left a session's notes, tags and bookmarks behind; they stayed in Ctrl+K, the tag filter and "Earlier on this track and car". | User decision D-PL5-15: deleted with the session's last lap, in the same transaction; leftovers removed once at each start. |
+| 2 | A database with `user_version` 3 was opened and written; restores compared with the live file's version (`src/backup.js:211`). | `user_version > SCHEMA_VERSION`: the file is closed unread and unchanged, Paddock runs on an empty in-memory database, Home and Integration health say why, backups/restores refused; restores compare with `SCHEMA_VERSION` (D-PL5-16). |
+| 3 | `/api/overview` and `/api/dashboard` now carry tags and note lines but were not private GETs. | Added to `PRIVATE_GET` (D-PL5-17). |
+| 4 | Notes POSTs used the 50 MB body default; long tag arrays were cleaned before being refused. | 64 KB cap; over-long lists refused first. |
+| 5 | The next step's Progress fallback claimed "best matches ideal" without an ideal lap. | Says so only when both are known; otherwise "no ideal lap yet". |
+| 6 | The pre-v2 copy was made only when `laps` had rows. | Made when any table has rows (plan rule 9). |
+
+User decisions: OD-PL-19 (a), OD-PL-20 (a), OD-PL-21 (a), OD-PL-23 (a); **OD-PL-22 → (b)**: skipping game mods switches off the automatic HUD + App Loader install, using the existing `hud-removed` / `loader-removed` flags (new Settings → In-game HUD checkbox; existing users unchanged unless they turn it off; D-PL5-18). **OD-PL-24 → (c)**: the guide never opens by itself (Home's empty state, Sessions, Settings and Ctrl+K offer it). D-PL5-1 … 14 confirmed.
+
+Commits: `5395369` (fixes 1, 2, 4, 6), `9abd626` (fixes 3, 4, 5, OD-PL-22 (b), OD-PL-24 (c)), plus the docs commit.
+
+Tests after the review round: `npm run check` 131/131; `npm test` 306/306 (Node 22.23.4); `npm run test:electron` 306/306 (Node 24.22.2); `npm run test:browser` 21/21 in 3 runs.
+
+Remaining: with a newer database Paddock still records into memory during that run (lost on exit, as the message says); a HUD already in the game folder when game mods are skipped stays until removed in the Mods tab.
