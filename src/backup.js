@@ -86,6 +86,7 @@ export function create(opts = {}) {
   return run;
 }
 async function createNow({ includeSecrets = false, reason = 'manual', appVersion = null, parts: want = null }) {
+  if (db.blocked) throw err(`No backup: ${db.blocked.message}`, 409); // the file is left alone (src/db.js)
   // which parts: all of them unless the driver picked some (automatic backups always take everything)
   const pick = new Set(Array.isArray(want) ? PARTS.filter((p) => want.includes(p.id)).map((p) => p.file) : PARTS.map((p) => p.file));
   if (!pick.size) throw err('Choose at least one thing to back up');
@@ -185,6 +186,8 @@ export const pending = () => fs.existsSync(path.join(db.DATA_DIR, PENDING, 'mani
  * -> {before: name of the safety backup, manifest}
  */
 export async function stageRestore(name, { appVersion = null, stillIdle = () => true } = {}) {
+  // the newer database would be replaced without a copy (none can be made of it here): update Paddock instead
+  if (db.blocked) throw err(`No restore: ${db.blocked.message}`, 409);
   const file = fileOf(name);
   const manifest = inspect(file);
   const dir = path.join(db.DATA_DIR, PENDING);
@@ -208,7 +211,7 @@ export async function stageRestore(name, { appVersion = null, stillIdle = () => 
         const odd = t.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view') OR (type = 'table' AND sql LIKE 'CREATE VIRTUAL%') LIMIT 1").get();
         if (odd) throw err(`The database in this backup contains a ${odd.type === 'table' ? 'virtual table' : odd.type} Paddock never makes (${String(odd.name).slice(0, 40)}): not restored`);
         if (t.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw err('The database in this backup is damaged');
-        if (t.prepare('PRAGMA user_version').get().user_version > db.counts().schema) throw err('This backup was made by a newer Paddock: update Paddock first');
+        if (t.prepare('PRAGMA user_version').get().user_version > db.SCHEMA_VERSION) throw err('This backup was made by a newer Paddock: update Paddock first');
       } finally { t.close(); }
     }
     if (!files.length) throw err('This backup holds nothing Paddock can restore');

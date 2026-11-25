@@ -68,7 +68,11 @@ export function build(x) {
   // 3. recording: laps saved, failures
   const saveErr = p.errors?.lapSave || 0;
   const last = t.lastLap ? `Last lap saved: ${(t.lastLap.lapTimeMs / 1000).toFixed(3)} s${t.lastLap.valid ? '' : ' (invalid)'}.` : 'No lap saved since Paddock started.';
-  if (saveErr) {
+  if (x.dbBlocked) {
+    // a laps database from a newer Paddock (src/db.js blocked): left untouched, nothing is saved (review, PL5)
+    add({ id: 'recording', label: 'Recording', state: 'bad', summary: 'Laps are not saved: the laps database was made by a newer Paddock.', details: [x.dbBlocked.message],
+      steps: ['Update Paddock (Settings → Updates) to the version that made it.', 'Or, with Paddock closed, move data\telemetry.db somewhere else to start a new one (your laps stay in the moved file).'], href: '#/settings', hrefLabel: 'Settings → Updates' });
+  } else if (saveErr) {
     add({ id: 'recording', label: 'Recording', state: 'bad', summary: `${saveErr} lap${saveErr === 1 ? '' : 's'} could not be saved since Paddock started.`, details: [last],
       steps: ["Check that the disk with Paddock's data folder has free space.", 'Copy Settings → Diagnostics into a bug report: it lists the error count.'], href: '#/settings', hrefLabel: 'Settings → Diagnostics' });
   } else {
@@ -84,7 +88,7 @@ export function build(x) {
     const steps = [], details = [];
     let state = 'ok', summary;
     if (hud.state === 'no-game') { state = 'off'; summary = 'AC EVO has not been started on this PC yet, so the HUD is not installed.'; }
-    else if (hud.state === 'missing') { state = 'warn'; summary = hud.removed ? 'The HUD is switched off in the Mods tab.' : 'The HUD is not installed yet.'; steps.push(hud.removed ? 'Turn it on again in the Mods tab.' : 'Close AC EVO: Paddock installs the HUD while the game is closed.'); if (hud.autoError) details.push(`Last install attempt: ${hud.autoError}`); }
+    else if (hud.state === 'missing') { state = 'warn'; summary = hud.removed ? 'The HUD is switched off (Mods tab or setup guide): Paddock does not install it by itself.' : 'The HUD is not installed yet.'; steps.push(hud.removed ? 'Turn it on in Settings → In-game HUD, or in the Mods tab.' : 'Close AC EVO: Paddock installs the HUD while the game is closed.'); if (hud.autoError) details.push(`Last install attempt: ${hud.autoError}`); }
     else if (hud.state === 'outdated') { state = 'warn'; summary = `A HUD update (${hud.installed} → ${hud.bundled}) is waiting.`; steps.push('Close AC EVO: Paddock updates the HUD while the game is closed.'); }
     else if (hud.state === 'newer') { state = 'warn'; summary = `The installed HUD (${hud.installed}) is newer than this Paddock's (${hud.bundled}).`; steps.push('Update Paddock (Settings → Updates), or reinstall the HUD from the Mods tab.'); }
     else summary = `HUD ${hud.installed} installed, the version this Paddock ships.`;

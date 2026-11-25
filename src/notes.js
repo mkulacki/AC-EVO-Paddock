@@ -18,6 +18,8 @@ export function normTag(t) {
 function checkTags(list) {
   if (list == null) return [];
   if (!Array.isArray(list)) throw bad('Tags must be a list');
+  // too many before any work on them (a long list is refused, not cleaned first)
+  if (list.length > LIMITS.tags * 2) throw bad(`At most ${LIMITS.tags} tags per session`);
   const out = [];
   for (const t of list) {
     const n = normTag(t);
