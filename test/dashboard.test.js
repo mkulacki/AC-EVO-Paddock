@@ -106,3 +106,42 @@ test('old laps fall out of "last 7 days" by the clock given', () => {
   assert.equal(d.totals.last7, 0);
   assert.equal(d.totals.last30, d.totals.laps);
 });
+
+// ---------------------------------------------------------------- PL5: next step and recent progress
+test('next step: from the last session, with evidence quoting stored values only', () => {
+  const d = svc.dashboard();
+  const a = d.nextAction, last = d.recentSessions[0], rec = d.records.find((r) => r.track === last.track && r.layout === last.layout && r.car === last.car);
+  assert.ok(a, 'a session exists: a next step');
+  assert.deepEqual([a.track, a.layout, a.car], [last.track, last.layout, last.car]);
+  assert.ok(a.evidence && a.href && a.label);
+  if (a.kind === 'corner' || a.kind === 'ideal') {
+    assert.equal(a.gapMs, rec.bestMs - rec.idealMs);
+    assert.ok(a.evidence.includes((a.gapMs / 1000).toFixed(3)));
+    assert.ok(a.href.startsWith(`#/compare?laps=${rec.bestLapId}&ref=ideal`));
+  }
+  if (a.kind === 'corner') assert.equal(a.corner, last.report.weakest[0]);
+});
+
+test('next step rules: no report -> a longer session; no gap -> progress; nothing -> null', () => {
+  assert.equal(svc.nextStep(null, []), null);
+  const s = { track: 't', layout: 'l', car: 'c', laps: 2, validLaps: 1, report: null };
+  const a = svc.nextStep(s, []);
+  assert.equal(a.kind, 'longer');
+  assert.match(a.evidence, /2 laps, 1 valid/);
+  const withReport = { ...s, report: { weakest: ['T1'] } };
+  assert.equal(svc.nextStep(withReport, [{ key: 't|l|c', bestMs: 60000, idealMs: 60000, bestLapId: 1 }]).kind, 'progress', 'best = ideal: nothing to compare');
+  const c = svc.nextStep(withReport, [{ key: 't|l|c', bestMs: 60500, idealMs: 60000, bestLapId: 7 }]);
+  assert.equal(c.kind, 'corner');
+  assert.equal(c.href, '#/compare?laps=7&ref=ideal&c=T1');
+  assert.equal(svc.nextStep({ ...s, report: { weakest: [] } }, [{ key: 't|l|c', bestMs: 60500, idealMs: 60000, bestLapId: 7 }]).kind, 'ideal');
+});
+
+test('recent progress: new bests in the last 30 days, a first visit is not progress', () => {
+  const d = svc.dashboard();
+  assert.equal(d.recentProgress.days, 30);
+  assert.equal(d.recentProgress.combos, 1);
+  assert.ok(d.recentProgress.newBests <= 1);
+  assert.equal(d.recentProgress.latest.length, d.recentProgress.newBests);
+  // 40 days on: nothing in the window
+  assert.deepEqual(svc.dashboard({ now: Date.now() + 40 * 86400e3 }).recentProgress, { days: 30, combos: 0, newBests: 0, latest: [] });
+});

@@ -770,7 +770,21 @@ async function route(req, res) {
         achievements: { unlocked: a.unlocked, total: a.total, fresh: a.items.filter((x) => x.isNew).length,
           recent: a.items.filter((x) => x.unlockedAt != null).sort((x, y) => y.unlockedAt - x.unlockedAt).slice(0, 3) } };
     });
-    return send(res, 200, { ...svc.dashboard(), warnings, recording: recorder.state.status === 'live', development: dev });
+    const d = svc.dashboard();
+    // PL5: the practice objective for the last car and track driven: an open goal or challenge there, else its training
+    // plan, else its newest report's targets, else any open goal. The last session's own notes and tags.
+    const last = d.recentSessions[0];
+    const same = (c) => last && c.track === last.track && c.layout === last.layout && c.car === last.car;
+    let objective = null;
+    const goal = dev?.goals.find((g) => same(g.combo)) || null;
+    const plan = last && !goal ? safe(() => db.activePlan(last)) : null;
+    const tg = last && !goal && !plan ? d.targets.find(same) : null;
+    if (goal) objective = { kind: goal.challenge ? 'challenge' : 'goal', combo: goal.combo, text: goal.text, progress: goal.progressText, href: '#/development' };
+    else if (plan) objective = { kind: 'plan', combo: plan.combo, items: plan.targets.map((t) => t.text).slice(0, 3), href: `#/coach?combo=${encodeURIComponent(`${last.track}|${last.layout}|${last.car}`)}` };
+    else if (tg) objective = { kind: 'targets', combo: { track: tg.track, layout: tg.layout, car: tg.car }, items: tg.targets.map((t) => t.text).slice(0, 3), href: `#/report?session=${tg.sessionId}&tab=report` };
+    else if (dev?.goals[0]) objective = { kind: dev.goals[0].challenge ? 'challenge' : 'goal', combo: dev.goals[0].combo, text: dev.goals[0].text, progress: dev.goals[0].progressText, href: '#/development' };
+    const lastNotes = last ? safe(() => notes.summaries().get(last.id)) ?? null : null;
+    return send(res, 200, { ...d, warnings, recording: recorder.state.status === 'live', development: dev, objective, lastNotes });
   }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows

@@ -46,7 +46,7 @@ export async function viewHome(view, cleanup) {
     view.innerHTML = `<div class="race-head"><div><h1>Home</h1><div class="sub">Your driving at a glance, from your own laps.</div></div></div>${warnings}
       ${emptyHtml('Welcome to AC EVO Paddock', `Paddock records every lap you drive in Assetto Corsa EVO, then shows where the time goes, keeps your records and writes a report after each session.
         <br><br><b>1.</b> Start AC EVO, from Steam or from the <a href="#/race">Race</a> tab. <b>2.</b> Drive: laps are saved when you cross the line. <b>3.</b> Come back here for your records and trends.`,
-        '<a href="#/race"><button class="primary">Set up a session</button></a><a href="#/tracks"><button>Look at the tracks</button></a>')}`;
+        '<a href="#/welcome"><button class="primary">Open the setup guide</button></a><a href="#/race"><button>Set up a session</button></a><a href="#/tracks"><button>Look at the tracks</button></a>')}`;
     return;
   }
 
@@ -57,6 +57,9 @@ export async function viewHome(view, cleanup) {
     ${tile('Time in laps', hours(T.drivingMs), `saved laps, over ${plural(T.days, 'day')}`)}
     ${tile('Last 7 days', plural(T.last7, 'lap'), `${plural(T.last30, 'lap')} in 30 days`)}
     ${tile('Last lap', ago(T.lastAt), d.recording ? '<span class="pos-live">recording now</span>' : '')}</div>`;
+
+  // PL5: where you are now: the last session, the practice objective, recent progress and one next step with its evidence
+  const now = nowRow(d);
 
   const sessions = `<div class="card"><div class="row"><h2 style="margin:0">Recent sessions</h2><span class="spacer"></span><a href="#/?by=date">All sessions ›</a></div>
     <ul class="home-list">${d.recentSessions.map((s) => {
@@ -100,7 +103,7 @@ export async function viewHome(view, cleanup) {
         <a href="#/progress?combo=${encodeURIComponent(c.key)}">Progress</a>${c.bestLapId && c.idealMs ? ` · <a href="#/compare?laps=${c.bestLapId}&ref=ideal">Best against ideal</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
 
   view.innerHTML = `<div class="race-head"><div><h1>Home</h1><div class="sub">Your driving at a glance, from your own laps.</div></div><span class="spacer"></span><a href="#/race"><button class="primary">Set up a session</button></a></div>
-    ${warnings}${tiles}<div class="grid-2"><div>${sessions}${boardCard(board)}</div><div>${targets}${goals}</div></div>${trends}${records}`;
+    ${warnings}${now}${tiles}<div class="grid-2"><div>${sessions}${boardCard(board)}</div><div>${targets}${goals}</div></div>${trends}${records}`;
   bindSparks(view, d.trends, cleanup);
   // "Beat it": this car and track as a practice session in the game, right now; progress shows on the Race tab
   view.querySelectorAll('[data-beat]').forEach((b) => {
@@ -116,6 +119,38 @@ export async function viewHome(view, cleanup) {
       } catch (e) { b.disabled = false; alert(`Could not start the session: ${e.message}`); }
     };
   });
+}
+
+// ---------------------------------------------------------------- now: last session, objective, progress, next step (PL5)
+function nowRow(d) {
+  const s = d.recentSessions[0];
+  if (!s) return '';
+  const r = s.report, n = d.lastNotes;
+  const last = `<section class="card home-now" aria-labelledby="hnLast"><h2 id="hnLast">Last session</h2>
+    <a class="hn-main" href="#/report?session=${s.id}"><b>${combo(s)}</b><span class="muted"> · ${esc(prettyName(s.car))}</span></a>
+    <p class="muted s" style="margin:2px 0 6px">${esc(when(s.startedAt))} · ${plural(s.laps, 'lap')}${s.validLaps !== s.laps ? `, ${s.validLaps} valid` : ''}</p>
+    <p style="margin:0">${s.bestMs != null ? `Best <b class="${r?.newPb ? 'best' : ''}">${fmt(s.bestMs)}</b>` : '<span class="muted">No valid lap</span>'}
+      ${r?.newPb ? ' <span class="badge best">New PB</span>' : r?.bestDeltaMs != null ? ` · <span class="${r.bestDeltaMs <= 0 ? 'neg' : 'pos'}">${fmtGap(r.bestDeltaMs)}</span> <span class="muted">vs the session before</span>` : ''}</p>
+    ${n?.tags?.length ? `<p class="hn-tags" style="margin:6px 0 0">${n.tags.map((t) => `<span class="tag-chip">${esc(t)}</span>`).join(' ')}</p>` : ''}
+    ${n?.note ? `<p class="muted s hn-note" style="margin:6px 0 0">“${esc(n.note)}”</p>` : `<p class="muted s" style="margin:6px 0 0"><a href="#/report?session=${s.id}&notes=1">Add a note or tags</a></p>`}</section>`;
+
+  const o = d.objective;
+  const ocombo = o ? `<span class="muted s">${combo(o.combo)} · ${esc(prettyName(o.combo.car))}</span>` : '';
+  const objective = `<section class="card home-now" aria-labelledby="hnObj"><h2 id="hnObj">Practice objective</h2>${!o
+    ? '<p class="muted" style="margin:0">None yet. Set a goal on the <a href="#/development">Development</a> page, or drive a session of 3 laps or more for practice targets.</p>'
+    : o.kind === 'goal' || o.kind === 'challenge'
+      ? `<p style="margin:0"><span class="badge">${o.kind === 'challenge' ? 'Challenge' : 'Goal'}</span> <b>${esc(o.text)}</b></p><p style="margin:4px 0 0">${ocombo}</p>
+        ${o.progress ? `<p class="muted s" style="margin:4px 0 0">${esc(o.progress)}</p>` : ''}<p style="margin:8px 0 0"><a href="${esc(o.href)}">Development ›</a></p>`
+      : `<p style="margin:0"><span class="badge">${o.kind === 'plan' ? 'Training plan' : 'Practice targets'}</span> ${ocombo}</p>
+        <ol class="hn-items">${o.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ol><p style="margin:4px 0 0"><a href="${esc(o.href)}">${o.kind === 'plan' ? 'Coach ›' : 'Session report ›'}</a></p>`}</section>`;
+
+  const a = d.nextAction, p = d.recentProgress;
+  const next = `<section class="card home-now hn-next" aria-labelledby="hnNext"><h2 id="hnNext">Next step</h2>
+    ${a ? `<p style="margin:0"><b>${esc(a.text)}</b></p><p class="muted s" style="margin:4px 0 0">${combo(a)} · ${esc(prettyName(a.car))}</p>
+      <p class="s hn-why" style="margin:6px 0 0"><span class="muted">Why:</span> ${esc(a.evidence)}</p>
+      <p style="margin:10px 0 0"><a href="${esc(a.href)}"><button class="small">${esc(a.label)}</button></a></p>` : '<p class="muted" style="margin:0">Drive a session first.</p>'}
+    ${p ? `<p class="muted s hn-progress" style="margin:10px 0 0">Last ${p.days} days: ${plural(p.combos, 'car and track')} driven, a new personal best on ${p.newBests}${p.latest.length ? ` (latest: ${p.latest.map((x) => `${esc(prettyName(x.track))} · ${esc(prettyName(x.car))} ${fmt(x.bestMs)}`).join('; ')})` : ''}.</p>` : ''}</section>`;
+  return `<div class="home-now-row">${last}${objective}${next}</div>`;
 }
 
 // ---------------------------------------------------------------- sparkline: one line, the day's best lap
