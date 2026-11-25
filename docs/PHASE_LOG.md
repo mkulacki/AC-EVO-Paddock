@@ -515,5 +515,6 @@
 - **Findings:** P9 goal checks are synchronous over lap rows (corner metrics need slices, so drills evaluate in `src/drills.js`); the analysis page shadowed `window` (redraw fixed); within one car + track only the game version can make laps unfair to compare (OD-PL-34).
 - **Tests:** `npm run check` 138/138 → 143/143; `npm test` 346/346 → 365/365 (Node 22.23.4); `npm run test:electron` 365/365 (Node 24.22.2); `npm run test:browser` 22/22 → 23/23.
 - **Known limitations:** thresholds on synthetic laps only; drills evaluated on demand only; packaged smoke not run (port 8080 in use by the user's app).
-- **Open decisions:** OD-PL-32 … 41, OPEN (operator), defaults built.
+- **Review round (2026-11-25):** drills compared stored corner names after a new best lap renumbered corners (now resolved by apex everywhere); 0.7.0 could leave `drill_events` for reused goal ids (pruned at start, cleared on create); laps without a game version counted (now never); "met" raced Stop (now queued); before/after without pass counts (added). Fixed in `d0097a2` with regression tests (D-PL7-8 … 12). User decisions: OD-PL-32 … 41 (a); D-PL7-1 … 7 confirmed. Tests: check 144/144, test 369/369, test:electron 369/369, test:browser 23/23.
+- **Open decisions:** none.
 - **User approval:** pending. Push/merge not done.

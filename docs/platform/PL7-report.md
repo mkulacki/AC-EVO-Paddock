@@ -13,7 +13,9 @@
 | `a7bac8d` | Browser flow: drill made from a card, met by laps driven after it, shown on Development, narrow window; fix: the analysis page's redraw called `window.dispatchEvent` on a shadowing local `window` (the lap-window string) |
 | `d6400ef` | A met drill is recorded and announced once when two pages evaluate at the same moment (`setGoalMet` changes = 1); regression test |
 | `01a26fb` | `docs/platform/PRACTICE.md`, DECISIONS (D-PL7-1 … 7, OD-PL-32 … 41), fixtures README, inventory, architecture, backlog, changelog |
-| (this commit) | this report, `docs/PHASE_LOG.md`, `docs/DEVELOPMENT_STATE.md` |
+| `e311e1b` | this report, `docs/PHASE_LOG.md`, `docs/DEVELOPMENT_STATE.md` |
+| `d0097a2` | Review fixes 1–5 (see "Review round" below), `test/practice-corners.test.js` |
+| (this commit) | review-round docs: user decisions, D-PL7-8 … 12, PRACTICE, report, phase log, state, changelog |
 
 ## Verified findings / rejected assumptions / unresolved
 
@@ -35,10 +37,10 @@ Unresolved: thresholds and exercise wording are untested on real AC EVO laps (no
 
 | Suite | Before (`ff85248`) | After |
 | --- | --- | --- |
-| `npm run check` | 138/138 | 143/143 |
-| `npm test` (Node 22.23.4) | 346/346 | 365/365 |
-| `npm run test:electron` (Node 24.22.2) | 346/346 | 365/365 |
-| `npm run test:browser` | 22/22 | 23/23 |
+| `npm run check` | 138/138 | 143/143 → 144/144 after the review |
+| `npm test` (Node 22.23.4) | 346/346 | 365/365 → 369/369 after the review |
+| `npm run test:electron` (Node 24.22.2) | 346/346 | 365/365 → 369/369 after the review |
+| `npm run test:browser` | 22/22 | 23/23 (also after the review) |
 
 New: `test/practice.test.js` (10, pure rules), `test/practice-db.test.js` (9: v2 → v3 upgrade with copy and unchanged tables, six-part prescription quoting the analysis, one-at-a-time, met on the 5th pass, slipping / revisit / mastery, review → keep → stop, game-version exclusion and replace, concurrent met recorded once, no AI import), one browser flow.
 
@@ -50,7 +52,7 @@ New: `test/practice.test.js` (10, pure rules), `test/practice-db.test.js` (9: v2
 ## Performance or compatibility impact
 
 - Drill evaluation runs only when Development or Lap analysis opens, in `runInSlices`, reusing the per-lap numbers of the analysis; worst case on a long history is reading the corner passes of the laps since each listed drill started (newest 30 drills; slipping checks read at most 30 laps after each met drill). Lap analysis now also requests `/api/practice`.
-- Paddock 0.7.0 (no newer-database guard) still opens a v3 file; it would list a drill as an open goal named "drill". PL5/PL6 builds refuse it (newer database → recording off), as designed.
+- Paddock 0.7.0 (no newer-database guard) still opens a v3 file: it shows each drill as an open goal named "drill" (its `describe` has no such kind) and counts met drills in its "Goal getter" achievement (it counts every met goal without a deadline); deleting one there leaves its `drill_events`, which this Paddock removes at the next start (D-PL7-10). PL5/PL6 builds refuse a v3 file (newer database → recording off), as designed.
 
 ## Migration and recovery
 
@@ -60,7 +62,9 @@ Schema v3 adds `drill_events` only, in one transaction, after a `VACUUM INTO` co
 
 Nothing new: no push, deploy, upload, paid service or privacy change. The branch is not pushed or merged.
 
-## Open decisions (added to DECISIONS.md, OPEN (operator), default built)
+## Open decisions
+
+All decided by the user on 2026-11-25: OD-PL-32 … 41 → (a), as built; D-PL7-1 … 7 confirmed. Originally:
 
 OD-PL-32 success criterion (a: half of newest 10 passes, from 5) · OD-PL-33 review point (a: 10 passes, keep / renew / stop) · OD-PL-34 other game versions (a: left out) · OD-PL-35 drills at a time (a: one per car + track) · OD-PL-36 where offered (a: top-3 card findings only) · OD-PL-37 Home / achievements (a: unchanged) · OD-PL-38 slipping (a: < 25 % of newest 10) · OD-PL-39 mastery labels (a: no "mastered") · OD-PL-40 AI and drills (a: none) · OD-PL-41 when evaluated (a: on demand). Choices made without asking: D-PL7-1 … 7.
 
@@ -73,3 +77,15 @@ OD-PL-32 success criterion (a: half of newest 10 passes, from 5) · OD-PL-33 rev
 ## Recommended next phase
 
 PL8 (controlled setup experiments): reuse `src/stats.js`, the PL4 classes and the PL7 before/after pattern (judged passes, minimum evidence, "no clear change"). PL9 could show the active drill in the HUD.
+
+## Review round (2026-11-25)
+
+An independent review found five issues; each is fixed in `d0097a2` with a regression test (`test/practice-corners.test.js`, `test/practice.test.js`):
+
+1. **Corner identity** (important): names are positions (`src/analysis.js` `detectCorners`, `T${k + 1}`), so a new best lap that adds a corner renamed the drilled one; passes were found by apex, but mastery, "superseded", "your drill" and Renew compared the stored name. Now the drill's corner is resolved by apex everywhere (`svc.cornerListAsync` + `matchCorner`); the page shows "T3 (T2 when the drill started)". Test: a best lap with a lift on the first straight adds a corner before the drilled one (`dip` in `test/lapfixtures.js`).
+2. **Downgrade to 0.7.0** (important): 0.7.0 can delete a drill's goals row without its events, and goals ids are reused, so a new drill could inherit "stopped". Events of missing goals are removed at start (`db.pruneDrillEvents`) and cleared for a new drill's id. The report's earlier line on 0.7.0 is corrected above.
+3. Laps without a recorded game version counted; now they never match (OD-PL-34 applied strictly, D-PL7-9), the count left out is in the evidence, and no drill is made when the newest lap has no version.
+4. "Met" could be recorded outside the queue, racing Stop; now recorded in turn (D-PL7-11).
+5. Pass counts are shown beside the before / after shares (D-PL7-12).
+
+After the fixes: check 144/144, test 369/369 (Node 22.23.4), test:electron 369/369 (Node 24.22.2), test:browser 23/23.
