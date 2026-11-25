@@ -33,7 +33,7 @@ function progressHtml(d) {
   return `<div class="drill-progress">
       <div class="drill-bar" role="img" aria-label="${esc(`${pct(e.share)} of passes reach the target; 50 % needed`)}"><span style="width:${Math.min(100, Math.round(share * 100))}%"></span><i title="50 %: the success line"></i></div>
       <p class="s" data-drill-line>${esc(line)}${e.passes > e.sinceRestart ? ` <span class="muted">(${e.passes - e.sinceRestart} earlier passes before you chose to keep practising are not judged.)</span>` : ''}</p>
-      <p class="s"><b>Before → now:</b> ${pct(before.share)} → ${pct(e.share)} of passes reached the target (before: ${before.n} passes${ch.metricBefore != null && ch.metricAfter != null ? `; median ${esc(String(ch.metricBefore))} → ${esc(String(ch.metricAfter))}` : ''}).${time ? ` <span class="muted">${time}</span>` : ''}</p>
+      <p class="s"><b>Before → now:</b> ${pct(before.share)} → ${pct(e.share)} of passes reached the target (${before.n} passes before, ${e.judged} now${ch.metricBefore != null && ch.metricAfter != null ? `; median ${esc(String(ch.metricBefore))} → ${esc(String(ch.metricAfter))}` : ''}).${time ? ` <span class="muted">${time}</span>` : ''}</p>
       ${e.excluded ? `<p class="muted s">${e.excluded} lap${e.excluded === 1 ? '' : 's'} since the start not counted: ${esc((e.excludedReasons || []).join('; '))}.</p>` : ''}
       ${mixHtml(e.compat, 'The before and drill laps')}
     </div>`;
@@ -45,12 +45,12 @@ export function drillHtml(d, { combo = true } = {}) {
   const slip = d.slip?.slipping ? `<p class="s"><b>May be slipping:</b> ${d.slip.n ? `only ${pct(d.slip.share)} of your newest ${d.slip.n} passes since it was met reach the target.` : ''} A short drill again may help.</p>` : '';
   const actions = [
     open && d.state === 'review' ? `<button class="small primary" data-drill-act="keep" data-id="${d.id}">Keep practising</button>` : '',
-    open && d.state === 'review' ? `<button class="small" data-drill-act="renew" data-id="${d.id}">Renew target from my latest laps</button>` : '',
-    d.slip?.slipping ? `<button class="small primary" data-drill-act="again" data-id="${d.id}">Practise again</button>` : '',
+    open && d.state === 'review' && d.corner ? `<button class="small" data-drill-act="renew" data-id="${d.id}">Renew target from my latest laps</button>` : '',
+    d.slip?.slipping && d.corner ? `<button class="small primary" data-drill-act="again" data-id="${d.id}">Practise again</button>` : '',
     open ? `<button class="small ghost" data-drill-act="stop" data-id="${d.id}">Stop</button>` : `<button class="small ghost" data-drill-act="remove" data-id="${d.id}" aria-label="Delete this drill">Delete</button>`,
   ].join('');
   return `<article class="drill${open ? ' drill-active' : ''}" id="drill-${d.id}" data-drill="${d.id}">
-    <div class="row"><h3 style="margin:0">${esc(d.corner)} · ${esc(p.label)}</h3>${stateBadge(d)}<span class="spacer"></span>
+    <div class="row"><h3 style="margin:0">${esc(d.corner ?? d.cornerAtStart)} · ${esc(p.label)}</h3>${d.corner && d.corner !== d.cornerAtStart ? `<span class="muted s" data-corner-renamed title="Corner names are numbered from the start line on your best lap: a new best lap with another corner renumbers them. The drill follows the corner by where it is.">(${esc(d.cornerAtStart)} when the drill started)</span>` : ''}${stateBadge(d)}<span class="spacer"></span>
       <span class="muted s">started ${esc(day(d.createdAt))}${d.met ? ` · met ${esc(day(d.met.at))}` : d.endedAt ? ` · ${d.endKind === 'replaced' ? 'replaced' : 'stopped'} ${esc(day(d.endedAt))}` : ''}</span></div>
     ${combo ? `<div class="muted s">${comboTxt(d.combo)}</div>` : ''}
     <dl class="drill-rx">

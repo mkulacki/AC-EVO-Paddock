@@ -84,14 +84,15 @@ before(async () => {
   // the laps' own conditions, as the app records them after each lap (the seed does not): similar temperatures that are
   // not checked against the game, for the combined "not confirmed" line on Compare (D-PL4-12)
   { const d = new DatabaseSync(path.join(env.ACEVO_DATA, 'telemetry.db')); d.exec(`UPDATE laps SET cond = '{"airC":20,"roadC":28}'`); d.close(); }
-  // PL6: 12 synthetic laps with known patterns on another car and track (test/lapfixtures.js), dated 1970 so every
+  // PL6: 12 synthetic laps with known patterns on another car and track (test/lapfixtures.js; game version 1.0 for
+  // the PL7 drill flow, which counts only laps of a known, matching version), dated 1970 so every
   // other flow still sees the mock laps first; the lap analysis page must rank their T2 and T1
   execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', `
     const db = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/db.js')).href)});
     const { insertLap, COMBO } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/lapfixtures.js')).href)});
     const params = (i) => ({ brake: [i % 3 !== 0 ? 0.75 : 1, 1, 1], hold: [0, i % 3 !== 1 ? 50 : 0, 0], gear: [0, i % 3 !== 1 ? 1 : 0, 0] });
     const s = [0, 1, 2].map((k) => db.createSession({ ...COMBO, sessionType: 0, driver: 'Me', startedAt: 1e9 + k * 1e6 }));
-    for (let i = 1; i <= 12; i++) insertLap(db, { sessionId: s[Math.floor((i - 1) / 4)], lapNumber: i, recordedAt: 1e9 + i * 1e5, params: params(i) });`],
+    for (let i = 1; i <= 12; i++) db.setLapCond(insertLap(db, { sessionId: s[Math.floor((i - 1) / 4)], lapNumber: i, recordedAt: 1e9 + i * 1e5, params: params(i) }), { game: "1.0" });`],
   { env: childEnv, cwd: ROOT, stdio: 'ignore' });
   // a damaged setup-meta.json: the server keeps it aside at start and the Settings page must say so (OD-PL-5)
   fs.writeFileSync(path.join(env.ACEVO_DATA, 'setup-meta.json'), '{"files": {"x": {"notes": "half');
@@ -773,14 +774,14 @@ test('practice drill: Practise this on a Lap analysis card makes a drill with ev
     const db = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/db.js')).href)});
     const { insertLap, COMBO } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/lapfixtures.js')).href)});
     const t = Date.now() + 1000, s = db.createSession({ ...COMBO, sessionType: 0, driver: 'Me', startedAt: t });
-    for (let i = 1; i <= 5; i++) insertLap(db, { sessionId: s, lapNumber: 40 + i, recordedAt: t + i * 1000, params: { hold: [0, 0, 0] } });`],
+    for (let i = 1; i <= 5; i++) db.setLapCond(insertLap(db, { sessionId: s, lapNumber: 40 + i, recordedAt: t + i * 1000, params: { hold: [0, 0, 0] } }), { game: "1.0" });`],
   { env: childEnv, cwd: ROOT, stdio: 'ignore' });
 
   // evaluated: met, and Development shows the result before against now
   await go('#/development', "document.querySelector('#dvPractice')");
   assert.ok(await js("!!document.querySelector('#dvPractice [data-drill-state=\"met\"]')"), 'met');
   assert.match(await js("document.querySelector('#dvPracticeCounts').textContent"), /1 met/);
-  assert.match(await js("document.querySelector('#dvPractice').textContent"), /T2: part-throttle time on the exit \(fixture ring · fixture gt\): 33 % → 100 % of passes reaching the target/);
+  assert.match(await js("document.querySelector('#dvPractice').textContent"), /T2: part-throttle time on the exit \(fixture ring · fixture gt\): 33 % of 12 passes before → 100 % of 5 after reached the target/);
   const d = (await api('/api/practice')).body.drills[0];
   assert.equal(d.state, 'met');
   assert.equal(d.eval.judged, 5);

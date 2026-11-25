@@ -25,14 +25,34 @@ function serial(fn) { const run = chain.then(fn); chain = run.catch(() => {}); r
 
 const specOf = (p) => ({ corner: p.corner, key: p.key, channel: p.channel });
 const brief = (g) => ({ id: g.id, corner: g.extra.corner.name, label: g.extra.label, key: g.extra.key });
+const ended = (ev) => ev.find((e) => e.kind === 'stopped' || e.kind === 'replaced');
 
-/** Where one drill stands; may store "met" (goals.met_* and a 'met' event) the first time it is reached. */
-async function evaluateOne(g, events, { superseded = false } = {}) {
+/**
+ * Records a drill as met, once, inside serial() (review fix 4): only if it still exists, is not met yet and was not
+ * stopped or replaced meanwhile. -> true when this call recorded it.
+ */
+function recordMet(id, e) {
+  const g = db.getGoal(id);
+  if (!g || g.kind !== 'drill' || g.met || ended(db.drillEvents().get(id) || [])) return false;
+  if (Number(db.setGoalMet(id, { at: e.met.at, sessionId: e.met.sessionId, lapId: e.met.lapId, value: e.share }).changes) !== 1) return false;
+  db.addDrillEvent(id, 'met', e, e.met.at);
+  return true;
+}
+
+/**
+ * Where one drill stands; may store "met" (goals.met_* and a 'met' event) the first time it is reached.
+ * corners: the car + track's corners now ([{name, apex}], svc.cornerListAsync): the drill's corner is found by its
+ * apex, so `corner` is its name now (null when it is not found) and `cornerAtStart` the name it had (review fix 1).
+ * inSerial: called from inside serial() (create / keep / stop), so "met" is recorded directly.
+ */
+async function evaluateOne(g, events, { superseded = false, corners = null, inSerial = false } = {}) {
   const p = g.extra, ev = events.get(g.id) || [];
-  const end = ev.find((e) => e.kind === 'stopped' || e.kind === 'replaced');
+  const end = ended(ev);
   const since = Math.max(g.createdAt, ...ev.filter((e) => e.kind === 'restart').map((e) => e.at));
-  const out = { id: g.id, combo: g.combo, corner: p.corner.name, key: p.key, label: p.label, createdAt: g.createdAt, prescription: p,
-    history: ev.map((e) => ({ kind: e.kind, at: e.at })), met: g.met, active: false, state: null, eval: null, slip: null, reason: null };
+  const list = corners || await svc.cornerListAsync(g.combo);
+  const k = svc.matchCorner(list, p.corner);
+  const out = { id: g.id, combo: g.combo, corner: k >= 0 ? list[k].name : null, cornerAtStart: p.corner.name, apex: p.corner.apex, key: p.key, label: p.label,
+    createdAt: g.createdAt, prescription: p, history: ev.map((e) => ({ kind: e.kind, at: e.at })), met: g.met, active: false, state: null, eval: null, slip: null, reason: null };
   if (g.met) {
     out.state = 'met';
     out.eval = ev.find((e) => e.kind === 'met')?.data ?? null;
@@ -54,11 +74,13 @@ async function evaluateOne(g, events, { superseded = false } = {}) {
   e.compat = compat.mix(svc.lapProvenance([...(p.baselineIds || []), ...r.passes.map((x) => x.lapId)]));
   out.state = e.state; out.eval = e;
   if (e.state === 'met') {
-    // stored once: two pages working it out at the same moment both see it met, only the first one records it
-    const first = Number(db.setGoalMet(g.id, { at: e.met.at, sessionId: e.met.sessionId, lapId: e.met.lapId, value: e.share }).changes) === 1;
-    if (first) db.addDrillEvent(g.id, 'met', e, e.met.at);
+    // stored once, in turn with Stop / Keep / new drills: two pages working it out at the same moment both see it
+    // met, only the first one records it; a drill stopped meanwhile stays stopped
+    const first = inSerial ? recordMet(g.id, e) : await serial(() => recordMet(g.id, e));
+    const now = db.getGoal(g.id);
+    if (!now?.met) return now ? evaluateOne(now, db.drillEvents(), { superseded, corners: list, inSerial }) : out;
     out.active = false;
-    out.met = { at: e.met.at, sessionId: e.met.sessionId, lapId: e.met.lapId, value: e.share };
+    out.met = now.met;
     if (first) { try { onMet(out); } catch (err) { console.log(`[drill] ${err.message}`); } }
   }
   return out;
@@ -69,13 +91,17 @@ export async function list({ combo = null } = {}) {
   const rows = db.listDrills().filter((g) => !combo || same(g.combo, combo)).slice(0, LIST_MAX);
   const events = db.drillEvents();
   const drills = [];
-  const seen = new Set(); // corner + behaviour per car + track: the newest drill carries it
+  const cornersOf = new Map(); // car + track -> its corners now (read once)
+  const seen = new Set(); // corner (by its apex) + behaviour per car + track: the newest drill carries it
   for (const g of rows) {
-    const k = `${g.combo.track}|${g.combo.layout}|${g.combo.car}|${g.extra.corner.name}|${g.extra.key}`;
-    drills.push(await evaluateOne(g, events, { superseded: seen.has(k) }));
+    const ck = `${g.combo.track}|${g.combo.layout}|${g.combo.car}`;
+    if (!cornersOf.has(ck)) cornersOf.set(ck, await svc.cornerListAsync(g.combo));
+    const corners = cornersOf.get(ck), at = svc.matchCorner(corners, g.extra.corner);
+    const k = `${ck}|${at >= 0 ? corners[at].name : `@${g.extra.corner.apex}`}|${g.extra.key}`;
+    drills.push(await evaluateOne(g, events, { superseded: seen.has(k), corners }));
     seen.add(k);
   }
-  return { drills, summary: practice.progressSummary(drills), revisits: drills.filter((d) => d.slip?.slipping).map((d) => ({ id: d.id, combo: d.combo, corner: d.corner, key: d.key, label: d.label, share: d.slip.share, n: d.slip.n })), rules: practice.PRACTICE };
+  return { drills, summary: practice.progressSummary(drills), revisits: drills.filter((d) => d.slip?.slipping).map((d) => ({ id: d.id, combo: d.combo, corner: d.corner ?? d.cornerAtStart, key: d.key, label: d.label, share: d.slip.share, n: d.slip.n })), rules: practice.PRACTICE };
 }
 
 /** Corner mastery of a car + track (the lap analysis's corner rows and its drills); null without valid laps. */
@@ -88,7 +114,7 @@ export async function masteryFor(combo, drills) {
 
 function activeOf(combo) {
   const events = db.drillEvents();
-  return db.listDrills().find((g) => same(g.combo, combo) && !g.met && !(events.get(g.id) || []).some((e) => e.kind === 'stopped' || e.kind === 'replaced'));
+  return db.listDrills().find((g) => same(g.combo, combo) && !g.met && !ended(events.get(g.id) || []));
 }
 
 function comboOf(b) {
@@ -121,15 +147,22 @@ export function create(body, now = Date.now()) {
     const ids = (row.values || []).map((v) => v.lapId);
     const newest = ids.map((i) => db.getLapMeta(i)).filter(Boolean).reduce((x, y) => (!x || y.recorded_at > x.recorded_at ? y : x), null);
     let game = null; try { game = JSON.parse(newest?.cond || 'null')?.game ?? null; } catch { /* old row */ }
+    // unknown never matches (PL4, OD-PL-34; review fix 3): without the newest lap's game version no lap could count
+    if (!game) throw fail(409, 'Paddock has no game version recorded for your newest lap here, so it cannot tell which laps are comparable: drive a lap with this Paddock first.');
     const spec = { corner: { name: row.name, apex: row.apex }, key, channel: practice.METRICS[key].channel };
     const base = await svc.drillPassesAsync(combo, spec, { ids, game });
     if (!base.found) throw fail(409, base.reason);
     const r = practice.prescribe({ row, finding, analysis: a, baseline: base.passes, game });
     if (!r.ok) throw fail(409, r.reason);
+    const left = base.excluded.filter((x) => /game version/.test(x.reason)).length;
+    if (left) r.drill.evidence.text += ` ${left} of the ${ids.length} analysed laps ${left === 1 ? 'was' : 'were'} left out of the "before" (another or unrecorded game version).`;
     const drill = { ...r.drill, baselineIds: base.passes.map((x) => x.lapId) };
+    drill.evidence.leftOut = left;
     const id = db.addGoal({ combo, kind: 'drill', target: drill.criterion.target, extra: drill, origin: 'analysis', createdAt: now, dueAt: null });
+    // goals ids can be reused (no AUTOINCREMENT): events an older Paddock left for a deleted goal with this id go (review fix 2)
+    db.clearDrillEvents(id);
     if (active) db.addDrillEvent(active.id, 'replaced', { by: id }, now);
-    return evaluateOne(db.getGoal(id), db.drillEvents());
+    return evaluateOne(db.getGoal(id), db.drillEvents(), { inSerial: true });
   });
 }
 
@@ -142,20 +175,20 @@ function drillById(id) {
 export function keep(id, now = Date.now()) {
   return serial(async () => {
     const g = drillById(id);
-    const d = await evaluateOne(g, db.drillEvents());
+    const d = await evaluateOne(g, db.drillEvents(), { inSerial: true });
     if (!d.active || d.state !== 'review') throw fail(409, 'This drill is not at its review point');
     db.addDrillEvent(g.id, 'restart', d.eval, now);
-    return evaluateOne(db.getGoal(g.id), db.drillEvents());
+    return evaluateOne(db.getGoal(g.id), db.drillEvents(), { inSerial: true });
   });
 }
 /** Stop an active drill (its result so far is kept). */
 export function stop(id, now = Date.now()) {
   return serial(async () => {
     const g = drillById(id);
-    const d = await evaluateOne(g, db.drillEvents());
+    const d = await evaluateOne(g, db.drillEvents(), { inSerial: true });
     if (!d.active) throw fail(409, 'This drill is not active');
     db.addDrillEvent(g.id, 'stopped', d.eval, now);
-    return evaluateOne(db.getGoal(g.id), db.drillEvents());
+    return evaluateOne(db.getGoal(g.id), db.drillEvents(), { inSerial: true });
   });
 }
 /** Delete a drill and its history. */

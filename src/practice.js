@@ -173,7 +173,7 @@ export function evaluate(p, passes, since) {
 
 /** Before against after: the behaviour (share reaching the target, median) and, as context only, the corner time. */
 export function change(p, after) {
-  const b = p.before, out = { shareBefore: b.share, shareAfter: after.share, metricBefore: b.median, metricAfter: after.median, time: null };
+  const b = p.before, out = { shareBefore: b.share, shareAfter: after.share, nBefore: b.n, nAfter: after.n, metricBefore: b.median, metricAfter: after.median, time: null };
   if (p.key !== 'minGear' && b.median != null && after.median != null && p.criterion.target !== b.median) {
     out.gapClosed = round(Math.max(-1, Math.min(2, (after.median - b.median) / (p.criterion.target - b.median))), 2);
   }
@@ -208,7 +208,7 @@ export const MASTERY = {
  */
 export function mastery(rows, drills = []) {
   return rows.map((r) => {
-    const here = drills.filter((d) => d.corner === r.name);
+    const here = drills.filter((d) => d.corner === r.name); // d.corner: the name now, found by the apex (src/drills.js)
     const met = here.filter((d) => d.state === 'met').length;
     let level = !r.sufficient ? 'unknown' : r.rank ? 'open' : 'steady';
     if (here.some((d) => d.slip?.slipping)) level = 'revisit';
@@ -220,8 +220,8 @@ export function mastery(rows, drills = []) {
 /** Progress over every drill (evaluated): counts and the latest results, for the Development page. */
 export function progressSummary(drills) {
   const n = (f) => drills.filter(f).length;
-  const results = drills.filter((d) => d.state === 'met').slice(0, 10).map((d) => ({ id: d.id, corner: d.corner, combo: d.combo, label: d.label,
-    shareBefore: d.eval?.change?.shareBefore ?? null, shareAfter: d.eval?.change?.shareAfter ?? null, metAt: d.met?.at ?? null, time: d.eval?.change?.time ?? null }));
+  const results = drills.filter((d) => d.state === 'met').slice(0, 10).map((d) => ({ id: d.id, corner: d.corner ?? d.cornerAtStart, combo: d.combo, label: d.label,
+    shareBefore: d.eval?.change?.shareBefore ?? null, shareAfter: d.eval?.change?.shareAfter ?? null, nBefore: d.eval?.change?.nBefore ?? d.prescription?.before?.n ?? null, nAfter: d.eval?.change?.nAfter ?? d.eval?.judged ?? null, metAt: d.met?.at ?? null, time: d.eval?.change?.time ?? null }));
   return { active: n((d) => d.active), review: n((d) => d.active && d.state === 'review'), met: n((d) => d.state === 'met'),
     stopped: n((d) => d.state === 'stopped'), revisit: n((d) => d.slip?.slipping), results };
 }

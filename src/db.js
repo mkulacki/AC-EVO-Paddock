@@ -413,6 +413,18 @@ export const listLaunches = () => db.prepare('SELECT * FROM launches ORDER BY at
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 }
+/**
+ * Drill events whose goal is gone or is not a drill: Paddock 0.7.0 (no newer-database guard) can open a v3 file and
+ * delete a drill's goals row without its events, and goals ids are reused (no AUTOINCREMENT), so a new goal would
+ * inherit them. Removed at every start (PL7 review fix 2). -> rows removed.
+ */
+export function pruneDrillEvents() {
+  const n = Number(db.prepare("DELETE FROM drill_events WHERE goal_id NOT IN (SELECT id FROM goals WHERE kind = 'drill')").run().changes);
+  if (n) console.log(`[db] removed ${n} practice-drill event(s) of goals that no longer exist`);
+  return n;
+}
+pruneDrillEvents();
+export const clearDrillEvents = (goalId) => db.prepare('DELETE FROM drill_events WHERE goal_id = ?').run(goalId);
 export function addDrillEvent(goalId, kind, data = null, at = Date.now()) {
   const r = db.prepare('INSERT INTO drill_events (goal_id, at, kind, data) VALUES (?,?,?,?)').run(goalId, at, kind, data == null ? null : JSON.stringify(data));
   return Number(r.lastInsertRowid);

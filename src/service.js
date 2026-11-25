@@ -549,9 +549,11 @@ function* drillSteps(combo, info, spec, opts) {
   const excluded = [], passes = [];
   const sig = `pl6|${PASS_REV}|${cornerSig.get(info)}`;
   for (const l of laps) {
-    // a game update can change grip and braking: before / after across versions is not a fair check (OD-PL-34)
+    // a game update can change grip and braking: before / after across versions is not a fair check (OD-PL-34);
+    // a lap whose version was not recorded never counts as the same version (PL4: unknown never matches; review fix 3)
     let game = null; try { game = JSON.parse(l.cond || 'null')?.game ?? null; } catch { /* old row */ }
-    if (opts.game && game && game !== opts.game) { excluded.push({ id: l.id, reason: 'another game version' }); continue; }
+    if (!game) { excluded.push({ id: l.id, reason: 'game version not recorded' }); continue; }
+    if (game !== opts.game) { excluded.push({ id: l.id, reason: 'another game version' }); continue; }
     if (!hasLapPoints(l.id, sig)) yield;
     const p = lapPasses(info, l.id);
     if (!p) continue; // deleted meanwhile
@@ -574,6 +576,16 @@ export async function drillPassesAsync(combo, spec, opts = {}) {
   const info = await comboInfoAsync(combo);
   if (!info.best) return { found: false, reason: 'No valid laps for this track/car any more.', passes: [], excluded: [] };
   return runInSlices(drillSteps(combo, info, spec, opts));
+}
+/**
+ * The corners of a car + track now ([{name, apex}], apex in metres on the best lap), for finding a drill's corner
+ * again by its apex: corner names are positions (T1, T2 …), so a new best lap with one more corner renames the ones
+ * after it (PL7 review fix 1). [] without a best lap.
+ */
+export async function cornerListAsync(combo) {
+  const info = await comboInfoAsync(combo);
+  const R = info.best ? getResampled(info.best.id)?.R : null;
+  return R ? info.corners.map((c) => ({ name: c.name, apex: Math.round(R.d[c.apexIdx]) })) : [];
 }
 /** The provenance of laps (PL4), for the mix of a drill's before and after laps. */
 export function lapProvenance(ids) {

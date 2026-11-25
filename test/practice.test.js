@@ -88,6 +88,7 @@ test('evaluate: collecting below 5 passes, practising, met at the first point wh
   assert.equal(e.after.n, 5, 'after = the passes up to the met point');
   assert.equal(e.change.shareBefore, 0.25);
   assert.equal(e.change.shareAfter, 0.6);
+  assert.deepEqual([e.change.nBefore, e.change.nAfter], [12, 5], 'review fix 5: the sample sizes go with the shares');
   // the order the passes come in does not matter
   assert.deepEqual(practice.evaluate(d, passes([600, 600, 100, 100, 100, 600, 600]).reverse(), 0).met, e.met);
 });
