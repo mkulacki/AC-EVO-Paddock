@@ -449,5 +449,6 @@
 - **Findings:** the stalls came from reading the lap history synchronously (HUD references 7.4 s at 612 laps, 5 s at every lap end past 300 laps from cache thrash, Laps page 36 s at 5,000 laps, Home 6.7 s), not from the backlog suspects (lap gzip 20 ms, `listLaps` 21 ms, report JSON). After: longest hold 25–58 ms; live run 44 s → 0.58 s longest gap, 3,076 → 133 missed frames.
 - **Tests:** `npm run check` 116/116 → 119/119; `npm test` 226/226 → 236/236 (Node 22.23.4); `npm run test:electron` 236/236 (Node 24.22.2); `npm run test:browser` 13/13.
 - **Known limitations:** real shared-memory timing and in-game behaviour unverified; one PC; Consistency page and coach context still read all laps at once; no DB change.
-- **Open decisions:** OD-PL-10 (lap compression level), OD-PL-11 (first open of Laps/Home with a long history).
+- **Review round (2026-11-25):** stale joined async run after `invalidate()`, kept values of a deleted lap served for a reused id (both reproduced), session refs kept across a new session, best lap deleted mid-run: fixed in `6c1d08a` with 4 regression tests. Tests: check 119/119, test 240/240, test:electron 240/240, test:browser 13/13.
+- **Open decisions:** OD-PL-10 → (a) keep gzip 6, OD-PL-11 → (a) leave it (user, 2026-11-25); D-PL3-3/4 confirmed.
 - **User approval:** pending. Push/merge not done.
