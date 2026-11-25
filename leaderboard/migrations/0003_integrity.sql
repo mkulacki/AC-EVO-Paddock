@@ -2,6 +2,7 @@
 -- anomaly flags, the moderation trail, suspensions and rate-limit counters. See docs/platform/LEADERBOARD_TRUST.md.
 -- NOT applied to the live database yet (needs approval). Apply it BEFORE deploying the PL10 worker.js:
 --   npm run wrangler -- d1 execute acevo-paddock-leaderboard --remote --file migrations/0003_integrity.sql
+-- and once more right after the deploy (it fills the keys of laps the old worker stored in between).
 -- Every statement may run more than once: the local runner (local.mjs) runs every migration at each start
 -- (a column that already exists is skipped; the updates only fill what is still empty).
 -- No semicolons or double dashes inside statements: the local runner splits on them.
