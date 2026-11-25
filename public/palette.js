@@ -5,7 +5,7 @@ import { esc, api, post, prettyName } from './util.js';
 
 const PAGES = [
   ['Home', '#/home', 'Your driving at a glance'], ['Race', '#/race', 'Set up and start a session'], ['Sessions', '#/', 'Your sessions by track and car'], ['Sessions by date', '#/?by=date', 'Newest first'], ['Development', '#/development', 'Goals, challenges, achievements and race weekends'], ['Leaderboards', '#/leaderboard', 'Online lap times and sectors, by track and car'],
-  ['Tracks', '#/tracks', 'Maps, corners and brake points'], ['Cars', '#/cars', 'Every car, with your distance, records and driving style per car'], ['Coach', '#/coach', 'AI coach, training plan and braking points per track and car'], ['Setups', '#/setups', 'Your saved setups and the AI engineer'],
+  ['Tracks', '#/tracks', 'Maps, corners and brake points'], ['Cars', '#/cars', 'Every car, with your distance, records and driving style per car'], ['Coach', '#/coach', 'AI coach, training plan and braking points per track and car'], ['Setups', '#/setups', 'Your saved setups and the AI engineer'], ['Setup experiments', '#/experiments', 'A/B stints of two setups on one car and track'],
   ['Game', '#/game', 'AC EVO, App Loader and HUD status'], ['Mods', '#/mods', 'Install, disable and remove mods'], ['Settings', '#/settings', 'Driver, Gemini, folders'],
   ['Setup guide', '#/welcome', 'Find the game, check the connections, optional services, first session, first comparison'],
 ];
@@ -56,6 +56,7 @@ async function sources() {
     if (c.validLaps >= 2) items.push({ kind: 'Consistency', label: name, href: `#/consistency?combo=${key}` });
     if (c.validLaps >= 1) items.push({ kind: 'Analysis', label: name, hint: 'Where to gain time, corner by corner', href: `#/analysis?combo=${key}` });
     items.push({ kind: 'Setup history', label: name, href: `#/setuphistory?combo=${key}` });
+    items.push({ kind: 'Setup experiments', label: name, hint: 'A/B stints of two setups', href: `#/experiments?combo=${key}` });
     items.push({ kind: 'Coach', label: name, href: `#/coach?combo=${key}` });
     if (c.bestLapId && c.idealMs) items.push({ kind: 'Compare', label: `Best lap against ideal · ${name}`, href: `#/compare?laps=${c.bestLapId}&ref=ideal` });
   }
