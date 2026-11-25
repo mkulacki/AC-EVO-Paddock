@@ -24,3 +24,7 @@ The local runner applies them by itself.
 | Migration | What |
 |---|---|
 | 0002_classes_telemetry_reports | car class boards, light telemetry per lap, reports, hidden laps |
+| 0003_integrity | canonical keys, evidence tiers (existing laps: legacy), anomaly flags, moderation trail, suspensions, rate limits. **Not applied to the live database yet.** Apply it before deploying the worker.js that needs it |
+
+Trust model, evidence tiers, moderation and abuse handling: `docs/platform/LEADERBOARD_TRUST.md`. Optional secret `RATE_SALT`
+(any random text) salts the IP hashes of the rate limits.
