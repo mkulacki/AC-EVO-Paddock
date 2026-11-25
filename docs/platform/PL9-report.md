@@ -20,7 +20,7 @@
 | `8834b7c` | Pages: the sidebar switch, Alt+Q, Ctrl+K command, the shortcut list (`public/assist.js`, `public/palette.js`); Settings: layouts, context profiles, cue result time, spotter quiet time, the switch and its global shortcut; tray checkbox (`desktop/main.cjs`) |
 | `638969e` | Fix: saving a layout answered with the list from before the save (found by the browser flow) |
 | `90d17c4` | Tests: `test/hud-live.test.js` (16), `test/hud-bridge.test.js` (5), two browser flows |
-| docs commit | this report, `docs/platform/HUD_BRIDGE.md`, DECISIONS, PHASE_LOG, DEVELOPMENT_STATE, CHANGELOG, FEATURE_INVENTORY, BACKLOG |
+| `ba69ec1` | this report, `docs/platform/HUD_BRIDGE.md`, DECISIONS, PHASE_LOG, DEVELOPMENT_STATE, CHANGELOG, FEATURE_INVENTORY, BACKLOG |
 
 ## Verified findings / rejected assumptions / unresolved
 
@@ -53,7 +53,7 @@
   stalls, slow disk, real files with a reader thread, folder appearing, failed writes, log rotation / cut-back /
   partial lines / duplicates / stale commands; browser: Alt+Q, Ctrl+K, Settings switch, cross-site refusal, layouts,
   profiles, cue and quiet-time settings.
-- Stress results: `docs/platform/HUD_BRIDGE.md` §5.
+- Stress results: `docs/platform/HUD_BRIDGE.md` §5 (updated after the review round below).
 
 ## Checks that could not run
 
@@ -100,6 +100,20 @@ by sidebar, Alt+Q, Ctrl+K, Settings, tray, optional global shortcut, no in-game 
 - Staleness thresholds are not tuned against real AC EVO packet rates (if the game updates its packet id less often
   than every 500 ms while driving, "TELEMETRY STALE" would flicker; not expected).
 - Context profiles overwrite the current look when a session starts (opt-in, says so in Settings).
+
+## Review round (2026-11-25)
+
+Independent review; fixes in `f2d4e9f`, `eee30ee`, `d5da044`, regression tests in `31285e9`. HUD stays 0.15.0 (unreleased; read rules unchanged).
+
+| # | Finding | Fix | Regression test |
+| --- | --- | --- | --- |
+| 1 | The back-off paused after any write over 60 ms: a steady 70 ms disk got 55 writes a minute, 69 % of HUD reads over 1 s old, 29 % over 3 s; after the kill switch some slots kept the old state for seconds (the HUD flickered) | back off only when a write ends < 30 ms before its read window; write slot w+5 when it is behind (old switch/look state, or 9 windows unwritten); the HUD keeps the newer copy (OD-PL-60 refinement, D-PL9-10) | hud-bridge: 70 ms fresh (0 % over 1 s), kill switch reaches every slot (70 / 200 ms), no flicker, steady schedule unchanged |
+| 2 | Reference-pedal markers were still moved along with the car from stale data | hidden when the data is stale (D-PL9-11) | hud-live static check |
+| 3 | `/api/hudlayouts` got the HUD's open CORS header (cross-site GET 200) | exact HUD paths only; hudlayouts and assist are private GETs (D-PL9-12) | browser flow |
+| 4 | `constructor` / `toString` were accepted as built-in layouts and reset the look | own keys only, 404 | hud-live |
+| 5 | The pause used the wall clock (a step back stretched it) | monotonic clock | hud-bridge |
+
+Tests after the round: check 154/154, test 426/426 (Node 22 and 24), test:browser 26/26. Stress numbers in `docs/platform/HUD_BRIDGE.md` §5 are from after the fixes.
 
 ## Recommended next phase
 

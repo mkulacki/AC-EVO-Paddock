@@ -11,7 +11,7 @@ All notable changes to AC EVO Paddock. Newest first.
 - **HUD layouts:** apply a built-in layout (Default, Minimal, Race) or save your own look under a name. **Context profiles** (off by default) switch to a chosen layout when a time attack, race, hot stint or cruise session starts.
 - **Cue timing:** how long "braked 6 m later" stays on the HUD (2–10 s, 6 s as before), and a spotter **quiet time** (0–3 s, none by default) that leaves out a word that would come too soon after the last one. Neither ever adds cues.
 - **Optional HUD chips** (off until you switch them on): a post-lap summary (the lap against your reference, the corner that gained most and the one that lost most) and the spread of this session's valid lap times from 5 laps on.
-- The in-game data feed now counts slow or failed writes and pauses for a second after a very slow one; Integration health and Diagnostics show it. The HUD update is installed the next time AC EVO is closed; driving-aid checks made with the previous HUD need confirming again.
+- The in-game data feed now counts slow or failed writes and pauses for a second only after a write that came too close to the game's read; a disk that is just a little slow keeps the HUD up to date. After the switch or a look change every data file gets the new state within one round, and the HUD never goes back to older numbers, so it does not flash back on after you switch it off. Integration health and Diagnostics show the counters. The HUD update is installed the next time AC EVO is closed; driving-aid checks made with the previous HUD need confirming again.
 
 ### Setup experiments (platform phase PL8)
 

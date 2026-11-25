@@ -31,7 +31,7 @@ _Last updated: 2026-11-25 (PL9)_
 | PL6 | Actionable lap analysis | Done 2026-11-25, review fixes applied (`76bb4ec`) (`docs/platform/PL6-report.md`) |
 | PL7 | Structured practice | Done 2026-11-25, review fixes applied (`d0097a2`) (`docs/platform/PL7-report.md`) |
 | PL8 | Setup experiments | Done 2026-11-25, review fixes applied (`ea78bdf`), awaiting the user's review (`docs/platform/PL8-report.md`) |
-| PL9 | HUD and live assistance | Done 2026-11-25, awaiting the user's review (`docs/platform/PL9-report.md`, `docs/platform/HUD_BRIDGE.md`) |
+| PL9 | HUD and live assistance | Done 2026-11-25, review fixes applied (`f2d4e9f`, `eee30ee`, `d5da044`), awaiting the user's review (`docs/platform/PL9-report.md`, `docs/platform/HUD_BRIDGE.md`) |
 | PL10–PL11 | Platform plan | Not started; see `docs/platform/BACKLOG.md` |
 
 ## Current task
@@ -58,7 +58,7 @@ None in progress. PL9 is committed on `platform/pl9-hud-live`: report `docs/plat
 - PL5 (2026-11-25, `platform/pl5-onboarding`): baseline at `4d25a15` check 124/124, test 280/280; after: `npm run check` 130/130; `npm test` 299/299 (Node 22.23.4); `npm run test:electron` 299/299 (Node 24.22.2); `npm run test:browser` 21/21 (4 runs). After the review fixes: check 131/131, test 306/306, test:electron 306/306, test:browser 21/21 (3 runs).
 - PL6 (2026-11-25, `platform/pl6-analysis`): baseline at `c65fa65` check 131/131, test 307/307, test:browser 21/21; after: `npm run check` 138/138; `npm test` 337/337 (Node 22.23.4); `npm run test:electron` 337/337 (Node 24.22.2); `npm run test:browser` 22/22 (2 runs). Lap analysis of 30 laps: longest hold 12.7 ms. After the review fixes: check 138/138, test 346/346, test:electron 346/346, test:browser 22/22 (2 runs).
 - PL8 (2026-11-25, `platform/pl8-setup-experiments`): baseline at `87b3131` check 144/144, test 369/369, test:browser 23/23; after: `npm run check` 149/149; `npm test` 388/388 (Node 22.23.4); `npm run test:electron` 388/388 (Node 24.22.2); `npm run test:browser` 24/24 (2 runs). Packaged smoke not run (port 8080 in use). After the review fixes: check 149/149, test 397/397, test:electron 397/397, test:browser 24/24.
-- PL9 (2026-11-25, `platform/pl9-hud-live`): baseline at `9bab779` check 149/149, test 397/397, test:browser 24/24; after: `npm run check` 154/154; `npm test` 418/418 (Node 22.23.4); `npm run test:electron` 418/418 (Node 24.22.2); `npm run test:browser` 26/26. Packaged smoke and bench not run (port 8080 in use).
+- PL9 (2026-11-25, `platform/pl9-hud-live`): baseline at `9bab779` check 149/149, test 397/397, test:browser 24/24; after: `npm run check` 154/154; `npm test` 418/418 (Node 22.23.4); `npm run test:electron` 418/418 (Node 24.22.2); `npm run test:browser` 26/26. Packaged smoke and bench not run (port 8080 in use). After the review fixes (`f2d4e9f` … `31285e9`): check 154/154, test 426/426, test:electron 426/426, test:browser 26/26.
 - PL7 (2026-11-25, `platform/pl7-practice`): baseline at `ff85248` check 138/138, test 346/346, test:browser 22/22; after: `npm run check` 143/143; `npm test` 365/365 (Node 22.23.4); `npm run test:electron` 365/365 (Node 24.22.2); `npm run test:browser` 23/23. After the review fixes: check 144/144, test 369/369, test:electron 369/369, test:browser 23/23.
 
 ## Pending user decisions
@@ -70,7 +70,7 @@ None in progress. PL9 is committed on `platform/pl9-hud-live`: report `docs/plat
 - None open from PL6: OD-PL-25 … 31 decided (a) by the user on 2026-11-25; D-PL6-1 … 9 confirmed (D-PL6-8 corrected); D-PL6-10 … 14 from the review round.
 - None open from PL7: OD-PL-32 … 41 decided (a) by the user on 2026-11-25; D-PL7-1 … 7 confirmed; D-PL7-8 … 12 from the review round.
 - PL8: OD-PL-42 … 53 (setup experiments) applied as operator defaults, **OPEN for the user's review in the app**; D-PL8-1 … 8 to confirm.
-- PL9: OD-PL-54 … 63 (HUD and live assistance) applied as operator defaults, **OPEN for the user's review in the app**; D-PL9-1 … 9 to confirm.
+- PL9: OD-PL-54 … 63 and the OD-PL-60 refinement (HUD and live assistance) applied as operator defaults, **OPEN for the user's review in the app**; D-PL9-1 … 12 to confirm.
 - Push / merge of `platform/pl9-hud-live`, `platform/pl8-setup-experiments`, `platform/pl7-practice`, `platform/pl6-analysis`, `platform/pl5-onboarding`, `platform/pl1-decisions`, `platform/pl3-recording-perf` and `platform/pl4-compatibility` (into `platform/integration`, then `main`); after the first push, check both CI jobs.
 
 ## Next action
