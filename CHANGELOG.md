@@ -4,6 +4,14 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
+### Setup experiments (platform phase PL8)
+
+- **Setup experiments** test two setups of one car on one track: a title, your hypothesis and the outcome you expect, setup A (baseline) and B (the change) from the setups you drove there or saved for that track, and a stint plan (A B B A by default, 6 laps a stint). Start one from **Setup history → New experiment**, from Ctrl+K, or under Setups.
+- Drive it in stints: **Start stint A / B** and **End stint** while you drive, or add sessions you already drove. Paddock never loads a setup into the game: load each one in the game's setup screen before its stint.
+- The result compares the typical lap (median) of every counted lap, never the best lap alone, with the spread and an interval for each setup. Laps left out are listed with the reason (warm-up, invalid, another or unknown game version, recognised as another setup, other conditions, aids or session type, slow laps over 3 %). "Inconclusive" is a real answer: too few laps, a gap inside the noise, or one stint per setup. Stint order, learning, tyres, fuel and traffic are always listed as what else could explain a gap.
+- A change journal (what differs between A and B, your notes), handling feedback by corner phase (entry, mid-corner, exit: understeer, neutral, oversteer), review with your decision (keep A, keep B, test again), archive, follow-up experiments, and where a saved setup came from. A game update is flagged: laps on another version don't count.
+- Stints never overlap and each lap counts in one stint only; the first lap after a restart or a long pause inside a stint is a warm-up too; identical lap times are never read as a difference; a gap on laps without recorded conditions stays inconclusive.
+
 ### Practice drills (platform phase PL7)
 
 - **Practise this** next to a finding on the Lap analysis cards turns one behaviour in one corner into a practice drill: what was observed, the numbers behind it, one exercise, a measurable target ("at least half of your newest 10 passes … at 309.5 m from the line or later"), the minimum evidence (5 passes) and a review point (10 passes). The target is what your quicker passes already do, so it moves with your latest laps.

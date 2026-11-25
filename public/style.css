@@ -1046,3 +1046,11 @@ button.linklike { background: none; border: 0; padding: 0; color: var(--accent-t
 .drill-revisit { margin: 0 0 8px; }
 @media (max-width: 760px) { .drill-rx { grid-template-columns: 1fr; } .drill-rx dt { padding-top: 6px; } }
 .drill-noversion { flex-basis: 100%; margin: 4px 0 0; color: var(--text-secondary); }
+/* setup experiments (PL8) */
+.exp-list { list-style: none; margin: 0; padding: 0; }
+.exp-list li { padding: 6px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.exp-form .form { max-width: none; }
+.exp-form textarea, #expJournal textarea { width: 100%; }
+#exConfounds li.strong { color: var(--text-primary); }
+.exp-journal li { padding: 3px 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .exp-form .form { grid-template-columns: 1fr; } }

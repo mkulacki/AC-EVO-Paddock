@@ -34,6 +34,7 @@ import * as setuphistory from './setuphistory.js';
 import * as coach from './coach.js';
 import * as goals from './goals.js';
 import * as drills from './drills.js';
+import * as experiments from './experiments.js';
 import * as weekends from './weekends.js';
 import * as achievements from './achievements.js';
 import * as channels from './channels.js';
@@ -104,6 +105,7 @@ hud.boardSource = (s) => (settings.hudConfig().parts.board === false ? null : bo
 updates.setCurrent(VERSION);
 // telemetry checks are measured against the game version and readers in use now (PL4.1, src/channels.js)
 channels.configure({ gameVersion: () => game.gameVersion(), hudVersion: () => hudInstall.installedVersion() });
+experiments.configure({ gameVersion: () => game.gameVersion() });
 try { if (channels.migrate()) console.log('[channels] earlier telemetry checks kept as records without a game version: check them again in Setups'); } catch (e) { console.log(`[channels] checks not migrated: ${e.message}`); }
 if (mockIdx < 0 || process.env.PADDOCK_UPDATE_CHECK) updates.schedule(VERSION);
 if (db.restoreResult) console.log(`[backup] restore at start: ${db.restoreResult.ok ? `done (${db.restoreResult.files.join(', ')})` : `FAILED: ${db.restoreResult.error}`}`);
@@ -349,7 +351,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7)
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard|analysis|practice|experiments)/; // overview + dashboard carry tags and note lines (PL5); analysis carries bookmark counts and lap ids (PL6 review); practice: drills and lap ids (PL7); experiments: setup names, journal and lap ids (PL8)
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -1071,6 +1073,27 @@ async function route(req, res) {
       devChanged();
       return send(res, 200, out);
     } catch (e) { return send(res, e.status || 500, { error: e.message, ...(e.code === 'active' ? { code: e.code, active: e.active } : {}) }); }
+  }
+  // ---- Setup experiments (PL8): A/B stints of two setups on a car + track (src/experiments.js); never applied to the game
+  if (p.startsWith('/api/experiments')) {
+    const q = url.searchParams;
+    const combo = q.get('track') != null && q.get('car') != null ? { track: q.get('track'), layout: q.get('layout') ?? '', car: q.get('car') } : null;
+    try {
+      if (p === '/api/experiments' && m === 'GET') return send(res, 200, experiments.list({ combo }));
+      if (p === '/api/experiments/options' && m === 'GET') return send(res, 200, experiments.options(combo));
+      if (p === '/api/experiments/one' && m === 'GET') return send(res, 200, experiments.detail(q.get('id')));
+      if (p === '/api/experiments' && m === 'POST') {
+        const b = await readJson(req, NOTES_BODY);
+        const A = {
+          create: () => experiments.create(b), start: () => experiments.startStint(b.id, b.variant), end: () => experiments.endStint(b.id),
+          session: () => experiments.addSession(b.id, b.variant, b.sessionId), unstint: () => experiments.removeStint(b.id, b.stintId),
+          note: () => experiments.note(b.id, b.text), feedback: () => experiments.feedback(b.id, b), review: () => experiments.review(b.id, b),
+          reopen: () => experiments.reopen(b.id), archive: () => experiments.archive(b.id), restore: () => experiments.restore(b.id), remove: () => experiments.remove(b.id),
+        }[b.action];
+        if (!A) return send(res, 400, { error: 'Unknown action' });
+        return send(res, 200, await A());
+      }
+    } catch (e) { return send(res, e.status || 500, { error: e.message, ...(e.code === 'open' ? { code: e.code, other: e.other } : {}) }); }
   }
   if (p === '/api/achievements/seen' && m === 'POST') { achievements.markSeen(); return send(res, 200, { ok: true }); }
   // session planner: a driven car + track, a Race tab preset (or a quick / 30-minute practice), optionally for a goal

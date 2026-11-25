@@ -57,10 +57,10 @@ test('D-PL5-15: notes left by sessions without laps are removed once at start; o
   assert.deepEqual(r, [1, 1, 0], 'only the session with a lap keeps its note and tag');
 });
 
-test('a database from a newer Paddock (user_version 4, one above this Paddock) is not upgraded or written; backups and restores refused; health says why', () => {
+test('a database from a newer Paddock (user_version 5, one above this Paddock) is not upgraded or written; backups and restores refused; health says why', () => {
   const data = freshDir('newer');
   const file = path.join(data, 'telemetry.db');
-  { const t = new DatabaseSync(file); t.exec("CREATE TABLE laps (id INTEGER PRIMARY KEY, x TEXT); CREATE TABLE future (y); INSERT INTO laps (x) VALUES ('kept'); PRAGMA user_version = 4;"); t.close(); }
+  { const t = new DatabaseSync(file); t.exec("CREATE TABLE laps (id INTEGER PRIMARY KEY, x TEXT); CREATE TABLE future (y); INSERT INTO laps (x) VALUES ('kept'); PRAGMA user_version = 5;"); t.close(); }
   const hash = () => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   const before = hash();
   const r = child(data, `const db = await import(${mod('db.js')}); const b = await import(${mod('backup.js')});
@@ -69,8 +69,8 @@ test('a database from a newer Paddock (user_version 4, one above this Paddock) i
     try { await b.create({ reason: 'manual' }); out.backup = 'made'; } catch (e) { out.backup = e.code + ' ' + e.message; }
     try { await b.stageRestore('x.zip'); out.restore = 'staged'; } catch (e) { out.restore = e.code + ' ' + e.message; }
     console.log(JSON.stringify(out));`);
-  assert.equal(r.blocked.version, 4);
-  assert.equal(r.blocked.supported, 3);
+  assert.equal(r.blocked.version, 5);
+  assert.equal(r.blocked.supported, 4);
   assert.match(r.blocked.message, /^Recording is off: .*newer Paddock.*Install that newer Paddock/);
   assert.ok(r.blocked.message.includes('data\\telemetry.db'), 'the path is written out (no tab character)');
   assert.equal(r.laps, 0, 'runs on an empty database in memory');
@@ -79,7 +79,7 @@ test('a database from a newer Paddock (user_version 4, one above this Paddock) i
   assert.equal(hash(), before, 'the file is byte for byte unchanged');
   assert.ok(!fs.existsSync(`${file}-wal`), 'not switched to WAL');
   const t = new DatabaseSync(file, { readOnly: true });
-  assert.equal(t.prepare('PRAGMA user_version').get().user_version, 4);
+  assert.equal(t.prepare('PRAGMA user_version').get().user_version, 5);
   assert.equal(t.prepare('SELECT x FROM laps').get().x, 'kept');
   t.close();
   const h = health.build({ dbBlocked: r.blocked, telemetry: {}, game: {}, aceFound: true });
@@ -91,7 +91,7 @@ test('a database from a newer Paddock (user_version 4, one above this Paddock) i
 test('D-PL5-19: with a newer database, recording is off: mock laps driven produce no insert; health and status say so', async () => {
   const data = freshDir('newer-live');
   const file = path.join(data, 'telemetry.db');
-  { const t = new DatabaseSync(file); t.exec('CREATE TABLE laps (id INTEGER PRIMARY KEY); PRAGMA user_version = 4;'); t.close(); }
+  { const t = new DatabaseSync(file); t.exec('CREATE TABLE laps (id INTEGER PRIMARY KEY); PRAGMA user_version = 5;'); t.close(); }
   const sha = () => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   const before = sha();
   const net = await import('node:net');
@@ -122,15 +122,15 @@ test('D-PL5-19: with a newer database, recording is off: mock laps driven produc
 });
 
 test('a backup whose database is newer than this Paddock knows (SCHEMA_VERSION) is refused', async () => {
-  const f = path.join(env.dir, 'v4.db');
-  { const t = new DatabaseSync(f); t.exec('CREATE TABLE laps (id); CREATE TABLE sessions (id); PRAGMA user_version = 4;'); t.close(); }
+  const f = path.join(env.dir, 'v5.db');
+  { const t = new DatabaseSync(f); t.exec('CREATE TABLE laps (id); CREATE TABLE sessions (id); PRAGMA user_version = 5;'); t.close(); }
   fs.mkdirSync(backup.BACKUP_DIR, { recursive: true });
-  const z = 'paddock-backup-v4.zip';
+  const z = 'paddock-backup-v5.zip';
   await zip.writeZip(path.join(backup.BACKUP_DIR, z), [{ name: 'manifest.json', data: JSON.stringify({ format: backup.FORMAT, version: 1, files: ['telemetry.db'] }) }, { name: 'telemetry.db', file: f }]);
   await assert.rejects(backup.stageRestore(z), /newer Paddock/);
   assert.ok(!backup.pending());
-  // and the current schema passes that check (a v3 database from this Paddock, PL7)
-  assert.equal(db.SCHEMA_VERSION, 3);
+  // and the current schema passes that check (a v4 database from this Paddock, PL8)
+  assert.equal(db.SCHEMA_VERSION, 4);
 });
 
 test('the copy before the v2 upgrade is made for any user data (goals, no laps), not only laps', () => {
@@ -139,9 +139,9 @@ test('the copy before the v2 upgrade is made for any user data (goals, no laps),
     t.exec(fs.readFileSync(path.join(ROOT, 'test/fixtures/db-v1-0.7.0.sql'), 'utf8'));
     t.exec("INSERT INTO goals (track, layout, car, kind, target, created_at) VALUES ('t', 'l', 'c', 'lap', 1, 1)"); t.close(); }
   const r = child(data, `const db = await import(${mod('db.js')}); console.log(JSON.stringify(db.counts().schema));`);
-  assert.equal(r, 3);
+  assert.equal(r, 4);
   assert.equal(fs.readdirSync(data).filter((f) => /^telemetry\.backup-v1-\d+\.db$/.test(f)).length, 1);
-  assert.equal(fs.readdirSync(data).filter((f) => f.startsWith('telemetry.backup-')).length, 1, 'one copy per start, also through v2 and v3 (PL7)');
+  assert.equal(fs.readdirSync(data).filter((f) => f.startsWith('telemetry.backup-')).length, 1, 'one copy per start, also through v2, v3 (PL7) and v4 (PL8)');
   // an empty database gets none
   const empty = freshDir('empty');
   child(empty, `const db = await import(${mod('db.js')}); console.log(JSON.stringify(db.counts().schema));`);

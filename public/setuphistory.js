@@ -2,6 +2,7 @@
 // row), with dates, sessions, best and typical lap, and two of them compared value by value. Data: /api/setuphistory
 // (src/setuphistory.js). Setups are recognised from pit-box readings, so the page carries that reading's status.
 import { $, esc, api, fmt, fmtGap, prettyName, emptyHtml, prov } from './util.js';
+import { experimentsCard } from './experiments.js';
 
 const MATCH = { matched: 'recognised', guess: 'best guess', manual: 'picked by you', standard: 'no saved setup matched' };
 const day = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -37,6 +38,7 @@ export async function viewSetupHistory(view, params, cleanup) {
     <div class="card plain note-warn" style="margin-bottom:12px">${prov(data.probe || 'unverified', 'Setups are recognised from the tyre pressures, camber, brake bias and fuel read in the pit box.')}
       Each lap remembers the setup it was recognised as. ${data.probe === 'verified' ? '' : 'These readings are not checked against the game yet (Setups → Setup recognition), so a lap may be listed under the wrong setup; you can correct it in the session report.'}
       “Standard” = no saved setup matched (the game's default, or a change you did not save).</div>
+    <div id="shExp"></div>
     <div class="card"><h2>Setups you drove here</h2><div class="tablewrap"><table class="setup-hist">
       <thead><tr><th>Setup</th><th>Driven</th><th>Sessions</th><th>Laps</th><th>Best lap</th>
         <th title="Median of the clean laps: valid laps within 7 % of this setup's best">Typical lap</th><th title="Spread of the clean laps (with 3 or more)">Spread</th>
@@ -55,6 +57,7 @@ export async function viewSetupHistory(view, params, cleanup) {
       <label class="row">A <select id="shA">${E.map((g) => `<option value="${esc(g.key)}">${esc(g.name)}${g.versions > 1 ? ` (v${g.version})` : ''}</option>`).join('')}</select></label>
       <label class="row">B <select id="shB">${E.map((g) => `<option value="${esc(g.key)}">${esc(g.name)}${g.versions > 1 ? ` (v${g.version})` : ''}</option>`).join('')}</select></label></div>
       <div id="shDiff" style="margin-top:10px"></div></div>` : ''}`;
+  experimentsCard($('#shExp'), { track, layout, car }); // PL8: this car + track's A/B setup experiments
   if (E.length < 2) return;
 
   let seq = 0;

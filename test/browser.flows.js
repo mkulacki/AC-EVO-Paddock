@@ -3,7 +3,7 @@
 // Covers: open a session, compare two laps, import a valid / duplicate / broken lap file, change a setting, keyboard
 // navigation (Alt+digit, Ctrl+K palette, ?, Esc), the damaged-file notice in Settings (PL1D, OD-PL-5), comparison
 // caveats and the incompatible-pair gate, the integration health panel (PL4), the lap analysis (PL6) and a practice drill
-// made from it and met (PL7). Every page must
+// made from it and met (PL7), and a setup experiment created, run, reviewed and archived (PL8). Every page must
 // load without a JavaScript error.
 // Skipped when no Edge/Chrome is found (set PADDOCK_BROWSER to the browser's .exe to choose one).
 // No game, no network, no AI key: the server runs with --mock on a free port, the browser has a scratch profile.
@@ -812,5 +812,124 @@ test('practice drill: Practise this on a Lap analysis card makes a drill with ev
     const [sw, iw] = await js('[document.documentElement.scrollWidth, innerWidth]');
     assert.ok(sw <= iw + 1, `${sw} px wide in a ${iw} px window`);
   } finally { await cdp('Emulation.clearDeviceMetricsOverride'); }
+  assert.deepEqual(errors, []);
+});
+
+// PL8: after the PL7 flow, on its own car (exp_gt) so no other flow sees these laps
+test('setup experiment: created from Setup history, past sessions and live stints as ABBA, a result from counted laps with exclusions, feedback, journal, review and archive (PL8)', { skip }, async () => {
+  const EXP = { track: 'fixture_ring', layout: 'gp', car: 'exp_gt' };
+  const key = `${EXP.track}|${EXP.layout}|${EXP.car}`;
+  const REL = { A: 'Exp GT/Fixture Ring/Base.carsetup', B: 'Exp GT/Fixture Ring/Wing.carsetup' };
+  /** Runs code against the server's database from another process (as the recorder would write laps); prints JSON. */
+  const dbRun = (code) => JSON.parse(execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', `
+    const db = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src/db.js')).href)});
+    const { insertLap } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/lapfixtures.js')).href)});
+    const EXP = ${JSON.stringify(EXP)}, REL = ${JSON.stringify(REL)};
+    const noise = (i, s) => [0, 120, -90, 60, -150, 30, 90, -60][(i * 3 + s) % 8];
+    db.saveSnapshot('ea000000000000aa', { name: 'Base', rel: REL.A, values: { rear_wing_angle: 6, pressure_FL: 26.5 } });
+    db.saveSnapshot('eb000000000000bb', { name: 'Wing', rel: REL.B, values: { rear_wing_angle: 8, pressure_FL: 26.5 } });
+    // one stint's laps: B is 600 ms quicker on the typical lap, the first lap of each stint is a slow out-lap
+    const drive = (v, s, t0, sid, dt = 1000) => { const ids = []; for (let i = 0; i < 6; i++) { const id = insertLap(db, { sessionId: sid, lapNumber: i + 1, recordedAt: t0 + (i + 1) * dt, combo: EXP });
+      db.raw.prepare('UPDATE laps SET lap_time_ms = ? WHERE id = ?').run(60000 + (v === 'B' ? -600 : 0) + noise(i, s) + (i === 0 ? 3000 : 0), id);
+      db.setLapCond(id, { game: '1.0', roadC: 28, airC: 20 }); ids.push(id); }
+      db.setLapSetups(ids, { name: v === 'A' ? 'Base' : 'Wing', rel: REL[v], match: 'matched', snap: v === 'A' ? 'ea000000000000aa' : 'eb000000000000bb' }); return ids; };
+    ${code}`], { env: childEnv, cwd: ROOT, encoding: 'utf8' }).trim().split('\n').pop() || 'null');
+  // three past sessions (A, B, B), dated 1971
+  const sids = dbRun(`const out = []; ['A', 'B', 'B'].forEach((v, s) => { const t0 = 4e10 + s * 1e7; const sid = db.createSession({ ...EXP, sessionType: 0, driver: 'Me', startedAt: t0 }); drive(v, s, t0, sid); out.push(sid); }); console.log(JSON.stringify(out));`);
+  assert.equal(sids.length, 3);
+
+  // Setup history -> New experiment
+  await go(`#/setuphistory?combo=${encodeURIComponent(key)}`, "document.querySelector('#shExperiments a[href*=\"new=1\"]')");
+  assert.match(await js("document.querySelector('#shExperiments').textContent"), /Test one change at a time/);
+  await js("window.__rendered = 0; document.querySelector('#shExperiments a[href*=\"new=1\"]').click(); 1");
+  await waitFor("window.__rendered > 0 && document.querySelector('#exCreate')", 'the new experiment form');
+  assert.equal(await js('document.activeElement.id'), 'exTitle', 'the form takes focus');
+  const opts = await js("[...document.querySelectorAll('#exA option')].map((o) => o.textContent)");
+  assert.deepEqual(opts.map((o) => o.split(' · ')[0]).sort(), ['Base', 'Standard (no saved setup)', 'Wing']);
+  // an empty title is refused with a reason
+  await js("document.querySelector('#exCreate button[type=submit]').click(); 1");
+  await waitFor("document.querySelector('#exErr').textContent", 'the error');
+  assert.match(await js("document.querySelector('#exErr').textContent"), /A title is needed/);
+  await js(`const pick = (id, name) => { const s = document.getElementById(id); s.value = [...s.options].find((o) => o.textContent.startsWith(name)).value; s.dispatchEvent(new Event('change')); };
+    document.getElementById('exTitle').value = 'More rear wing'; document.getElementById('exHyp').value = 'Two more degrees of rear wing calm the exit of T2.';
+    document.getElementById('exExp').value = 'about 0.3 s quicker'; pick('exA', 'Base'); pick('exB', 'Wing'); window.__rendered = 0;
+    document.querySelector('#exCreate button[type=submit]').click(); 1`);
+  await waitFor("window.__rendered > 0 && location.hash.startsWith('#/experiment?id=') && document.querySelector('#exPlan')", 'the experiment page');
+  const id = Number(await js("new URLSearchParams(location.hash.split('?')[1]).get('id')"));
+  assert.match(await js("document.querySelector('#view h1').textContent"), /^More rear wing\s+Planned$/);
+  assert.match(await js("document.querySelector('#exWarn').textContent"), /Paddock never loads a setup into the game/);
+  assert.match(await js("document.querySelector('#view').textContent"), /rear_wing_angle|Rear wing|Setting\s*\d/);
+  assert.match(await js("document.querySelector('[data-verdict]').textContent"), /Inconclusive\. Inconclusive: not enough laps yet/);
+
+  // the three past sessions as stints A, B, B (by keyboard-reachable controls)
+  for (const [i, v] of ['A', 'B', 'B'].entries()) {
+    await js(`document.getElementById('exSess').value = '${sids[i]}'; document.getElementById('exSessVar').value = '${v}'; document.getElementById('exSessAdd').click(); 1`);
+    await waitFor(`document.querySelectorAll('#exPlan tbody tr').length === ${i + 1}`, `stint ${i + 1}`);
+  }
+  assert.match(await js("document.querySelector('[data-start=A]').textContent"), /Start stint A \(next\)/);
+  // stint 4 live: started here, laps driven, ended here; focus follows the controls
+  await js("document.querySelector('[data-start=A]').click(); 1");
+  await waitFor("document.getElementById('exEnd')", 'the running stint');
+  assert.equal(await js('document.activeElement.id'), 'exEnd');
+  assert.match(await js("document.querySelector('#view h1').textContent"), /Running/);
+  // (laps a few ms apart, all inside the running stint: it started before this process did)
+  dbRun("const t0 = Date.now() - 40; const sid = db.createSession({ ...EXP, sessionType: 0, driver: 'Me', startedAt: t0 }); drive('A', 3, t0, sid, 5); console.log('1');");
+  await sleep(50);
+  await js("document.getElementById('exEnd').click(); 1");
+  await waitFor("document.querySelector('[data-verdict=\"difference\"]')", 'the result');
+  assert.match(await js("document.querySelector('[data-verdict]').textContent"), /A difference\. Wing's typical lap was 0\.\d{3} s quicker \(10 and 10 counted laps over 2 and 2 stints\)/);
+  assert.equal(await js("document.querySelector('[data-used=A]').textContent"), '10');
+  assert.equal(await js("document.querySelector('[data-used=B]').textContent"), '10');
+  assert.match(await js("document.querySelector('#exStats').textContent"), /Left out2 warm-up lap \(start of a stint\)/);
+  assert.match(await js("document.querySelector('#exStats').textContent"), /Best counted lap \(shown, not used\)/);
+  assert.match(await js("document.querySelector('#exExcl summary').textContent"), /Laps left out 4 of 24/);
+  assert.equal(await js("document.querySelector('[data-expected]').dataset.expected"), 'supported');
+  assert.match(await js("document.querySelector('#exConfounds').textContent"), /Stint order: A and B were driven equally early[\s\S]*Tyres and fuel/);
+
+  // handling feedback by corner phase and a journal note
+  await js("document.getElementById('exFbVar').value = 'B'; document.getElementById('exFbPhase').value = 'exit'; document.getElementById('exFbBal').value = 'neutral'; document.getElementById('exFbCorner').value = 'T2'; document.querySelector('#exFbForm button').click(); 1");
+  await waitFor("document.querySelector('#exFbTable').textContent.includes('1× neutral')", 'the feedback');
+  await js("document.getElementById('exNote').value = 'Same fuel for every stint.'; document.querySelector('#exNoteForm button').click(); 1");
+  await waitFor("document.querySelector('#exJournal').textContent.includes('Same fuel for every stint.')", 'the journal note');
+  assert.equal(await js('document.activeElement.id'), 'exNote');
+
+  // review: the result is saved with the decision
+  await js("document.getElementById('exDecision').value = 'keep-b'; document.getElementById('exConcl').value = 'Wing stays.'; document.getElementById('exReview').click(); 1");
+  await waitFor("document.querySelector('[data-decision]')", 'the review');
+  assert.equal(await js("document.querySelector('[data-decision]').dataset.decision"), 'keep-b');
+  assert.match(await js("document.querySelector('#view h1').textContent"), /Reviewed/);
+  assert.match(await js("document.querySelector('#exResult').textContent"), /Saved at review/);
+  assert.equal(await js("document.querySelector('[data-start]')"), null, 'no stints once reviewed');
+  // 200 % zoom: the experiment fits without sideways scrolling
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
+  try {
+    await go(`#/experiment?id=${id}`, "document.querySelector('#exResult')");
+    await js("document.querySelectorAll('#view details').forEach((x) => { x.open = true; }); 1");
+    await sleep(250);
+    const [sw, iw] = await js('[document.documentElement.scrollWidth, innerWidth]');
+    assert.ok(sw <= iw + 1, `${sw} px wide in a ${iw} px window`);
+  } finally { await cdp('Emulation.clearDeviceMetricsOverride'); }
+
+  // archive: out of the list's way, restorable
+  await js("document.getElementById('exArchive').click(); 1");
+  await waitFor("document.getElementById('exRestore')", 'archived');
+  assert.match(await js("document.querySelector('#view h1').textContent"), /Archived/);
+  await go(`#/experiments?combo=${encodeURIComponent(key)}`, "document.querySelector('#exArchived')");
+  assert.equal(await js('document.querySelector("#exActive")'), null);
+  assert.match(await js("document.querySelector('#exArchived').textContent"), /More rear wing/);
+  const list = (await api(`/api/experiments?${new URLSearchParams(EXP)}`)).body.experiments;
+  assert.deepEqual(list.map((x) => [x.id, x.status, x.decision, x.result.kind]), [[id, 'archived', 'keep-b', 'difference']]);
+  // private GET: refused cross-site
+  assert.equal((await api(`/api/experiments/one?id=${id}`, { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
+  // reachable from Ctrl+K
+  await go('#/home');
+  await js('document.activeElement?.blur(); 1');
+  await press('k', { ctrl: true });
+  await waitFor("document.querySelector('.palette input') === document.activeElement", 'the palette, focused');
+  await cdp('Input.insertText', { text: 'setup experiments' });
+  await waitFor("document.querySelector('.palette-list li[role=option]')", 'palette results');
+  await js('window.__rendered = 0; 1');
+  await press('Enter');
+  await waitFor("!document.querySelector('.palette-back') && window.__rendered > 0 && location.hash.startsWith('#/experiments')", 'Ctrl+K -> Setup experiments');
   assert.deepEqual(errors, []);
 });

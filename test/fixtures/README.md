@@ -5,7 +5,7 @@ settings, no API keys, no Steam IDs of real people and no game files. Nothing is
 installed app's `data\` or `Saved Games\ACE`: each test file calls `isolate()` (`test/helpers.js`), which points
 `ACEVO_DATA` and `ACE_DIR` at a fresh folder under `%TEMP%\paddock-tests` (old folders are removed after an hour).
 
-This folder holds only `db-v1-0.7.0.sql` and `db-v2-pl6.sql` (schemas, no data). If a test ever needs another stored file (for example an old database layout that can no
+This folder holds only `db-v1-0.7.0.sql`, `db-v2-pl6.sql` and `db-v3-pl7.sql` (schemas, no data). If a test ever needs another stored file (for example an old database layout that can no
 longer be built from code), put it here with a line below saying how it was made and that it holds no user data.
 
 ## Generated fixtures
@@ -17,6 +17,7 @@ longer be built from code), put it here with a line below saying how it was made
 | Old (v0, 0.1.0) database layout | SQL in `test/db-migration.test.js`, built before `src/db.js` is imported | pure arithmetic | db-migration |
 | 0.7.0-beta.1 database layout (schema v1) | `test/fixtures/db-v1-0.7.0.sql`: schema only, dumped from `sqlite_master` of an empty database made by the `v0.7.0-beta.1` tag's `src/db.js`; no data | a fixed file | notes (v1 → v2 upgrade) |
 | PL5/PL6 database layout (schema v2) | `test/fixtures/db-v2-pl6.sql`: schema only, dumped from `sqlite_master` of an empty database made by `src/db.js` at `ff85248` (the PL6 merge); no data | a fixed file | practice-db (v2 → v3 upgrade) |
+| PL7 database layout (schema v3) | `test/fixtures/db-v3-pl7.sql`: schema only, dumped from `sqlite_master` of an empty database made by `src/db.js` at `87b3131` (the PL7 merge); no data | a fixed file | experiments-db (v3 → v4 upgrade) |
 | Drill laps (PL7): the PL6 fixture laps plus laps "driven after" a drill with chosen corner parameters and game versions | `drive()` in `test/practice-db.test.js` over `test/lapfixtures.js`; hand-written passes in `test/practice.test.js` | pure arithmetic | practice-db, practice, browser flows |
 | Protobuf `.carsetup` records | the small protobuf writer at the top of `test/formats.test.js` | fixed field values | formats |
 | Zip archives (mods, setups, backups; also hostile ones: traversal, device names, bombs) | built in each test with `src/zip.js` / `zlib` | fixed contents | formats, mods, feedback, appmgmt, secrets |
