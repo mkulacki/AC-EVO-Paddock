@@ -192,6 +192,7 @@ function page(d, opts, editable) {
   const tbl = `<div class="tablewrap"><table id="exStats"><thead><tr><th></th><th>A: ${esc(A.label)}</th><th>B: ${esc(B.label)}</th></tr></thead><tbody>
     <tr><td>Laps in its stints</td><td>${A.laps} <span class="muted">(${A.stintsDriven} stint${A.stintsDriven === 1 ? '' : 's'})</span></td><td>${B.laps} <span class="muted">(${B.stintsDriven} stint${B.stintsDriven === 1 ? '' : 's'})</span></td></tr>
     <tr><td><b>Counted</b></td><td data-used="A"><b>${A.used}</b></td><td data-used="B"><b>${B.used}</b></td></tr>
+    ${A.unrecognised || B.unrecognised ? `<tr><td class="s" title="Setup recognition found no saved setup for these laps (Standard, or not recorded): they count by your stint">Counted by stint only</td><td>${A.unrecognised}</td><td>${B.unrecognised}</td></tr>` : ''}
     <tr><td>Left out</td><td class="s">${reasons(A) || '–'}</td><td class="s">${reasons(B) || '–'}</td></tr>
     <tr><td title="Median of the counted laps">Typical lap</td><td>${cell(A, (s) => fmt(Math.round(s.median)))}</td><td>${cell(B, (s) => fmt(Math.round(s.median)))}</td></tr>
     <tr><td title="Approximate 95 % interval of the typical lap">± interval</td><td>${cell(A, (s) => `±${s3(s.ci)}`)}</td><td>${cell(B, (s) => `±${s3(s.ci)}`)}</td></tr>

@@ -91,6 +91,7 @@ Tests: one failing regression test per verified finding before its fix, plus the
 ## PL8: Setup experiments (P2)
 
 - Experiment object over P7 setup history (`setup_info.snap`): A/B stints, hypothesis, journal, matched-condition filter, descriptive stats, "inconclusive". `.carsetup` round trips unchanged; never applies setups to the game.
+- **Done 2026-11-25** (`docs/platform/PL8-report.md`, rules in `docs/platform/EXPERIMENTS.md`): schema v4 (`setup_experiments`, `experiment_entries`), `src/experimentstats.js` + `src/experiments.js`, pages `#/experiments` / `#/experiment`, setup ancestry (`basedOnRel`); OD-PL-42 … 53 applied as operator defaults for the user to review. Follow-ups: thresholds unchecked on real laps; no objective per-corner-phase comparison of A and B yet (only driver feedback; the PL6 corner metrics could feed it); experiments are not offered to the AI engineer.
 
 ## PL9: HUD and live assistance (P2)
 

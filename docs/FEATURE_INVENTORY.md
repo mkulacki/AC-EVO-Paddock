@@ -77,6 +77,7 @@ Race tab (Content-Manager-style launcher: practice, hotlap, quick race, race wee
 | Car profiles | Done | garage with the game's spec sheet (Race tab) |
 | Setup management | Done | Setups tab, edits the game's `.carsetup` within the limits |
 | Setup history | Done (P7) | Setup history page per track + car, versions of edited files apart |
+| Setup experiments | Done (PL8) | A/B stints of two setups per track + car (`#/experiments`, `#/experiment`), result from typical laps with exclusions and confounds, "inconclusive" when the laps can't tell; never loads a setup into the game |
 | Setup version comparison | Done (P7) | compare two setups: lap times and exactly the values that differ |
 | Performance comparison per setup | Done (P7) | best and typical lap, spread and conditions per setup across sessions |
 | Import / export / portable sharing | Done | `.carsetup` share/import |
@@ -133,7 +134,7 @@ How the platform plan PL1–PL11 (a local operator plan, not in the repo; phase 
 | PL5 onboarding | P4 shell + palette, P5 Home | Done (PL5): setup guide `#/welcome` (opens by itself only for a new driver; AI, online and mods skippable), Home "now" row (last session, practice objective, recent progress, next step with evidence), session notes, tags and corner bookmarks (schema v2, local only), tag filter on Sessions, palette finds tags and bookmarks, accessible colours (contrast test), focus rings on fields, empty states with actions |
 | PL6 actionable analysis | P6 technique metrics, report, Consistency | Done (PL6): Lap analysis page with the top three opportunities (entry/apex/exit split, braking, brake release, throttle hesitation, gear), corner distributions, repeatable target lap next to the ideal, PB explanation, session trends; `docs/platform/ANALYSIS.md` |
 | PL7 structured practice | P9 goals, P8 training plans, PL6 findings | Done (PL7): practice drills (goals of kind `drill`, schema v3) with the six-part prescription, before/after evaluation, review point, revisit suggestions, corner mastery and a progress summary on Development; `docs/platform/PRACTICE.md` |
-| PL8 setup experiments | P7 setup history and comparison | Partial: no experiment/A-B object, no matched-condition filter |
+| PL8 setup experiments | P7 setup history and comparison | Done (PL8): A/B experiments (schema v4) with hypothesis, expected outcome, ABBA stint plan, live or past-session stints, change journal, handling feedback by corner phase, matched conditions (PL4 compat), counted/left-out laps with reasons, medians, spreads and intervals, an explicit inconclusive result, confounds, review/archive, follow-ups and setup ancestry, patch warnings; never applied to the game; `docs/platform/EXPERIMENTS.md` |
 | PL9 HUD and live assistance | `src/live.js`, `src/gamebridge.js`, `mod/trainerhud` 0.14.0, `src/spotter.js` | Partial: fixed layouts (parts on/off, scale, opacity); no freshness indicator; no bridge stress test |
 | PL10 leaderboard integrity | `leaderboard/worker.js` `checkLap`, rate limit, reports + moderator hide | Partial: no written trust model, no verification tiers or audit trail |
 | PL11 data ownership | P3 backups (manual + before-restore), CSV/`.lap.gz` export | Partial: no scheduled backups, retention, storage forecast or partial-session recovery |
