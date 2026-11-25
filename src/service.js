@@ -1,4 +1,5 @@
 import * as db from './db.js';
+import * as compat from './compat.js';
 import { cornersOnGrid } from './track.js';
 import * as trackdata from './trackdata.js';
 import { resample, detectCorners, cornerMetrics, lapStats, deltaSeries, buildIdeal, pickIdealCorners, gridStep, CHANNELS,
@@ -242,6 +243,20 @@ function trackBand(info, ref) {
   info.bands.set(ref.id, band);
   return band;
 }
+// What is known about a lap for comparisons (src/compat.js), with its session's type.
+function provOf(meta) {
+  if (!meta) return null;
+  const s = meta.session_id != null ? db.getSession(meta.session_id) : null;
+  return compat.provenance(meta, { sessionType: s?.session_type ?? null });
+}
+/** The reference's provenance: its lap's, or for the ideal lap the laps its corners come from (merged). */
+function refProvenance(ref, combo) {
+  // read again, not the resample cache's copy: a lap's conditions and aids are added a moment after it is saved
+  if (ref.id !== 'ideal') return provOf(db.getLapMeta(ref.id) ?? ref.meta);
+  const ids = [...new Set((ref.sources || []).map((s) => s.lapId))];
+  const merged = compat.merge(ids.map((id) => provOf(db.getLapMeta(id))).filter(Boolean));
+  return merged || { id: 'ideal', car: combo.car, track: combo.track, layout: combo.layout, setup: null };
+}
 // Full comparison payload for the browser.
 export function compare(lapIds, refSpec) {
   const first = getResampled(lapIds[0]);
@@ -252,6 +267,7 @@ export function compare(lapIds, refSpec) {
   const corners = ref.info.corners;
   const turns = corners.map((c) => turnSign(ref.R, c.apexIdx));
   const refMetrics = corners.map((c) => cornerMetrics(ref.R, c, new Array(ref.R.n).fill(0)));
+  const refProv = refProvenance(ref, combo);
   const laps = lapIds.filter((id) => id !== ref.id).map((id) => {
     const e = getResampled(id);
     if (!e) return null;
@@ -261,6 +277,7 @@ export function compare(lapIds, refSpec) {
     return {
       id, meta: e.meta, trace: packTrace(e.R), delta: deltaSeries(e.R, ref.R), stats: lapStats(e.R),
       offset: round(offset, 100), corners: corners.map((c) => cornerMetrics(e.R, c, wide)),
+      compat: compat.classify(provOf(db.getLapMeta(id) ?? e.meta), refProv), // PL4.2: can it be compared with the reference, and the caveats
     };
   }).filter(Boolean);
   return {
@@ -271,6 +288,7 @@ export function compare(lapIds, refSpec) {
     band: trackBand(ref.info, ref), cornersSource: ref.info.cornersSource,
     bestMs: ref.info.best?.lap_time_ms ?? null, idealMs: ref.info.ideal?.timeMs ?? null, technique: TECHNIQUE,
     laps,
+    compat: { level: compat.worst(laps.map((l) => l.compat.level)), basis: compat.basis(combo.car), parts: refProv?.parts ?? null },
   };
 }
 
@@ -298,6 +316,7 @@ export function consistency(combo, session = 'all', includeInvalid = false) {
     bestId: info.best.id, bestMs: info.best.lap_time_ms, idealMs: info.ideal?.timeMs ?? null,
     corners: corners.map((c) => ({ n: c.n, name: c.name, apex: Math.round(ref.d[c.apexIdx]) })),
     score: scoreOf(scored, info.ideal?.timeMs), scoreFormula: SCORE_FORMULA, technique: TECHNIQUE,
+    compat: compat.mix(scored.filter((l) => includeInvalid || l.valid).map((l) => compat.provenance(l))), // PL4.2: what varies between these laps
     sessions: db.listSessions().filter((s) => sessionIds.has(s.id)).map((s) => ({ id: s.id, startedAt: s.started_at, type: s.session_type })),
     laps,
   };
@@ -351,7 +370,8 @@ function progressNow(combo) {
     });
   }
   return { combo: { track: combo.track, layout: combo.layout, car: combo.car }, bestMs: info.best?.lap_time_ms ?? null, bestLapId: info.best?.id ?? null,
-    idealMs: info.ideal?.timeMs ?? null, laps: all.length, validLaps: all.filter((l) => l.valid).length, cleanWithinPct: Math.round((CLEAN_WITHIN - 1) * 100), days };
+    idealMs: info.ideal?.timeMs ?? null, laps: all.length, validLaps: all.filter((l) => l.valid).length, cleanWithinPct: Math.round((CLEAN_WITHIN - 1) * 100), days,
+    compat: compat.mix(all.filter((l) => l.valid).map((l) => compat.provenance(l))) }; // PL4.2: what varies between the valid laps of the trend
 }
 
 // ---------------------------------------------------------------- home dashboard

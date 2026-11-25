@@ -2,7 +2,7 @@
 // Layout: lap picker · "where the time went" bar (one segment per corner and straight) · on the left the track map and the
 // selected corner, on the right the charts. One cursor: hovering the charts or the map moves the cursor on all charts and the
 // cars on the map. Clicking a corner (bar, map or the corner card) zooms the charts and the map to it.
-import { css, esc, api, post, fmt, fmtGap, gapClass, idxAt, md, aiConfidence, getMirror, sideTxt, fitProjection, gearTxt, SERIES } from './util.js';
+import { css, esc, api, post, fmt, fmtGap, gapClass, idxAt, md, aiConfidence, getMirror, sideTxt, fitProjection, gearTxt, SERIES, prov } from './util.js';
 
 const MAX_LAPS = 3;
 const color = (i) => css(SERIES[i]); // 0 = reference, 1.. = laps
@@ -33,6 +33,36 @@ const INPUTS = [
 ];
 export const inputState = (L, i) => INPUTS.findIndex((s) => s.is(L, i));
 const dataCache = new Map(); // "laps|ref" -> compare payload (small: last few)
+// comparisons the driver chose to see although they are not comparable ("laps|ref"), for this page visit (PL4.2)
+const accepted = new Set();
+
+// ---------------------------------------------------------------- comparison compatibility (src/compat.js, PL4.2)
+// compatible: one quiet line; caveats: a closed list, each caveat with what it changes; incompatible: the analysis
+// waits behind "Compare anyway". The charts only use readings checked against the game (data.compat.basis).
+function compatHtml(data, lapTxt, gated) {
+  const laps = data.laps.filter((l) => l.compat);
+  if (!laps.length) return '';
+  const level = data.compat?.level || 'compatible';
+  const shaky = (data.compat?.basis || []).filter((b) => b.id !== 'gforce' && b.status !== 'verified');
+  const many = laps.length > 1;
+  const list = laps.filter((l) => l.compat.items.length).map((l) => `${many ? `<li class="grp">${esc(lapTxt(l.id))}</li>` : ''}${l.compat.items.map((it) => `<li class="compat-item ${it.level}">
+      <b>${esc(it.title)}</b> <span>${esc(it.detail)}</span><div class="compat-effect"><span class="muted">What it changes:</span> ${esc(it.effect)}</div></li>`).join('')}`).join('');
+  const basis = `<p class="hint compat-basis">The charts use ${(data.compat?.basis || []).filter((b) => b.id !== 'gforce').map((b) => `${esc(b.use.toLowerCase())} ${prov(b.status)}`).join(', ')}.${shaky.length ? ' Some of these are not checked against the game: read the charts as a hint.' : ''}</p>`;
+  if (level === 'compatible') {
+    const m = laps[0].compat.matched;
+    return `<div class="card compat compat-ok"><span class="compat-tag ok">Like for like</span> <span class="hint">Same ${esc(m.join(', '))}.</span>${shaky.length ? basis : ''}</div>`;
+  }
+  const titles = [...new Set(laps.flatMap((l) => l.compat.items.map((i) => i.title)))];
+  if (level === 'incompatible') {
+    return `<div class="card compat compat-bad" ${gated ? 'role="alert"' : ''}><div class="row"><span class="compat-tag bad">Not comparable</span>
+      <b>${gated ? 'These laps cannot be compared like for like' : 'Compared anyway: these laps are not like for like'}</b></div>
+      <ul class="compat-list">${list}</ul>${basis}
+      ${gated ? '<div class="row"><button class="primary" data-force>Compare anyway</button><span class="hint">The charts will show, but the gap and corner times do not mean what they usually do.</span></div>' : ''}</div>`;
+  }
+  return `<details class="card compat compat-warn"><summary><span class="compat-tag warn">Compare with care</span>
+    <span class="hint">${titles.length} thing${titles.length === 1 ? '' : 's'} to keep in mind: ${esc(titles.join(' · '))}</span></summary>
+    <ul class="compat-list">${list}</ul>${basis}</details>`;
+}
 let choicesCache = null; // { at, laps }
 
 export async function getCompare(laps, ref) {
@@ -97,6 +127,9 @@ export async function mountTelemetry(root, opts, cleanup) {
         + (l.session_id !== homeSession ? `<span class="badge">${esc(when(l.recorded_at))}</span>` : '');
     };
     const refText = `${esc(data.ref.label)} · ${fmt(data.ref.lapTimeMs)}`;
+    // not comparable (another car or layout): the analysis waits until the driver says so (PL4.2)
+    const cmpKey = `${st.laps.join(',')}|${st.ref}`;
+    const gated = data.compat?.level === 'incompatible' && !accepted.has(cmpKey);
     root.innerHTML = `
       <div class="card tele-pick">
         ${st.laps.map((id, i) => chip(i + 1, i ? 'Also' : 'Your lap', lapTxt(id), lapBadges(id), i > 0)).join('')}
@@ -108,6 +141,7 @@ export async function mountTelemetry(root, opts, cleanup) {
         <div class="tmenu" hidden></div>
       </div>
       ${!laps.length ? '<div class="card muted">This lap is the reference itself. Choose another reference, such as the ideal lap, to see where time goes.</div>' : ''}
+      ${compatHtml(data, lapTxt, gated)}${gated ? '' : `
       ${lap0 ? `<div class="card tele-bar"><div class="row" style="margin-bottom:8px"><b>Where the time went</b>
         <span class="hint">${esc(lapTxt(st.laps[0]))} against ${esc(data.ref.label.toLowerCase())}, corner by corner · click a corner to zoom</span>
         <span class="spacer"></span><b class="${gapClass(lap0.delta[lap0.delta.length - 1] * 1000)}">${fmtGap(lap0.delta[lap0.delta.length - 1] * 1000)}</b></div>
@@ -132,7 +166,7 @@ export async function mountTelemetry(root, opts, cleanup) {
           <div class="hint" style="margin-bottom:4px">hover to move the cursor and the cars on the map · drag to zoom · double-click for the whole lap</div>
           <div class="tcharts"></div></div>
       </div>
-      ${opts.hasKey !== undefined && lap0 ? '<div class="card tele-ai"></div>' : ''}`;
+      ${opts.hasKey !== undefined && lap0 ? '<div class="card tele-ai"></div>' : ''}`}`;
 
     // menus: replace a lap, add one, or change the reference
     const menu = q('.tmenu');
@@ -194,6 +228,7 @@ export async function mountTelemetry(root, opts, cleanup) {
     };
     document.addEventListener('keydown', onKey);
     own.push(() => { document.removeEventListener('click', closeMenu); document.removeEventListener('keydown', onKey); });
+    if (gated) { q('[data-force]').onclick = () => { accepted.add(cmpKey); draw(); }; return; }
 
     const select = (name) => { st.corner = name; changed(); };
     q('[data-whole]')?.addEventListener('click', () => select(null));

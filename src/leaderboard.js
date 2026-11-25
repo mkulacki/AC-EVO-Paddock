@@ -21,6 +21,7 @@ import * as svc from './service.js';
 import * as carsDb from './cars.js';
 import { resample } from './analysis.js';
 import { STATUS } from './shm.js';
+import { PARSER_REV } from './channels.js';
 import { encodeTel, decodeTel, toBase64, fromBase64, TEL_STEP, telBytes } from './telcodec.js';
 import { gunzipLimited, LIMITS } from './lapfile.js';
 
@@ -179,6 +180,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     const c = {
       airC: acc.nA ? round1(acc.air / acc.nA) : null, roadC: acc.nR ? round1(acc.road / acc.nR) : null,
       weather: w.weather ?? null, grip: w.grip ?? null, game: gameVersion() ?? null, app: appVersion,
+      reader: `shm r${PARSER_REV}`, // the shared-memory layout revision it was read with (PL4: comparison provenance; not sent online)
     };
     reset();
     try { db.setLapCond(l.id, c); } catch (e) { console.log(`[board] conditions not saved: ${e.message}`); return; }
@@ -393,6 +395,14 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
 
   return {
     onFrame, onLap, sync, call, checkRanks, target, boardWindow, loadTarget, fetchOnline,
+    /** For the integration health panel (PL4.3): what is known already, no request to the server and no database scan. */
+    health() {
+      const c = cfg();
+      let host = null;
+      try { host = new URL(c.url).host; } catch { /* not a URL */ }
+      return { share: c.share, auto: c.auto, signedIn: !!c.token, secure: safeUrl(c.url), host, custom: c.url !== DEFAULT_URL,
+        syncing: state.syncing, lastSync: state.lastSync, lastError: state.lastError };
+    },
     /** For the Leaderboards tab. */
     status() {
       const c = cfg();

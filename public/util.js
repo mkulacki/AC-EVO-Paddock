@@ -93,6 +93,13 @@ export function prov(kind, more = '') {
   const [label, tip] = PROV[kind] || PROV.unverified;
   return `<span class="prov prov-${PROV[kind] ? kind : 'unverified'}" title="${esc(`${tip}${more ? ` ${more}` : ''}`)}">${label}</span>`;
 }
+/** What varies between the laps of a trend or a consistency view (src/compat.js mix, PL4.2): a closed list, or nothing. */
+export function mixHtml(c, what = 'these laps') {
+  if (!c?.items?.length) return '';
+  return `<details class="card compat compat-warn compat-mix"><summary><span class="compat-tag warn">Mixed laps</span>
+    <span class="hint">${esc(what)} differ in ways that can move lap times: ${esc(c.items.map((i) => i.title).join(' · '))}</span></summary>
+    <ul class="compat-list">${c.items.map((it) => `<li class="compat-item"><b>${esc(it.title)}</b> <span>${esc(it.detail)}</span><div class="compat-effect"><span class="muted">What it changes:</span> ${esc(it.effect)}</div></li>`).join('')}</ul></details>`;
+}
 /** The line under an AI answer: AI badge, confidence and what it rests on. c = {level, basis} or null. */
 export function aiConfidence(c) {
   if (!c) return `<div class="ai-conf">${prov('ai')}<span class="conf conf-none" title="The answer does not rate its own confidence: it was saved before Paddock asked for a rating, or the model left it out. Judge it by the data it quotes.">Confidence not rated</span></div>`;

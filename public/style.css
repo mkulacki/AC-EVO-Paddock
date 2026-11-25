@@ -232,6 +232,8 @@ h2 .prov, h3 .prov { margin-left: 8px; }
 .chan { padding: 8px 0; border-top: 1px solid var(--border); font-size: 12.5px; }
 .chan-head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .chan-hint { font-size: 12px; margin-top: 2px; }
+.chan-reason { font-size: 12px; margin-top: 4px; color: var(--text-secondary); }
+.chan-reason.again { border-left: 3px solid var(--warning); padding-left: 6px; color: var(--text-primary); }
 .chan-btns { margin-top: 6px; gap: 6px; flex-wrap: wrap; }
 .chan-fixed { margin-top: 6px; }
 .chan-fixed > summary { font-size: 12px; cursor: pointer; padding: 4px 0; }
@@ -909,3 +911,22 @@ table.lb td .lb-lose, .lb-analysis .lb-lose { color: var(--slower); }
 table.lb td .lb-gain, .lb-analysis .lb-gain { color: var(--good); }
 .lb-analysis { margin-top: 12px; font-size: 13px; display: grid; gap: 4px; }
 ul.lb-notes { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+
+/* comparison compatibility (PL4.2, public/telemetry.js compatHtml): like for like, compare with care, not comparable */
+.compat { font-size: var(--fs-sm); }
+.compat.compat-ok { padding: 8px 14px; }
+.compat.compat-warn { border-left: 3px solid var(--warning); }
+.compat.compat-bad { border-left: 3px solid var(--critical); }
+.compat > summary { cursor: pointer; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.compat-tag { display: inline-block; font-size: var(--fs-xs); font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.compat-tag.ok { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
+.compat-tag.warn { color: var(--warning); border-color: var(--warning); }
+.compat-tag.bad { color: var(--critical); border-color: var(--critical); }
+.compat-list { margin: 10px 0 4px; padding-left: 18px; }
+.compat-list li { margin: 0 0 8px; }
+.compat-list li.grp { list-style: none; margin-left: -18px; font-weight: 600; color: var(--text-secondary); }
+.compat-item.incompatible > b { color: var(--critical); }
+.compat-effect { margin-top: 2px; }
+.compat-basis { margin: 6px 0 0; }
+.compat .row { gap: 8px; align-items: center; flex-wrap: wrap; }
+.compat .row + .compat-list { margin-top: 8px; }
