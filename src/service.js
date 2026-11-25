@@ -455,7 +455,64 @@ export function dashboard({ now = Date.now(), recent = 5, trends = 3, trendDays 
       targets: x.r.targets.map((t) => ({ kind: t.kind, text: t.text })),
       lastCheck: lastCheck(x.r.prevTargets) }));
 
-  return { generatedAt: now, scoreFormula: SCORE_FORMULA, scoreLaps: SCORE_LAPS, totals, recentSessions: sessions, records, trends: trendList, targets };
+  // PL5: recent progress and one next step, worked out from the lists above (no further read)
+  const recentProgress = progressSummary(records, lapsBy, now);
+  const nextAction = nextStep(sessions[0] ?? null, records);
+
+  return { generatedAt: now, scoreFormula: SCORE_FORMULA, scoreLaps: SCORE_LAPS, totals, recentSessions: sessions, records, trends: trendList, targets, recentProgress, nextAction };
+}
+
+// Recent progress (PL5): over the last 30 days, the cars and tracks driven and on how many of them a new personal best
+// was set: the best lap is in the window and there were valid laps there before the window (so a first visit, or
+// a car and track first driven this month, is not counted as progress).
+function progressSummary(records, lapsBy, now) {
+  const since = now - 30 * DAY_MS;
+  const driven = records.filter((c) => c.lastAt >= since);
+  const pbs = driven.filter((c) => c.bestAt != null && c.bestAt >= since && (lapsBy.get(c.key) || []).some((l) => l.valid && l.recorded_at < since))
+    .map((c) => ({ key: c.key, track: c.track, layout: c.layout, car: c.car, bestMs: c.bestMs, bestAt: c.bestAt }));
+  return { days: 30, combos: driven.length, newBests: pbs.length, latest: pbs.sort((a, b) => b.bestAt - a.bestAt).slice(0, 3) };
+}
+
+// One next step (PL5), from the last session's car and track only, with the evidence it rests on. Rules in order:
+// 1. the last session has no report: too short (fewer than 3 laps or none valid) -> drive a longer session; long
+//    enough -> open it (reports of older sessions are made when opened);
+// 2. its report names weakest corners and an ideal lap exists: compare best against ideal, at the weakest corner;
+// 3. an ideal lap faster than the best: compare best against ideal;
+// 4. otherwise: see the trend on the Progress page.
+// Every number quoted is one of the stored values; nothing is estimated. null when there is no session.
+export function nextStep(last, records) {
+  if (!last) return null;
+  const rec = records.find((r) => r.key === comboKey(last));
+  const where = { track: last.track, layout: last.layout, car: last.car };
+  const key = encodeURIComponent(comboKey(last));
+  if (!last.report && last.laps >= 3 && last.validLaps >= 1) {
+    return { kind: 'report', ...where, text: "Open your last session's report",
+      evidence: `Your last session (${last.laps} laps, ${last.validLaps} valid) has no report yet: it is made when you open it, with its weakest corners and practice targets.`,
+      href: `#/report?session=${last.id}&tab=report`, label: 'Open the report' };
+  }
+  if (!last.report) {
+    return { kind: 'longer', ...where, text: 'Drive a session of 3 laps or more, with at least one valid lap',
+      evidence: `Your last session had ${last.laps} lap${last.laps === 1 ? '' : 's'}${last.validLaps !== last.laps ? `, ${last.validLaps} valid` : ''}: a session report, with its weakest corners and practice targets, needs 3 laps or more, one of them valid.`,
+      href: '#/race', label: 'Set up a session' };
+  }
+  const gap = rec?.bestMs != null && rec?.idealMs != null ? rec.bestMs - rec.idealMs : null;
+  const weakest = last.report.weakest || [];
+  if (rec?.bestLapId && gap != null && gap > 0 && weakest.length) {
+    return { kind: 'corner', ...where, corner: weakest[0], gapMs: gap, text: `Compare your best lap with your ideal lap, starting at ${weakest[0]}`,
+      evidence: `Your ideal lap (your best corners put together) is ${(gap / 1000).toFixed(3)} s faster than your best lap. Your last session's weakest corner${weakest.length === 1 ? ' was' : 's were'} ${weakest.join(', ')}.`,
+      href: `#/compare?laps=${rec.bestLapId}&ref=ideal&c=${encodeURIComponent(weakest[0])}`, label: 'Open the comparison' };
+  }
+  if (rec?.bestLapId && gap != null && gap > 0) {
+    return { kind: 'ideal', ...where, gapMs: gap, text: 'Compare your best lap with your ideal lap',
+      evidence: `Your ideal lap (your best corners put together) is ${(gap / 1000).toFixed(3)} s faster than your best lap here.`,
+      href: `#/compare?laps=${rec.bestLapId}&ref=ideal`, label: 'Open the comparison' };
+  }
+  return { kind: 'progress', ...where, text: 'Look at your trend on this car and track',
+    // only what is known is claimed (review): best = ideal needs both values
+    evidence: rec?.bestMs == null ? 'No valid lap here yet: the Progress page shows your laps as they come.'
+      : rec.idealMs == null ? 'Paddock has no ideal lap for this car and track yet, so there is nothing to compare your best lap with: the Progress page shows your best lap per driving day.'
+        : 'Your best lap matches your ideal lap here: the trend shows whether your typical laps are catching up.',
+    href: `#/progress?combo=${key}`, label: 'Progress' };
 }
 
 export { CHANNELS };

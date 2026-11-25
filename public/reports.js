@@ -4,6 +4,7 @@
 import { $, css, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES, md, prov, aiConfidence } from './util.js';
 import { mountTelemetry } from './telemetry.js';
 import { mountCarSetup } from './carsetup.js';
+import { mountNotes } from './notes.js';
 
 const stamp = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -107,6 +108,7 @@ export async function viewReport(view, params, cleanup) {
       <div class="card stat"><span class="k">Laps</span><span class="v">${r.laps.valid}<small class="muted"> valid / ${r.laps.total}</small></span></div>
     </div>
 
+    <div id="notesBox"></div>
     ${sessionTabs(res.laps, r.best.lapId, r.best.ms)}
     <div id="tabReport" hidden>
     <div class="card"><h2>Next practice targets</h2><ol style="margin:0 0 0 20px;padding:0">${r.targets.map((t) => `<li style="margin:4px 0">${esc(t.text)}</li>`).join('')}</ol>
@@ -167,6 +169,7 @@ export async function viewReport(view, params, cleanup) {
     b.disabled = false;
   };
 
+  mountNotes($('#notesBox'), id, { corners: r.corners.all.map((x) => x.name), open: params.get('notes') === '1' }, cleanup); // PL5
   await bindSession(view, params, cleanup, { id, laps: res.laps, bestLapId: r.best.lapId, hasKey: res.hasKey, reload, onReport: drawTrend });
 
   // ---- lap-time trend (uPlot): valid laps, invalid laps, clean average, theoretical best. Drawn when the Report tab is first shown
@@ -319,7 +322,9 @@ async function viewBasic(view, res, reload, params, cleanup) {
       <div class="card stat"><span class="k">Setup</span><span class="v" style="font-size:18px">${setups.length ? setups.map(esc).join(', ') : '–'}</span></div>
     </div>
     <p class="muted" style="margin:0 0 16px">A session report needs 3 laps or more, one of them valid.</p>
+    <div id="notesBox"></div>
     ${sessionTabs(laps, best?.id, best?.lap_time_ms, false)}`;
+  if (s?.id ?? c.session_id) mountNotes($('#notesBox'), s?.id ?? c.session_id, { open: params.get('notes') === '1' }, cleanup); // PL5
   await bindSession(view, params, cleanup, { id: s?.id ?? c.session_id, laps, bestLapId: best?.id ?? null, hasKey: res.hasKey, reload, onReport: null });
 }
 

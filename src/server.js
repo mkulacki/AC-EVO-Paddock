@@ -37,6 +37,8 @@ import * as weekends from './weekends.js';
 import * as achievements from './achievements.js';
 import * as channels from './channels.js';
 import * as health from './health.js';
+import * as notes from './notes.js';
+import * as onboarding from './onboarding.js';
 import * as backup from './backup.js';
 import * as dataexport from './dataexport.js';
 import * as diagnostics from './diagnostics.js';
@@ -291,6 +293,8 @@ setInterval(() => {
       recorder.state.status = 'game not running';
       return;
     }
+    // recording off (D-PL5-19): telemetry.db was made by a newer Paddock; the game is seen, nothing is recorded or worked on
+    if (db.blocked) { Object.assign(recorder.state, { connected: true, lastFrameAt: Date.now(), status: 'recording off' }); return; }
     recorder.onFrame(f);
     setupTracker.onFrame(f);
     board.onFrame(f);
@@ -317,7 +321,8 @@ const readBody = (req, max = 50e6) => new Promise((resolve, reject) => {
   req.on('end', () => resolve(Buffer.concat(chunks)));
   req.on('error', reject);
 });
-const readJson = async (req) => { const b = await readBody(req); return b.length ? JSON.parse(b.toString()) : {}; };
+const readJson = async (req, max) => { const b = await readBody(req, max); return b.length ? JSON.parse(b.toString()) : {}; };
+const NOTES_BODY = 64 * 1024; // a note (4000 characters) and its tags fit many times over
 
 const MIME = { '.wav': 'audio/wav', '.woff2': 'font/woff2', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
 function serveStatic(res, file) {
@@ -336,7 +341,7 @@ const OWN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 // GETs that hand out private data (backups with the key, laps, exports, diagnostics, setups): refused when another
 // site asks, like writes (a page on another local port is "same-site" but not Paddock). Navigations typed or opened
 // from outside the browser have no Sec-Fetch-Site or "none" and stay allowed.
-const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health)/;
+const PRIVATE_GET = /^\/api\/(backup\/file|laps\/\d+\/export|export\/|diagnostics|setups\/export|health|notes|onboarding|overview|dashboard)/; // overview + dashboard carry tags and note lines (PL5)
 function foreignRequest(req, p = '') {
   const host = String(req.headers.host || '').toLowerCase();
   const name = host.replace(/:\d+$/, '');
@@ -447,8 +452,22 @@ async function route(req, res) {
       mock: mockIdx >= 0, aceFound: fs.existsSync(ACE), game: g,
       telemetry: { ...recorder.state, source: source.name, packetAgeMs: lastPacket == null ? null : Date.now() - lastPacketChange, stale },
       perf: perf.summary(), hud: safe(() => hudInstall.status({ quick: true })), channels: channels.list({ car: liveCar() }), checkContext: channels.context(),
-      board: safe(() => board.health()), updates: safe(() => updates.status()),
+      board: safe(() => board.health()), updates: safe(() => updates.status()), dbBlocked: db.blocked,
     }));
+  }
+  // the setup guide (PL5, src/onboarding.js): what it shows, and the driver's choices in it (skips change nothing else)
+  if (p === '/api/onboarding') {
+    if (m === 'POST') {
+      try {
+        const b = await readJson(req, 4096);
+        settings.update({ onboarding: onboarding.nextState(settings.get().onboarding, b) });
+        // skipping game mods switches off the automatic HUD + App Loader install (OD-PL-22 (b)); undo switches it on again
+        if (b.step === 'mods' && (b.action === 'skip' || b.action === 'unskip')) hudInstall.setAutoInstall(b.action === 'unskip');
+      } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
+    }
+    const safe = (fn) => { try { return fn(); } catch { return null; } };
+    return send(res, 200, onboarding.build({ settings: settings.get(), aceFound: fs.existsSync(ACE), contentFound: !!safe(() => trackdata.archive()?.file),
+      hud: safe(() => hudInstall.status({ quick: true })) }));
   }
   if (p === '/api/game/launch' && m === 'POST') return send(res, 200, startGame(null));
   if (p === '/api/game/cancel' && m === 'POST') { game.cancel(); return send(res, 200, { ok: true }); }
@@ -561,6 +580,8 @@ async function route(req, res) {
   if (p === '/api/mods' && m === 'GET') return send(res, 200, { mods: mods.list(), running: game.isRunningNow(), hud: hudInstall.status() });
   // the Paddock HUD shipped with this Paddock: installed / outdated? (Mods tab prompt, nav badge)
   if (p === '/api/mods/hud' && m === 'GET') return send(res, 200, hudInstall.status());
+  // Settings → In-game HUD: the automatic install on or off (the existing hud-removed / loader-removed flags)
+  if (p === '/api/mods/hud/auto' && m === 'POST') { const { on } = await readJson(req, 1024); if (typeof on !== 'boolean') return send(res, 400, { error: 'on must be true or false' }); return send(res, 200, hudInstall.setAutoInstall(on)); }
   if (p === '/api/mods/hud' && m === 'POST') {
     try { return send(res, 200, hudInstall.install()); } catch (e) { return send(res, e.code || 500, { error: e.message }); }
   }
@@ -735,6 +756,7 @@ async function route(req, res) {
     const warnings = [];
     const add = (level, text, href, label) => warnings.push({ level, text, href, label });
     const safe = (fn) => { try { return fn(); } catch { return null; } };
+    if (db.blocked) add('warning', db.blocked.message, '#/game', 'Game → Integration health');
     if (backup.pending()) add('warning', 'A restore is waiting for Paddock to restart.', '#/settings', 'Settings → Backup and restore');
     if (db.restoreResult && !db.restoreResult.ok) add('warning', `The last restore did not complete: ${db.restoreResult.error}`, '#/settings', 'Settings → Backup and restore');
     if (!fs.existsSync(ACE)) add('warning', "AC EVO's game files folder was not found, so the HUD, mods and setups are not available.", '#/settings', 'Settings → Game files folder');
@@ -759,13 +781,27 @@ async function route(req, res) {
         achievements: { unlocked: a.unlocked, total: a.total, fresh: a.items.filter((x) => x.isNew).length,
           recent: a.items.filter((x) => x.unlockedAt != null).sort((x, y) => y.unlockedAt - x.unlockedAt).slice(0, 3) } };
     });
-    return send(res, 200, { ...svc.dashboard(), warnings, recording: recorder.state.status === 'live', development: dev });
+    const d = svc.dashboard();
+    // PL5: the practice objective for the last car and track driven: an open goal or challenge there, else its training
+    // plan, else its newest report's targets, else any open goal. The last session's own notes and tags.
+    const last = d.recentSessions[0];
+    const same = (c) => last && c.track === last.track && c.layout === last.layout && c.car === last.car;
+    let objective = null;
+    const goal = dev?.goals.find((g) => same(g.combo)) || null;
+    const plan = last && !goal ? safe(() => db.activePlan(last)) : null;
+    const tg = last && !goal && !plan ? d.targets.find(same) : null;
+    if (goal) objective = { kind: goal.challenge ? 'challenge' : 'goal', combo: goal.combo, text: goal.text, progress: goal.progressText, href: '#/development' };
+    else if (plan) objective = { kind: 'plan', combo: plan.combo, items: plan.targets.map((t) => t.text).slice(0, 3), href: `#/coach?combo=${encodeURIComponent(`${last.track}|${last.layout}|${last.car}`)}` };
+    else if (tg) objective = { kind: 'targets', combo: { track: tg.track, layout: tg.layout, car: tg.car }, items: tg.targets.map((t) => t.text).slice(0, 3), href: `#/report?session=${tg.sessionId}&tab=report` };
+    else if (dev?.goals[0]) objective = { kind: dev.goals[0].challenge ? 'challenge' : 'goal', combo: dev.goals[0].combo, text: dev.goals[0].text, progress: dev.goals[0].progressText, href: '#/development' };
+    const lastNotes = last ? safe(() => notes.summaries().get(last.id)) ?? null : null;
+    return send(res, 200, { ...d, warnings, recording: recorder.state.status === 'live', development: dev, objective, lastNotes });
   }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView() });
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows
   if (p === '/api/overview') {
     const reports = Object.fromEntries(db.listReports().map((r) => [r.sessionId, { weakest: (r.data.corners?.weakest || []).map((w) => w.name) }]));
-    return send(res, 200, { ...svc.overview(), reports });
+    return send(res, 200, { ...svc.overview(), reports, notes: Object.fromEntries(notes.summaries()) });
   }
   if (p === '/api/consistency') {
     const q = url.searchParams;
@@ -802,6 +838,17 @@ async function route(req, res) {
     return send(res, 200, svc.compare(laps, url.searchParams.get('ref') || 'best'));
   }
 
+  // the driver's own session notes, tags and corner bookmarks (PL5, src/notes.js): local only; bodies capped (64 KB)
+  if (p.startsWith('/api/notes')) {
+    try {
+      if (p === '/api/notes' && m === 'GET') return send(res, 200, notes.forSession(url.searchParams.get('session')));
+      if (p === '/api/notes' && m === 'POST') { const b = await readJson(req, NOTES_BODY); return send(res, 200, notes.save(b.session, { text: b.text, tags: b.tags })); }
+      if (p === '/api/notes/bookmark' && m === 'POST') { const b = await readJson(req, NOTES_BODY); return send(res, 200, notes.addBookmark(b.session, { corner: b.corner, note: b.note })); }
+      if (p === '/api/notes/bookmark' && m === 'DELETE') return send(res, 200, notes.forSession(notes.removeBookmark(url.searchParams.get('id'))));
+      if (p === '/api/notes/index' && m === 'GET') return send(res, 200, { tags: notes.allTags(), bookmarks: notes.recentBookmarks(), sessions: Object.fromEntries(notes.summaries()) });
+      return send(res, 404, { error: 'not found' });
+    } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
+  }
   // several laps at once (e.g. "remove invalid laps"): {ids: [lapId…]}
   if (p === '/api/laps/delete' && m === 'POST') {
     const { ids = [] } = await readJson(req);

@@ -1,6 +1,6 @@
 // Progress view: one track + car over the days you drove it. Best lap of each day, the all-time best
 // and the ideal lap as they stood that day, and how repeatable the day's laps were.
-import { $, css, esc, api, fmt, fmtGap, prettyName, mixHtml } from './util.js';
+import { $, css, esc, api, fmt, fmtGap, prettyName, mixHtml, emptyHtml } from './util.js';
 
 const dayLabel = (day, long) => {
   const [y, m, d] = day.split('-').map(Number);
@@ -11,7 +11,7 @@ const sec = (ms) => (ms == null ? null : ms / 1000);
 export async function viewProgress(view, params, cleanup) {
   const overview = await api('/api/overview');
   const combos = overview.combos.sort((a, b) => b.lastAt - a.lastAt);
-  if (!combos.length) { view.innerHTML = '<div class="card empty"><h2>No laps yet</h2><p>Drive some laps first: progress is drawn per car and track, one point per day.</p></div>'; return; }
+  if (!combos.length) { view.innerHTML = emptyHtml('No laps yet', 'Drive some laps first: progress is drawn per car and track, one point per day.', '<a href="#/race"><button class="primary">Set up a session</button></a><a href="#/welcome"><button>Setup guide</button></a>'); return; }
   const key = combos.some((c) => c.key === params.get('combo')) ? params.get('combo') : combos[0].key;
   const [track, layout, car] = key.split('|');
   const data = await api(`/api/progress?${new URLSearchParams({ track, layout, car })}`);

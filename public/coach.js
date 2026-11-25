@@ -21,7 +21,7 @@ export async function viewCoach(view, params, cleanup) {
         <div class="secondary">${esc(prettyName(car))} · ${data.validLaps} valid of ${data.laps} laps</div></div><span class="spacer"></span>
       <a href="#/setuphistory?combo=${enc}"><button>Setup history</button></a>
       ${data.validLaps >= 2 ? `<a href="#/consistency?combo=${enc}"><button>Consistency</button></a>` : ''}</div>`;
-  if (!data.laps) { view.innerHTML = head + emptyHtml('No laps here yet', 'Drive this car on this track: the coach works from your laps and session reports.'); return; }
+  if (!data.laps) { view.innerHTML = head + emptyHtml('No laps here yet', 'Drive this car on this track: the coach works from your laps and session reports.', '<a href="#/race"><button>Set up a session</button></a><a href="#/"><button>Sessions</button></a>'); return; }
   const noKey = data.hasKey ? '' : `<div class="card plain note-warn" style="margin-bottom:12px">The coach uses Google Gemini. Add a free API key in <a href="#/settings">Settings</a> to chat and get braking points. The training plan works without one.</div>`;
 
   view.innerHTML = `${head}${noKey}

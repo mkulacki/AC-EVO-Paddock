@@ -9,7 +9,23 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 // a restore asked for in Settings is applied now, before the database is opened (src/backup.js)
 export const restoreResult = applyPendingRestore(DATA_DIR);
 
-const db = new DatabaseSync(path.join(DATA_DIR, 'telemetry.db'));
+/** The newest database layout this Paddock knows (user_version). */
+export const SCHEMA_VERSION = 2;
+// A database made by a newer Paddock (user_version above SCHEMA_VERSION) is never upgraded or written: this Paddock
+// would not know what its new parts mean. It is closed again at once (nothing written: the version is read before any
+// other statement) and Paddock runs on an empty database in memory with recording off (D-PL5-19: no lap is recorded
+// or worked on), while Home, Integration health and the sidebar status say why. Backups and restores are refused.
+let db = new DatabaseSync(path.join(DATA_DIR, 'telemetry.db'));
+/** null, or {version, supported, message} when telemetry.db was made by a newer Paddock and is left alone. */
+export const blocked = (() => {
+  const v = db.prepare('PRAGMA user_version').get().user_version;
+  if (v <= SCHEMA_VERSION) return null;
+  db.close();
+  db = new DatabaseSync(':memory:');
+  const message = `Recording is off: your laps database (data\\telemetry.db) was made by a newer Paddock (database version ${v}; this Paddock knows up to ${SCHEMA_VERSION}). It is left untouched. Install that newer Paddock to record and see your laps.`;
+  console.error(`[db] ${message}`);
+  return { version: v, supported: SCHEMA_VERSION, message };
+})();
 db.exec(`
 PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS sessions (
@@ -47,13 +63,20 @@ function normaliseDistance(data, L) {
   data.d = out.map((v) => Math.round((v + shift) * 100) / 100);
   return Math.abs(shift) > 0.5;
 }
+let preMigrationCopy = null; // the copy made before an upgrade at this start (one is enough for several steps)
+// any row in any table: a database with goals or coach messages but no laps is worth a copy too (plan rule 9)
+function hasUserRows() {
+  return db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all()
+    .some((t) => db.prepare(`SELECT 1 FROM "${t.name.replace(/"/g, '""')}" LIMIT 1`).get());
+}
 {
   const ver = db.prepare('PRAGMA user_version').get().user_version;
   if (ver < 1) {
     const rows = db.prepare('SELECT id, track_length, data FROM laps').all();
-    if (rows.length) {
+    if (rows.length || hasUserRows()) {
       const backup = path.join(DATA_DIR, `telemetry.backup-v${ver}-${Date.now()}.db`);
       db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+      preMigrationCopy = backup;
       const upd = db.prepare('UPDATE laps SET data = ? WHERE id = ?');
       let fixed = 0;
       for (const r of rows) {
@@ -107,6 +130,8 @@ export const counts = () => ({
   sessions: db.prepare('SELECT COUNT(*) AS n FROM sessions').get().n,
   reports: db.prepare('SELECT COUNT(*) AS n FROM reports').get().n,
   brakeMarks: db.prepare('SELECT COUNT(*) AS n FROM brake_marks').get().n,
+  notes: db.prepare('SELECT COUNT(*) AS n FROM session_notes').get().n,
+  bookmarks: db.prepare('SELECT COUNT(*) AS n FROM corner_bookmarks').get().n,
   schema: db.prepare('PRAGMA user_version').get().user_version,
 });
 
@@ -152,10 +177,20 @@ const lapDeletedFns = [];
 export const onLapDeleted = (fn) => { lapDeletedFns.push(fn); };
 export function deleteLap(id) {
   for (const fn of lapDeletedFns) fn(id);
-  // its session's report is out of date: dropped (made again on request)
-  db.prepare('DELETE FROM reports WHERE session_id = (SELECT session_id FROM laps WHERE id = ?)').run(id);
-  db.prepare('DELETE FROM laps WHERE id = ?').run(id);
-  db.prepare('DELETE FROM analyses WHERE lap_id = ?').run(id);
+  const sid = db.prepare('SELECT session_id FROM laps WHERE id = ?').get(id)?.session_id ?? null;
+  db.exec('BEGIN');
+  try {
+    // its session's report is out of date: dropped (made again on request)
+    if (sid != null) db.prepare('DELETE FROM reports WHERE session_id = ?').run(sid);
+    db.prepare('DELETE FROM laps WHERE id = ?').run(id);
+    db.prepare('DELETE FROM analyses WHERE lap_id = ?').run(id);
+    // the session's last lap gone: its notes, tags and bookmarks go with it (user decision D-PL5-15)
+    if (sid != null && !db.prepare('SELECT 1 FROM laps WHERE session_id = ? LIMIT 1').get(sid)) dropSessionNotes(sid);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+function dropSessionNotes(sid) {
+  for (const t of ['session_notes', 'session_tags', 'corner_bookmarks']) db.prepare(`DELETE FROM ${t} WHERE session_id = ?`).run(sid);
 }
 
 export function saveAnalysis(lapId, refKey, model, text) {
@@ -299,6 +334,50 @@ export function addLaunch(l) {
 }
 export const listLaunches = () => db.prepare('SELECT * FROM launches ORDER BY at').all()
   .map((r) => ({ id: r.id, at: r.at, mode: r.mode, trackId: r.track_id, layoutKey: r.layout_key, car: r.car, summary: r.summary, plannedMin: r.planned_min, goalId: r.goal_id }));
+
+// ---------------------------------------------------------------- v2 (PL5): the driver's own notes, tags and corner bookmarks
+// session_notes: free text per session; session_tags: short labels per session (stored in lower case, one row each, so
+// the Sessions page can filter by one); corner_bookmarks: a corner the driver wants to come back to, per track + car
+// (the game's names, as in the laps), with the session it was noted in and a short note.
+// Local only: never sent to the leaderboard, the AI or anyone else, and not in lap files (src/lapfile.js); they are in
+// the database, so a Settings backup holds them. Sizes are bounded by src/notes.js.
+// Versioned: user_version 2. New tables only, nothing existing changes, so an older Paddock can still open the file
+// (it ignores tables it does not know). A copy of the database is made first, as for v1 (telemetry.backup-v1-<time>.db):
+// the recovery path if the upgrade ever has to be undone (one copy per start: a v0 file upgraded to v2 in one go
+// keeps the v0 copy). If that copy cannot be made (a full disk), the upgrade
+// still runs: it only adds empty tables, in one transaction, and the reason is logged.
+{
+  const ver = db.prepare('PRAGMA user_version').get().user_version;
+  if (ver < 2) {
+    if (!preMigrationCopy && hasUserRows()) {
+      const backup = path.join(DATA_DIR, `telemetry.backup-v${ver}-${Date.now()}.db`);
+      try { vacuumInto(backup); console.log(`[db] before the v2 upgrade (notes, tags, bookmarks): copy kept as ${path.basename(backup)}`); }
+      catch (e) { console.error(`[db] the copy before the v2 upgrade could not be made (${e.code || e.message}); upgrading anyway (it only adds new tables)`); }
+    }
+    db.exec('BEGIN');
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS session_notes (session_id INTEGER PRIMARY KEY, text TEXT NOT NULL DEFAULT '', updated_at INTEGER);
+        CREATE TABLE IF NOT EXISTS session_tags (session_id INTEGER NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (session_id, tag));
+        CREATE INDEX IF NOT EXISTS session_tags_tag ON session_tags(tag);
+        CREATE TABLE IF NOT EXISTS corner_bookmarks (id INTEGER PRIMARY KEY, session_id INTEGER, track TEXT, layout TEXT, car TEXT,
+          corner TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at INTEGER);
+        CREATE INDEX IF NOT EXISTS corner_bookmarks_combo ON corner_bookmarks(track, layout, car);
+        CREATE INDEX IF NOT EXISTS corner_bookmarks_session ON corner_bookmarks(session_id);
+        PRAGMA user_version = 2;`);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+  // notes, tags and bookmarks of sessions that have no lap left (deleted before deleteLap cleaned them up): removed
+  // at start, in one transaction; cheap (one pass over laps.session_id)
+  const live = 'SELECT DISTINCT session_id FROM laps WHERE session_id IS NOT NULL';
+  db.exec('BEGIN');
+  try {
+    let n = 0;
+    for (const t of ['session_notes', 'session_tags', 'corner_bookmarks']) n += Number(db.prepare(`DELETE FROM ${t} WHERE session_id IS NULL OR session_id NOT IN (${live})`).run().changes);
+    db.exec('COMMIT');
+    if (n) console.log(`[db] removed ${n} note, tag or bookmark row(s) of sessions without laps`);
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
 
 export const getMeta = (key) => db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
 export const setMeta = (key, value) => db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));

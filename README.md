@@ -325,6 +325,8 @@ If a value looks wrong, fix its offset in the `OFFSETS` table at the top of `src
 | `src/channels.js` | which telemetry readings are checked against the game, on which game version (provenance) |
 | `src/compat.js` | whether two laps can be compared like for like, with caveats (Compare, Consistency, Progress) |
 | `src/health.js` | integration health on the Game page (`/api/health`) |
+| `src/onboarding.js`, `public/welcome.js` | the setup guide (`#/welcome`, `/api/onboarding`) |
+| `src/notes.js`, `public/notes.js` | session notes, tags and corner bookmarks (local only, `/api/notes`) |
 | `src/backup.js`, `src/restore-apply.js`, `src/dataexport.js`, `src/diagnostics.js`, `src/updates.js`, `public/system.js` | Settings: backup and restore, CSV export, diagnostics, update check |
 | `public/` | browser app (no build step) |
 | `mod/trainerhud/` | the in-game HUD and launcher (ACE UI App Loader app) |

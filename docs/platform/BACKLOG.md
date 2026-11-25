@@ -75,6 +75,7 @@ Tests: one failing regression test per verified finding before its fix, plus the
 
 - First-run flow over the existing pages (Home's empty state is the only welcome today). Session notes, tags, corner bookmarks: new tables with a versioned migration (`PRAGMA user_version` 2) and an old-DB fixture test.
 - Accessibility pass on both themes; extend the P4 palette rather than adding a second command surface.
+- **Done 2026-11-25** (`docs/platform/PL5-report.md`): setup guide `#/welcome` (`src/onboarding.js`), Home "now" row with `nextStep`, schema v2 notes/tags/bookmarks (`src/notes.js`), contrast test, browser flows. Follow-ups: beginner/advanced presentation assessed, not built (OD-PL-23); bookmarks are not drawn on the track map yet (PL6/PL9 could show them); PL7 can use `nextStep` evidence and bookmarks as practice input.
 
 ## PL6: Actionable lap analysis (P1)
 
