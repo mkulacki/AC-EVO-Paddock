@@ -1,11 +1,12 @@
 // Sessions page (the home page, #/): sessions by track & car or by date, imports, start practice. Split from app.js.
 import { $, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES } from './util.js';
 import { lapsBlock, bindLaps } from './reports.js';
+import { tagChips } from './notes.js';
 
 // ================================================================== SESSIONS
 // The Sessions page lists sessions, by track & car (one card per combo) or by date. A row is the session's summary;
 // opening it shows the session page (public/reports.js): its report and its laps.
-const LAP_VIEW_DEFAULT = { track: '', car: '', order: 'recent' };
+const LAP_VIEW_DEFAULT = { track: '', car: '', order: 'recent', tag: '' };
 let rerender = () => {}; // set by viewSessions: draws the page again (after deleting or importing laps)
 let lapView = { ...LAP_VIEW_DEFAULT }; // filters/order; kept across auto-refreshes, reset when leaving the page
 const MIN_REPORT_LAPS = 3; // = MIN_LAPS in src/report.js
@@ -44,6 +45,7 @@ function sessionSummaries(o, sessions) {
     m.setups = [...new Set(m.laps.map((l) => l.setup_name).filter(Boolean))];
     m.full = m.laps.length >= MIN_REPORT_LAPS && m.valid > 0; // gets a report
     m.weakest = o.reports?.[m.sid]?.weakest ?? null;
+    m.notes = o.notes?.[m.sid] ?? null; // PL5: tags, first line of the note, bookmarks
     if (!byCombo.has(m.key)) byCombo.set(m.key, []);
     byCombo.get(m.key).push(m);
   }
@@ -75,8 +77,8 @@ function sessionRow(m, combo) {
   const change = m.newPb ? `<span class="badge best" title="Faster than every lap before this session">New PB ${fmtGap(m.pbDelta)}</span>`
     : m.lastDelta != null ? `<span class="${dCls(m.lastDelta)}" title="Best lap against the previous session's best">${fmtGap(m.lastDelta)} vs last</span>` : '';
   return `<a class="sess-row${combo ? ' with-combo' : ''}" href="#/report?session=${m.sid}" title="Open the session: report and laps">
-    ${combo ? cell(esc(SESSION_TYPES[m.s?.session_type] || 'Session'), esc(sessTime(m.start)), '', 'when') // the day is the card's title
-      : cell(esc(SESSION_TYPES[m.s?.session_type] || 'Session'), esc(sessDay(m.start)), esc(sessTime(m.start)), 'when')}
+    ${combo ? cell(esc(SESSION_TYPES[m.s?.session_type] || 'Session'), esc(sessTime(m.start)), tagChips(m.notes?.tags), 'when') // the day is the card's title
+      : cell(esc(SESSION_TYPES[m.s?.session_type] || 'Session'), esc(sessDay(m.start)), `${esc(sessTime(m.start))} ${tagChips(m.notes?.tags)}`, 'when')}
     ${combo ? cell(esc(prettyName(combo.car)), `${esc(prettyName(combo.track))} <span class="muted">${esc(prettyName(combo.layout))}</span>`, '', 'combo') : ''}
     ${cell('Best lap', m.best ? fmt(m.best.lap_time_ms) : '–', m.best ? change : 'no valid lap')}
     ${cell('Average', m.full && m.avg != null ? fmt(Math.round(m.avg)) : '–')}
@@ -96,12 +98,13 @@ export async function viewSessions(view, params, shell) {
   const head = `<div class="race-head"><div><h1>Sessions</h1></div><span class="spacer"></span>
     <div class="tabs"><a href="#/?by=combo" class="${sessBy === 'combo' ? 'on' : ''}">By track &amp; car</a><a href="#/?by=date" class="${sessBy === 'date' ? 'on' : ''}">By date</a></div></div>`;
   const o = await api('/api/overview');
+  if (params.get('tag') != null) lapView.tag = params.get('tag'); // PL5: #/?tag=wet (command palette)
   if (!o.combos.length) {
     view.innerHTML = `${head}<div class="card empty">
       <h2>No laps yet</h2>
       <p>Start Assetto Corsa EVO and drive. Laps are saved automatically when you cross the line.</p>
-      <p class="muted">Want to try it first? Run <code>npm run seed</code> for demo laps, or start with <code>npm run mock</code>.</p>
-      <p><label class="row" style="justify-content:center"><button id="imp">Import lap files…</button></label></p>
+      <p class="muted">Not sure Paddock sees the game? The <a href="#/welcome">setup guide</a> checks it step by step, and <a href="#/game">Game → Integration health</a> says what is missing. Laps from another Paddock can be imported.</p>
+      <div class="row" style="justify-content:center"><a href="#/welcome"><button class="primary">Open the setup guide</button></a><button id="imp">Import lap files…</button></div>
     </div>`;
     bindImport($('#imp'));
     return;
@@ -122,12 +125,17 @@ export async function viewSessions(view, params, shell) {
     car: ['Car A–Z', (a, b) => byName('car')(a, b) || byName('track')(a, b) || byName('layout')(a, b)],
     best: ['Best lap', (a, b) => (a.bestMs ?? Infinity) - (b.bestMs ?? Infinity)],
   };
+  const allTags = [...new Set(Object.values(o.notes || {}).flatMap((x) => x.tags))].sort();
+  if (lapView.tag && !allTags.includes(lapView.tag)) lapView.tag = '';
+  // a tag: only the sessions with it, and the cars and tracks that have one
+  if (lapView.tag) for (const [sid, m] of summaries) if (!m.notes?.tags.includes(lapView.tag)) summaries.delete(sid);
+  const tagged = lapView.tag ? new Set([...summaries.values()].map((m) => m.key)) : null;
   const combos = o.combos
-    .filter((c) => (!lapView.track || c.track === lapView.track) && (!lapView.car || c.car === lapView.car))
+    .filter((c) => (!lapView.track || c.track === lapView.track) && (!lapView.car || c.car === lapView.car) && (!tagged || tagged.has(c.key)))
     .sort(orders[lapView.order]?.[1] || orders.recent[1]);
   const comboLaps = (c) => o.laps.filter((l) => comboOf(l) === c.key);
   const opts = (list, cur, all) => `<option value="">${all}</option>` + list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(prettyName(v))}</option>`).join('');
-  const none = '<div class="card empty"><p>Nothing matches this track and car. Choose “All tracks” or “All cars” to see the rest.</p></div>';
+  const none = `<div class="card empty"><p>Nothing matches ${lapView.tag ? `the tag “${esc(lapView.tag)}” with this track and car` : 'this track and car'}. Choose “All tracks”, “All cars”${lapView.tag ? ' or “All tags”' : ''} to see the rest.</p></div>`;
 
   let body;
   if (sessBy === 'date') {
@@ -145,14 +153,20 @@ export async function viewSessions(view, params, shell) {
     <div class="row" style="margin-bottom:16px">
       <select id="f-track" title="Filter by track">${opts(tracks, lapView.track, 'All tracks')}</select>
       <select id="f-car" title="Filter by car">${opts(cars, lapView.car, 'All cars')}</select>
+      ${allTags.length ? `<select id="f-tag" title="Filter by tag" aria-label="Filter by tag">${opts(allTags, lapView.tag, 'All tags')}</select>` : ''}
       ${sessBy === 'combo' ? `<select id="f-order" title="Order by">${Object.entries(orders).map(([k, [label]]) => `<option value="${k}" ${k === lapView.order ? 'selected' : ''}>${label}</option>`).join('')}</select>` : ''}
       <span class="spacer"></span>
       <button id="imp">Import lap files…</button>
     </div>
     ${body}`;
   bindImport($('#imp'));
-  [['#f-track', 'track'], ['#f-car', 'car'], ['#f-order', 'order']].forEach(([sel, k]) => {
-    if ($(sel)) $(sel).onchange = (e) => { lapView[k] = e.target.value; rerender(); };
+  [['#f-track', 'track'], ['#f-car', 'car'], ['#f-order', 'order'], ['#f-tag', 'tag']].forEach(([sel, k]) => {
+    if ($(sel)) $(sel).onchange = (e) => {
+      lapView[k] = e.target.value;
+      // a tag from the address (#/?tag=…, the command palette) would win again: the address follows the choice
+      if (k === 'tag' && params.has('tag')) location.hash = e.target.value ? `#/?tag=${encodeURIComponent(e.target.value)}` : '#/';
+      else rerender();
+    };
   });
   view.querySelectorAll('[data-combo]').forEach((card) => {
     const key = card.dataset.combo;

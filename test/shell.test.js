@@ -57,3 +57,11 @@ test('the sidebar keeps the ids and hooks the shell uses', () => {
   for (const key of ['home', 'race', 'laps', 'tracks', 'setups', 'game', 'mods', 'settings']) assert.match(html, new RegExp(`data-nav="${key}"`));
   assert.match(html, /<span class="dot"><\/span><span class="txt">/, 'the status line keeps its parts');
 });
+
+test('filterItems: a first word that names a kind falls back to plain text when that kind has no match (PL5)', () => {
+  const items = [{ kind: 'Page', label: 'Setup guide' }, { kind: 'Setups', label: 'Ferrari 296' }, { kind: 'Tag', label: 'wet' }];
+  assert.deepEqual(pal.filterItems(items, 'setup guide').map((x) => x.label), ['Setup guide']);
+  assert.deepEqual(pal.filterItems(items, 'setup ferrari').map((x) => x.kind), ['Setups'], 'a match of the kind still wins');
+  assert.deepEqual(pal.filterItems(items, 'tag wet').map((x) => x.kind), ['Tag']);
+  assert.deepEqual(pal.filterItems([...items, { kind: 'Session', label: 's1' }], '').map((x) => x.kind), ['Page', 'Session'], 'empty: every page, then sessions');
+});
