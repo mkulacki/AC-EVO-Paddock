@@ -424,7 +424,7 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
     /** For the Leaderboards tab. */
     status() {
       const c = cfg();
-      const bests = db.boardBests().map((l) => ({ id: l.id, track: l.track, layout: l.layout, car: l.car, carClass: carClass(l.car), lapMs: l.lap_time_ms,
+      const bests = db.boardBests().map((l) => ({ id: l.id, track: l.track, layout: l.layout, car: l.car, carClass: carClass(l.car), lapMs: l.lap_time_ms, recordedAt: l.recorded_at,
         cond: l.cond ? JSON.parse(l.cond) : null, board: l.board ? JSON.parse(l.board) : null }));
       return { share: c.share, auto: c.auto, tel: c.tel, target: c.target, url: c.url, secure: safeUrl(c.url), defaultUrl: DEFAULT_URL,
         signedIn: !!c.token, steam: c.token ? c.steam : null, admin: !!(c.token && c.steam?.admin),
