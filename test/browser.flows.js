@@ -10,6 +10,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -1010,4 +1011,168 @@ test('HUD layouts: apply a built-in one, save the look under a name, context pro
   assert.equal((await fetch(`${base}/api/hudlayouts`)).headers.get('access-control-allow-origin'), null);
   assert.equal((await fetch(`${base}/api/hud`)).headers.get('access-control-allow-origin'), '*'); // the HUD's own route stays open
   assert.deepEqual(errors, []);
+});
+
+// ---------------------------------------------------------------- Leaderboards: Boards, My best laps, Settings
+// A fake leaderboard server on a free port (the real one is leaderboard/worker.js): the app signs in to it (its own
+// sign-in route, Steam left out), sends its best laps and reads the boards back. Nothing goes to the internet.
+const ME = '76561198000000009';
+function fakeBoard() {
+  const laps = []; // {driver, name, track, layout, car, carClass, lapMs, sectors, ...}
+  let id = 0;
+  const add = (l) => laps.push({ lapId: ++id, airC: 20, roadC: 28, weather: null, grip: null, game: '1.0', drivenAt: Date.now(), tel: false, tier: 'basic', ...l });
+  // a track none of your laps are on, with a car that is only there
+  add({ driver: '76561198000000004', name: 'Dan', track: 'zz_test_ring', layout: '', car: 'only_on_ring', carClass: null, lapMs: 90000, sectors: [30000, 30000, 30000] });
+  const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+  const same = (a, b) => a.track === b.track && (a.layout ?? '') === (b.layout ?? '');
+  const server = http.createServer(async (req, res) => {
+    const u = new URL(req.url, 'http://x'), q = u.searchParams, p = u.pathname;
+    let body = '';
+    for await (const c of req) body += c;
+    if (p === '/v1/auth/token') return json(res, 200, { ok: true, token: 'ab'.repeat(32), steamId: ME, name: 'Tester' });
+    if (p === '/v1/me') return json(res, 200, { ok: true, name: 'Tester', admin: false });
+    if (p === '/v1/driver') return json(res, 200, { ok: true, driver: q.get('id'), name: 'Tester', boards: [], wins: 0, podiums: 0 });
+    if (p === '/v1/laps' && req.method === 'POST') {
+      const l = JSON.parse(body);
+      const board = { track: l.track, layout: l.layout, car: l.car, carClass: l.carClass, game: l.game };
+      add({ ...board, driver: ME, name: 'Tester', lapMs: l.lapMs, sectors: l.sectors, drivenAt: l.drivenAt });
+      add({ ...board, driver: '76561198000000002', name: 'Bob', lapMs: l.lapMs + 1500, sectors: l.sectors.map((s) => s + 500) });
+      // the laps of 1970 (test/lapfixtures.js) lead their board; on the others someone is a second faster
+      if (l.drivenAt > 1e10) add({ ...board, driver: '76561198000000001', name: 'Alice', lapMs: l.lapMs - 1000, sectors: l.sectors.map((s, k) => s - (k ? 0 : 1000)) });
+      // and a GT3 on the same track, for its class board
+      add({ ...board, car: `gt3_on_${l.car}`, carClass: 'GT3', driver: '76561198000000003', name: 'Carol', lapMs: l.lapMs + 3000, sectors: l.sectors });
+      const rows = laps.filter((x) => same(x, l) && x.car === l.car).sort((a, b) => a.lapMs - b.lapMs);
+      return json(res, 200, { ok: true, stored: true, lapId: id, rank: rows.findIndex((x) => x.driver === ME) + 1, of: rows.length, tier: 'basic' });
+    }
+    if (p === '/v1/combos') {
+      const group = (key, pick) => [...laps.reduce((m, l) => { const k = key(l); if (k) m.set(k, [...(m.get(k) || []), l]); return m; }, new Map()).values()].map(pick);
+      return json(res, 200, { ok: true,
+        combos: group((l) => `${l.track}|${l.layout}|${l.car}`, (g) => ({ track: g[0].track, layout: g[0].layout, car: g[0].car, car_class: g[0].carClass, drivers: new Set(g.map((x) => x.driver)).size })),
+        classes: group((l) => l.carClass && `${l.track}|${l.layout}|${l.carClass}`, (g) => ({ track: g[0].track, layout: g[0].layout, car_class: g[0].carClass, drivers: new Set(g.map((x) => x.driver)).size, cars: new Set(g.map((x) => x.car)).size })) });
+    }
+    const of = () => laps.filter((l) => same(l, { track: q.get('track'), layout: q.get('layout') }) && (q.get('class') ? l.carClass === q.get('class') : l.car === q.get('car')));
+    if (p === '/v1/versions') return json(res, 200, { ok: true, versions: [...new Set(of().map((l) => l.game))].map((game) => ({ game, laps: 1 })) });
+    if (p === '/v1/board') return json(res, 200, { ok: true, rows: of().filter((l) => !q.get('game') || l.game === q.get('game')).sort((a, b) => a.lapMs - b.lapMs).map((l) => ({ ...l, me: l.driver === q.get('me') })) });
+    return json(res, 404, { ok: false, error: 'not here' });
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${server.address().port}`, laps })));
+}
+
+test('leaderboards: Boards, My best laps and Settings subpages; track then car; sorting; old ?combo= links', { skip }, async () => {
+  const fb = await fakeBoard();
+  const postJson = (p, b) => api(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) });
+  try {
+    // sign in to the fake server (the app's own route: login -> callback), share, send
+    await postJson('/api/board/settings', { url: fb.url, share: false });
+    const login = (await postJson('/api/board/login', {})).body;
+    const st = new URL(login.url).searchParams.get('state');
+    assert.equal((await fetch(`${base}/api/board/callback?code=x&state=${st}`)).status, 200);
+    await postJson('/api/board/settings', { share: true, auto: false, tel: false });
+    await postJson('/api/board/sync', {});
+    const status = (await api('/api/board/status')).body;
+    assert.equal(status.signedIn, true);
+    const sent = status.bests.filter((b) => b.board?.ok);
+    assert.ok(sent.length >= 2, `laps sent (${sent.length} of ${status.bests.length})`);
+    const comboKey = (c) => `${c.track}|${c.layout ?? ''}|${c.car}`;
+    const pretty = (s) => String(s).replace(/_/g, ' ');
+
+    // Settings: every account and sharing control, and none of the board
+    await go('#/leaderboard?tab=settings', "document.querySelector('#lbOn')");
+    for (const id of ['lbOut', 'lbForget', 'lbOn', 'lbAuto', 'lbTel', 'lbSync', 'lbTarget', 'lbUrl', 'lbUrlSave']) assert.ok(await js(`!!document.querySelector('#${id}')`), `#${id} on Settings`);
+    assert.match(await js("document.querySelector('#lbShare').textContent"), /Sent: your Steam name/);
+    assert.equal(await js("document.querySelector('.tabs [aria-current=page]').textContent"), 'Settings');
+    assert.equal(await js("!!document.querySelector('#lbTrack, #lbCar, #lbMineTable')"), false);
+
+    // Boards: the pickers and the game version; no temperature filters and none of the settings
+    await go('#/leaderboard', "document.querySelector('#lbTrack') && document.querySelector('#lbTable table')");
+    assert.equal(await js("document.querySelector('.tabs [aria-current=page]').textContent"), 'Boards');
+    for (const id of ['lbCar', 'lbGame']) assert.ok(await js(`!!document.querySelector('#${id}')`), `#${id} on Boards`);
+    for (const id of ['lbOn', 'lbAuto', 'lbTel', 'lbSync', 'lbTarget', 'lbUrl', 'lbForget', 'lbCombo', 'lbAirMin', 'lbAirMax', 'lbRoadMin', 'lbRoadMax']) assert.equal(await js(`!!document.querySelector('#${id}')`), false, `no #${id} on Boards`);
+    assert.deepEqual(await js("[...document.querySelectorAll('#lbTable table.lb thead th')].map((t) => t.textContent).filter((t) => t === 'Air' || t === 'Track')"), ['Air', 'Track'], 'temperature columns kept');
+
+    // the track first, by typing: the car list then has only the cars with laps there
+    const pick = async (id, text) => {
+      await js(`document.querySelector('#${id}').focus(); 1`);
+      await cdp('Input.insertText', { text });
+      await waitFor(`!document.querySelector('#${id}List').hidden`, `${id} list open`);
+      await press('Enter');
+    };
+    const carOptions = "[...document.querySelectorAll('#lbCarList li')].map((li) => `${li.getAttribute('role')}:${li.textContent}`)";
+    await pick('lbTrack', 'test ring');
+    await waitFor("document.querySelector('#lbTrack').value === 'zz test ring' && /Dan/.test(document.querySelector('#lbTable').textContent)", 'the ring board');
+    assert.equal(await js('document.activeElement.id'), 'lbCar', 'focus moves on to the car');
+    await js("document.querySelector('#lbCar').click(); 1");
+    assert.deepEqual(await js(carOptions), ['presentation:Cars', 'option:only on ring (1)']);
+    await press('Escape');
+    assert.equal(await js("document.querySelector('#lbCarList').hidden"), true);
+
+    // a track with your laps: its class board first, apart from the single cars
+    const b0 = sent.find((b) => b.recordedAt > 1e10) || sent[0];
+    const tLabel = `${pretty(b0.track)}${b0.layout ? ` · ${pretty(b0.layout)}` : ''}`;
+    await pick('lbTrack', tLabel);
+    await waitFor(`document.querySelector('#lbTrack').value === ${JSON.stringify(tLabel)}`, 'your track picked');
+    await js("document.querySelector('#lbCar').click(); 1");
+    const opts = await js(carOptions);
+    assert.equal(opts[0], 'presentation:Car classes');
+    assert.match(opts[1], /^option:GT3 · all cars \(\d+\)$/);
+    const carsAt = opts.indexOf('presentation:Cars');
+    assert.ok(carsAt > 1 && opts.slice(carsAt + 1).every((o) => o.startsWith('option:') && !/all cars|only on ring/.test(o)), opts.join(' | '));
+    assert.ok(opts.includes(`option:${pretty(b0.car)} (3)`), opts.join(' | '));
+    await press('Escape');
+    // the car by typing its name
+    await pick('lbCar', `${pretty(b0.car)} (3)`);
+    await waitFor("/Tester/.test(document.querySelector('#lbTable').textContent) && document.querySelector('#lbShowMe')", 'your board with your row');
+    assert.equal(await js("localStorage.getItem('leaderboard.board')"), comboKey(b0), 'remembered');
+    // Show me: to your row, highlighted for a moment
+    await js("document.querySelector('#lbShowMe').click(); 1");
+    assert.equal(await js("document.activeElement === document.querySelector('#lbTable tr.lb-me') && document.activeElement.classList.contains('lb-flash')"), true);
+
+    // an old link opens its board on Boards
+    await go(`#/leaderboard?combo=${encodeURIComponent('zz_test_ring||only_on_ring')}`, "/Dan/.test(document.querySelector('#lbTable')?.textContent || '')");
+    assert.equal(await js("document.querySelector('#lbCar').value"), 'only on ring (1)');
+    assert.equal(await js("document.querySelector('.tabs [aria-current=page]').textContent"), 'Boards');
+    // and Boards comes back to the last board looked at
+    await go('#/leaderboard?tab=settings', "document.querySelector('#lbOn')");
+    await go('#/leaderboard', "/Dan/.test(document.querySelector('#lbTable')?.textContent || '')");
+
+    // My best laps, by its tab: places and gaps read from the boards, newest first, then by place and by track
+    await js("window.__rendered = 0; document.querySelector('.tabs a[data-sub=mine]').click(); 1");
+    await waitFor("window.__rendered > 0 && location.hash === '#/leaderboard?tab=mine'", 'My best laps');
+    await waitFor("document.querySelector('#lbMineTable') && !document.querySelector('#lbMineTable [aria-busy]')", 'places loaded');
+    assert.equal(await js("document.querySelector('.tabs [aria-current=page]').textContent"), 'My best laps');
+    assert.equal(await js("!!document.querySelector('#lbOn, #lbTrack')"), false);
+    const order = () => js("[...document.querySelectorAll('#lbMineTable tbody tr')].map((tr) => tr.dataset.board)");
+    const rowOf = (k) => js(`(() => { const tr = [...document.querySelectorAll('#lbMineTable tbody tr')].find((t) => t.dataset.board === ${JSON.stringify(k)}); return [tr.querySelector('.lb-rank').textContent, tr.querySelector('.lb-gap').textContent, tr.querySelector('a').getAttribute('href')]; })()`);
+    assert.deepEqual(await order(), [...status.bests].sort((a, b) => b.recordedAt - a.recordedAt).map(comboKey), 'newest first');
+    assert.deepEqual(await rowOf(comboKey(b0)), ['P2 of 3', '+1.000', `#/leaderboard?combo=${encodeURIComponent(comboKey(b0))}`]);
+    const lead = sent.find((b) => b.recordedAt < 1e10);
+    if (lead) assert.deepEqual((await rowOf(comboKey(lead))).slice(0, 2), ['P1 of 2', 'P1']);
+    // by place, from the keyboard (Enter on the header); again: the other way round
+    await js("document.querySelector('#lbMineTable [data-sort=rank]').focus(); 1");
+    await press('Enter');
+    assert.equal(await js("document.querySelector('#lbMineTable [data-sort=rank]').closest('th').getAttribute('aria-sort')"), 'ascending');
+    assert.equal(await js('document.activeElement.dataset.sort'), 'rank', 'focus stays on the header');
+    const ranks = () => js("[...document.querySelectorAll('#lbMineTable .lb-rank')].map((td) => Number(/P(\\d+)/.exec(td.textContent)?.[1] ?? 1e9))");
+    const up = await ranks();
+    assert.deepEqual(up, [...up].sort((a, b) => a - b), 'by place');
+    await press('Enter');
+    assert.equal(await js("document.querySelector('#lbMineTable [data-sort=rank]').closest('th').getAttribute('aria-sort')"), 'descending');
+    const known = (await ranks()).filter((r) => r < 1e9);
+    assert.deepEqual(known, [...known].sort((a, b) => b - a), 'by place, the other way');
+    await js("document.querySelector('#lbMineTable [data-sort=track]').click(); 1");
+    const tracks = await js("[...document.querySelectorAll('#lbMineTable tbody tr a')].map((a) => a.textContent.split(' · ')[0])");
+    assert.deepEqual(tracks, [...tracks].sort((a, b) => a.localeCompare(b)), 'by track');
+    // Ctrl+K finds the subpages
+    await press('k', { ctrl: true });
+    await waitFor("document.querySelector('.palette input') === document.activeElement", 'palette open');
+    await cdp('Input.insertText', { text: 'leaderboard settings' });
+    await waitFor("/Leaderboard settings/.test(document.querySelector('.palette').textContent)", 'palette entry');
+    await press('Escape');
+    await waitFor("!document.querySelector('.palette-back')", 'palette closed');
+    assert.deepEqual(errors, []);
+  } finally {
+    await postJson('/api/board/logout', {});
+    await postJson('/api/board/settings', { share: false, auto: true, tel: true, url: '' });
+    await new Promise((r) => fb.server.close(r));
+  }
 });
