@@ -598,15 +598,25 @@ test('setup guide: "Skip the guide" puts it away; an existing driver is never se
   assert.deepEqual(errors, []);
 });
 
-test('Home: last session, practice objective and one next step with its evidence; reachable by keyboard (PL5)', { skip }, async () => {
-  await go('#/home', "document.querySelector('.home-now-row')");
-  const heads = await js("[...document.querySelectorAll('.home-now-row h2')].map((h) => h.textContent)");
-  assert.deepEqual(heads, ['Last session', 'Practice objective', 'Next step']);
-  assert.match(await js("document.querySelector('.hn-why').textContent"), /^Why: \S/);
-  const href = await js('document.querySelector(\'.hn-next a[href^="#/"]\').getAttribute(\'href\')');
+test('Home: the last session as the hero, one "Your next session" card with the next step and its evidence; reachable by keyboard (PL5, visual pass)', { skip }, async () => {
+  await go('#/home', "document.querySelector('.hero') && document.querySelector('.nx')");
+  assert.ok(await js("!!document.querySelector('.hero .hero-title[href^=\"#/report?session=\"]')"), 'the hero opens the last session');
+  assert.match(await js("document.querySelector('.hero-nums').textContent"), /Session best[\s\S]*\d:\d\d\.\d{3}/);
+  assert.equal(await js("document.querySelector('.nx h2').textContent"), 'Your next session');
+  // the three cards it replaced are gone; the evidence for the next step sits behind its (i), as the icon's label
+  assert.equal(await js("document.querySelectorAll('.home-now-row, .hn-next').length"), 0);
+  assert.match(await js("document.querySelector('.nx-step .info').getAttribute('aria-label')"), /^Why: \S/);
+  const href = await js('document.querySelector(\'.nx-step a[href^="#/"]\').getAttribute(\'href\')');
   assert.match(href, /^#\/(compare|race|progress|report)/);
+  // only one main (lime) action on Home above the records table
+  assert.equal(await js("document.querySelectorAll('.hero button.primary, .nx button.primary').length"), 1);
+  // the (i) opens its explanation on keyboard focus, and Escape closes it
+  await js("document.querySelector('.nx-step .info').focus(); 1");
+  await waitFor("!document.querySelector('.info-tip').hidden && document.querySelector('.info-tip').textContent.length > 3", 'the explanation shown on focus');
+  await press('Escape');
+  await waitFor("document.querySelector('.info-tip').hidden", 'Escape hides it');
   await js('document.activeElement?.blur(); 1');
-  await tabTo('.hn-next a[href^="#/"]', 80);
+  await tabTo('.nx-step a[href^="#/"]', 80);
   assert.ok(await js("document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), 'a visible focus ring');
   await js('window.__rendered = 0; 1');
   await press('Enter');

@@ -4,6 +4,15 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
+### Look and feel
+
+- **Home opens on your last session:** the track name in big lettering, your session best, personal best and ideal lap, and the track drawn from your own best lap (it works for every track, mods too). Your car's render sits behind it when the game has one.
+- **Your next session:** one card says what to do next: your goal, training plan or practice targets for the car and track, the next step with its reason behind (i), and **Practise now**. It replaces the Practice objective, Next step and Next practice targets cards, which repeated each other. Targets for your other cars and tracks still show further down.
+- **(i) explanations:** long explanations on Development, Lap analysis and Leaderboards now sit behind an (i) next to a short line. Hover it or tab to it to read the whole text. Nothing was removed.
+- **Track maps glow** where you clearly gain or lose time, so the eye lands there first.
+- Pages slide in when you open them (switched off when Windows asks for reduced motion). Race draws a car and a track where it showed emoji. Development's suggested challenges no longer show four bright buttons at once.
+- **Fixed:** in the demo, the bar at the bottom covered Race's Start button. On Lap analysis, the Entry and Apex labels were cut off ("En…", "Ap…").
+
 ### Leaderboards
 
 - **Three subpages:** Boards, My best laps and Settings, each with its own address (Ctrl+K finds them). Old board links still open their board.

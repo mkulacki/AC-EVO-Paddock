@@ -927,6 +927,7 @@ async function route(req, res) {
     else if (tg) objective = { kind: 'targets', combo: { track: tg.track, layout: tg.layout, car: tg.car }, items: tg.targets.map((t) => t.text).slice(0, 3), href: `#/report?session=${tg.sessionId}&tab=report` };
     else if (dev?.goals[0]) objective = { kind: dev.goals[0].challenge ? 'challenge' : 'goal', combo: dev.goals[0].combo, text: dev.goals[0].text, progress: dev.goals[0].progressText, href: '#/development' };
     const lastNotes = last ? safe(() => notes.summaries().get(last.id)) ?? null : null;
+    if (d.hero && last) d.hero.carId = safe(() => cars.match(last.car)?.id) ?? null; // the Home hero shows the car's render
     return send(res, 200, { ...d, warnings, recording: recorder.state.status === 'live', development: dev, objective, lastNotes });
   }
   if (p === '/api/status') return send(res, 200, { source: source.name, state: recorder.state, settings: settings.publicView(), demo: db.DEMO, demoInApp: typeof globalThis.__paddockDemo === 'function' });

@@ -378,9 +378,11 @@ export async function mountTelemetry(root, opts, cleanup) {
         for (let j = 0, i = 0; i + k < x.length; i += k, j++) {
           const v = Math.max(-1, Math.min(1, slopes[j] / scale));
           ctx.strokeStyle = v >= 0 ? mix(cN, cS, v) : mix(cN, cF, -v);
+          // where you clearly gain or lose, the line glows: the eye lands on it first
+          if (!view && Math.abs(v) > 0.35) { ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 12 * Math.abs(v); } else ctx.shadowBlur = 0;
           ctx.beginPath(); for (let qq = i; qq <= i + k; qq++) { const [px, py] = P(x[qq], z[qq]); qq === i ? ctx.moveTo(px, py) : ctx.lineTo(px, py); } ctx.stroke();
         }
-        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0; ctx.globalAlpha = 1;
       }
       // zoomed: the driven lines, reference and laps
       if (view) {

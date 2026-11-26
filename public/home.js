@@ -1,7 +1,8 @@
 // Home (#/home, where Paddock opens): your driving at a glance, built only from your own laps and reports
 // (src/service.js dashboard): what needs attention, totals, recent sessions, open practice targets, the best lap per
 // driving day for your most driven cars and tracks, and your records. Every number links to where it comes from.
-import { esc, api, post, fmt, fmtGap, prettyName, emptyHtml } from './util.js';
+import { esc, api, post, fmt, fmtGap, prettyName, emptyHtml, info, getMirror } from './util.js';
+import { thumbUrl } from './garage.js';
 
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const dayTxt = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -58,8 +59,9 @@ export async function viewHome(view, cleanup) {
     ${tile('Last 7 days', plural(T.last7, 'lap'), `${plural(T.last30, 'lap')} in 30 days`)}
     ${tile('Last lap', ago(T.lastAt), d.recording ? '<span class="pos-live">recording now</span>' : '')}</div>`;
 
-  // PL5: where you are now: the last session, the practice objective, recent progress and one next step with its evidence
-  const now = nowRow(d);
+  // where you are now: the last session as the hero, then one card with what to do next (objective, targets, next step)
+  const hero = heroHtml(d);
+  const next = nextHtml(d);
 
   const sessions = `<div class="card"><div class="row"><h2 style="margin:0">Recent sessions</h2><span class="spacer"></span><a href="#/?by=date">All sessions ›</a></div>
     <ul class="home-list">${d.recentSessions.map((s) => {
@@ -71,11 +73,13 @@ export async function viewHome(view, cleanup) {
           ${r?.consistency != null ? `<span class="muted" title="Consistency score of the session report (0–100)">consistency ${r.consistency}</span>` : ''}</span></span></a></li>`;
     }).join('')}</ul></div>`;
 
-  const targets = `<div class="card"><h2>Next practice targets</h2>${d.targets.length ? d.targets.map((g) => `
+  // practice targets of the other cars and tracks (the last one's are in "Your next session")
+  const lastKey = d.hero?.key;
+  const others = d.targets.filter((g) => `${g.track}|${g.layout}|${g.car}` !== lastKey);
+  const targets = others.length ? `<div class="card"><h2>Targets elsewhere</h2>${others.map((g) => `
       <div class="home-tg"><div class="row"><b>${combo(g)}</b><span class="muted">· ${esc(prettyName(g.car))}</span><span class="spacer"></span><a href="#/report?session=${g.sessionId}&tab=report" class="muted s">from ${esc(when(g.startedAt))}</a></div>
       <ol>${g.targets.map((t) => `<li>${esc(t.text)}</li>`).join('')}</ol>
-      ${g.lastCheck ? `<p class="muted s" style="margin:0">Last time you met ${g.lastCheck.met} of ${g.lastCheck.of} targets.</p>` : ''}</div>`).join('')
-    : '<p class="muted" style="margin:0">Targets come with each session report (sessions of 3 laps or more). Drive a session and they show here.</p>'}</div>`;
+      ${g.lastCheck ? `<p class="muted s" style="margin:0">Last time you met ${g.lastCheck.met} of ${g.lastCheck.of} targets.</p>` : ''}</div>`).join('')}</div>` : '';
 
   // goals, challenges and achievements (P9, src/goals.js + src/achievements.js): the open ones and what was reached lately
   const dev = d.development;
@@ -102,9 +106,12 @@ export async function viewHome(view, cleanup) {
       <td style="white-space:nowrap"><button class="small primary beat" data-beat="${esc(c.key)}" title="Start a practice session on this car and track in AC EVO now (90 minutes, clear weather, optimum grip)">Beat it ▸</button>
         <a href="#/progress?combo=${encodeURIComponent(c.key)}">Progress</a>${c.bestLapId && c.idealMs ? ` · <a href="#/compare?laps=${c.bestLapId}&ref=ideal">Best against ideal</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
 
-  view.innerHTML = `<div class="race-head"><div><h1>Home</h1><div class="sub">Your driving at a glance, from your own laps.</div></div><span class="spacer"></span><a href="#/race"><button class="primary">Set up a session</button></a></div>
-    ${warnings}${now}${tiles}<div class="grid-2"><div>${sessions}${boardCard(board)}</div><div>${targets}${goals}</div></div>${trends}${records}`;
+  view.innerHTML = `<div class="race-head"><div><h1>Home</h1></div><span class="spacer"></span><a href="#/race"><button>Set up a session</button></a></div>
+    ${hero}<div class="home-next-row${warnings && next ? '' : ' one'}">${next}${warnings}</div>${tiles}
+    <div class="grid-2"><div>${sessions}${boardCard(board)}</div><div>${goals}${targets}</div></div>${trends}${records}`;
   bindSparks(view, d.trends, cleanup);
+  // the car render is optional: no render (a mod car, or the game's files can't be read) leaves the track alone
+  view.querySelector('.hero-car-img')?.addEventListener('error', (e) => e.target.remove());
   // "Beat it": this car and track as a practice session in the game, right now; progress shows on the Race tab
   view.querySelectorAll('[data-beat]').forEach((b) => {
     b.onclick = async () => {
@@ -121,36 +128,75 @@ export async function viewHome(view, cleanup) {
   });
 }
 
-// ---------------------------------------------------------------- now: last session, objective, progress, next step (PL5)
-function nowRow(d) {
-  const s = d.recentSessions[0];
+// ---------------------------------------------------------------- hero: the last session, its records and the track
+function heroHtml(d) {
+  const s = d.recentSessions[0], h = d.hero;
   if (!s) return '';
   const r = s.report, n = d.lastNotes;
-  const last = `<section class="card home-now" aria-labelledby="hnLast"><h2 id="hnLast">Last session</h2>
-    <a class="hn-main" href="#/report?session=${s.id}"><b>${combo(s)}</b><span class="muted"> · ${esc(prettyName(s.car))}</span></a>
-    <p class="muted s" style="margin:2px 0 6px">${esc(when(s.startedAt))} · ${plural(s.laps, 'lap')}${s.validLaps !== s.laps ? `, ${s.validLaps} valid` : ''}</p>
-    <p style="margin:0">${s.bestMs != null ? `Best <b class="${r?.newPb ? 'best' : ''}">${fmt(s.bestMs)}</b>` : '<span class="muted">No valid lap</span>'}
-      ${r?.newPb ? ' <span class="badge best">New PB</span>' : r?.bestDeltaMs != null ? ` · <span class="${r.bestDeltaMs <= 0 ? 'neg' : 'pos'}">${fmtGap(r.bestDeltaMs)}</span> <span class="muted">vs the session before</span>` : ''}</p>
-    ${n?.tags?.length ? `<p class="hn-tags" style="margin:6px 0 0">${n.tags.map((t) => `<span class="tag-chip">${esc(t)}</span>`).join(' ')}</p>` : ''}
-    ${n?.note ? `<p class="muted s hn-note" style="margin:6px 0 0">“${esc(n.note)}”</p>` : `<p class="muted s" style="margin:6px 0 0"><a href="#/report?session=${s.id}&notes=1">Add a note or tags</a></p>`}</section>`;
+  const gain = h?.idealMs && h?.bestMs ? h.bestMs - h.idealMs : null;
+  const delta = r?.newPb ? '<span class="badge best">New PB</span>'
+    : r?.bestDeltaMs != null ? `<span class="${r.bestDeltaMs <= 0 ? 'neg' : 'pos'}">${fmtGap(r.bestDeltaMs)}</span> vs the session before` : '';
+  const num = (k, v, sub, cls = '') => `<div class="hero-num"><span class="k">${k}</span><span class="v ${cls}">${v}</span><span class="s">${sub || '&nbsp;'}</span></div>`;
+  const record = d.records.find((c) => c.key === h?.key);
+  return `<section class="card hero" aria-labelledby="heroT">
+    <div class="hero-txt">
+      <div class="eyebrow">Last session · ${esc(when(s.startedAt))} · ${plural(s.laps, 'lap')}${s.validLaps !== s.laps ? `, ${s.validLaps} valid` : ''}</div>
+      <a id="heroT" class="hero-title" href="#/report?session=${s.id}">${esc(prettyName(s.track))} <span>${esc(prettyName(s.layout))}</span></a>
+      <div class="hero-car">${esc(prettyName(s.car))}</div>
+      <div class="hero-nums">
+        ${num('Session best', s.bestMs != null ? fmt(s.bestMs) : '–', delta, r?.newPb ? 'best' : '')}
+        ${h?.bestMs != null ? num('Personal best', fmt(h.bestMs), h.bestAt ? `set ${esc(ago(h.bestAt))}` : '', 'best') : ''}
+        ${gain > 0 ? num('Ideal lap', fmt(h.idealMs), `<span class="neg">${fmtGap(-gain)}</span> to find ${info('Your best corners from any lap here, put together. The gap to your personal best is time you have already driven, just not all in one lap.')}`) : ''}
+      </div>
+      <div class="row hero-actions">
+        <a href="#/report?session=${s.id}"><button>Session report</button></a>
+        ${record?.bestLapId && record.idealMs ? `<a href="#/compare?laps=${record.bestLapId}&ref=ideal"><button class="ghost">Best against ideal</button></a>` : ''}
+      </div>
+      <div class="hero-notes">${n?.tags?.length ? n.tags.map((t) => `<span class="tag-chip">${esc(t)}</span>`).join(' ') : ''}
+        ${n?.note ? `<span class="muted s hn-note">“${esc(n.note)}”</span>` : `<a class="muted s" href="#/report?session=${s.id}&notes=1">Add a note or tags</a>`}</div>
+    </div>
+    <div class="hero-art" aria-hidden="true">${h?.carId ? `<img class="hero-car-img" alt="" src="${thumbUrl(h.carId)}">` : ''}${outlineSvg(h?.outline)}</div>
+  </section>`;
+}
 
-  const o = d.objective;
-  const ocombo = o ? `<span class="muted s">${combo(o.combo)} · ${esc(prettyName(o.combo.car))}</span>` : '';
-  const objective = `<section class="card home-now" aria-labelledby="hnObj"><h2 id="hnObj">Practice objective</h2>${!o
-    ? '<p class="muted" style="margin:0">None yet. Set a goal on the <a href="#/development">Development</a> page, or drive a session of 3 laps or more for practice targets.</p>'
+// the track from your best lap's positions: a dark road, the lime line drawing itself in, a dot lapping it
+function outlineSvg(o) {
+  if (!o?.points?.length) return '';
+  const [sx, sy] = o.points[0], [ex, ey] = o.points.at(-1);
+  const path = `M${o.points.map((p) => p.join(',')).join('L')}${Math.hypot(ex - sx, ey - sy) < 60 ? 'Z' : ''}`;
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  return `<svg class="hero-map${getMirror() ? ' mirror' : ''}" viewBox="-80 -80 1160 1160" preserveAspectRatio="xMidYMid meet">
+    <path class="hm-road" d="${path}"/><path class="hm-line" d="${path}" pathLength="1"/>
+    <circle class="hm-start" cx="${sx}" cy="${sy}" r="15"/>
+    ${still ? '' : `<circle class="hm-car" r="13"><animateMotion dur="14s" begin="1.4s" repeatCount="indefinite" path="${path}"/></circle>`}</svg>`;
+}
+
+// ---------------------------------------------------------------- your next session: one card with what to do next
+function nextHtml(d) {
+  const o = d.objective, a = d.nextAction, p = d.recentProgress;
+  if (!o && !a) return '';
+  const last = d.recentSessions[0];
+  const lastKey = last ? `${last.track}|${last.layout}|${last.car}` : null;
+  const c = o?.combo || a || last;
+  const key = c ? `${c.track}|${c.layout}|${c.car}` : null;
+  const record = d.records.find((x) => x.key === key);
+  const kind = { goal: 'Goal', challenge: 'Challenge', plan: 'Training plan', targets: 'Practice targets' }[o?.kind];
+  // the last report's targets, when the objective is something else (a goal or a plan) on the same car and track
+  const lastTg = o?.kind !== 'targets' ? d.targets.find((g) => `${g.track}|${g.layout}|${g.car}` === lastKey && key === lastKey) : null;
+  const focus = !o ? ''
     : o.kind === 'goal' || o.kind === 'challenge'
-      ? `<p style="margin:0"><span class="badge">${o.kind === 'challenge' ? 'Challenge' : 'Goal'}</span> <b>${esc(o.text)}</b></p><p style="margin:4px 0 0">${ocombo}</p>
-        ${o.progress ? `<p class="muted s" style="margin:4px 0 0">${esc(o.progress)}</p>` : ''}<p style="margin:8px 0 0"><a href="${esc(o.href)}">Development ›</a></p>`
-      : `<p style="margin:0"><span class="badge">${o.kind === 'plan' ? 'Training plan' : 'Practice targets'}</span> ${ocombo}</p>
-        <ol class="hn-items">${o.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ol><p style="margin:4px 0 0"><a href="${esc(o.href)}">${o.kind === 'plan' ? 'Coach ›' : 'Session report ›'}</a></p>`}</section>`;
-
-  const a = d.nextAction, p = d.recentProgress;
-  const next = `<section class="card home-now hn-next" aria-labelledby="hnNext"><h2 id="hnNext">Next step</h2>
-    ${a ? `<p style="margin:0"><b>${esc(a.text)}</b></p><p class="muted s" style="margin:4px 0 0">${combo(a)} · ${esc(prettyName(a.car))}</p>
-      <p class="s hn-why" style="margin:6px 0 0"><span class="muted">Why:</span> ${esc(a.evidence)}</p>
-      <p style="margin:10px 0 0"><a href="${esc(a.href)}"><button class="small">${esc(a.label)}</button></a></p>` : '<p class="muted" style="margin:0">Drive a session first.</p>'}
-    ${p ? `<p class="muted s hn-progress" style="margin:10px 0 0">Last ${p.days} days: ${plural(p.combos, 'car and track')} driven; a new personal best (beating your laps from before) on ${p.newBests}${p.latest.length ? ` (latest: ${p.latest.map((x) => `${esc(prettyName(x.track))} · ${esc(prettyName(x.car))} ${fmt(x.bestMs)}`).join('; ')})` : ''}.</p>` : ''}</section>`;
-  return `<div class="home-now-row">${last}${objective}${next}</div>`;
+      ? `<p class="nx-goal"><span class="badge chal">${kind}</span> <b>${esc(o.text)}</b></p>${o.progress ? `<p class="muted s" style="margin:4px 0 0">${esc(o.progress)}</p>` : ''}`
+      : `<p class="nx-kind"><span class="badge">${kind}</span></p><ol class="nx-items">${o.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>`;
+  const more = lastTg ? `<p class="nx-kind"><span class="badge">From the last report</span></p><ol class="nx-items">${lastTg.targets.slice(0, 3).map((t) => `<li>${esc(t.text)}</li>`).join('')}</ol>` : '';
+  const step = a ? `<div class="nx-step"><span class="nx-arrow" aria-hidden="true">→</span><div><b>${esc(a.text)}</b> ${info(a.evidence, 'Why')}</div>
+      <a href="${esc(a.href)}"><button class="small">${esc(a.label)}</button></a></div>` : '';
+  const prog = p ? `<p class="muted s nx-prog">Last ${p.days} days: ${plural(p.combos, 'car and track')} driven, ${p.newBests ? `<b class="best">${plural(p.newBests, 'new personal best')}</b>` : 'no new personal best yet'}.${p.latest.length ? ` ${info(`Latest: ${p.latest.map((x) => `${prettyName(x.track)} · ${prettyName(x.car)} ${fmt(x.bestMs)}`).join('; ')}`)}` : ''}</p>` : '';
+  return `<section class="card nx" aria-labelledby="nxT">
+    <div class="row nx-head"><h2 id="nxT">Your next session</h2><span class="spacer"></span>${c ? `<span class="muted s">${combo(c)} · ${esc(prettyName(c.car))}</span>` : ''}</div>
+    ${focus}${more}${step}
+    <div class="row nx-foot">${record ? `<button class="primary" data-beat="${esc(record.key)}" title="Start a practice session on this car and track in AC EVO now">Practise now ▸</button>` : ''}
+      ${o?.href && o.href.split('&')[0] !== a?.href?.split('&')[0] ? `<a href="${esc(o.href)}">${o.kind === 'plan' ? 'Coach' : o.kind === 'targets' ? 'Session report' : 'Development'} ›</a>` : ''}<span class="spacer"></span></div>
+    ${prog}</section>`;
 }
 
 // ---------------------------------------------------------------- sparkline: one line, the day's best lap

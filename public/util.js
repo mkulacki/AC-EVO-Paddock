@@ -130,3 +130,29 @@ export function fitProjection(xs, zs, W, H, pad, mirror) {
   const ox = (W - (maxX - minX) * s) / 2, oy = (H - (maxZ - minZ) * s) / 2;
   return (x, z) => [mirror ? W - (ox + (x - minX) * s) : ox + (x - minX) * s, H - (oy + (z - minZ) * s)];
 }
+
+// An (i) next to a short line: the full explanation shows on hover or keyboard focus (one shared tooltip, placed by
+// bindInfoTips in app.js so it never leaves the window). Screen readers get the text as the icon's label.
+export const info = (text, label = 'More about this') =>
+  `<span class="info" tabindex="0" role="img" aria-label="${esc(label)}: ${esc(text)}" data-tip="${esc(text)}">i</span>`;
+export function bindInfoTips() {
+  const tip = document.createElement('div');
+  tip.className = 'info-tip'; tip.hidden = true; tip.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(tip);
+  let on = null;
+  const show = (el) => {
+    on = el; tip.textContent = el.dataset.tip; tip.hidden = false;
+    const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    const left = Math.max(8, Math.min(window.innerWidth - t.width - 8, r.left + r.width / 2 - t.width / 2));
+    const below = r.bottom + 8 + t.height < window.innerHeight;
+    tip.style.left = `${left}px`; tip.style.top = `${below ? r.bottom + 8 : r.top - t.height - 8}px`;
+  };
+  const hide = () => { on = null; tip.hidden = true; };
+  const find = (e) => e.target.closest?.('.info[data-tip]');
+  document.addEventListener('pointerover', (e) => { const el = find(e); if (el && el !== on) show(el); else if (!el && on) hide(); });
+  document.addEventListener('focusin', (e) => { const el = find(e); if (el) show(el); });
+  document.addEventListener('focusout', (e) => { if (find(e)) hide(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && on) hide(); });
+  window.addEventListener('scroll', hide, true);
+  window.addEventListener('hashchange', hide);
+}

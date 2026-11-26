@@ -1,7 +1,7 @@
 // Lap analysis (PL6): where the time is for one track + car, worked out from your own laps without AI
 // (src/opportunities.js, docs/platform/ANALYSIS.md). The three biggest opportunities first, each readable on its own:
 // what was measured, kept apart from what it may mean, with links to the comparison and the corner's distribution.
-import { $, esc, api, post, fmt, fmtGap, prettyName, mixHtml, emptyHtml, prov } from './util.js';
+import { $, esc, api, post, fmt, fmtGap, prettyName, mixHtml, emptyHtml, prov, info } from './util.js';
 import { DRILLABLE, drillHtml, wireDrills, masteryBadge, noVersionHtml } from './practice.js';
 
 const s2 = (ms) => (ms == null ? '–' : `${(ms / 1000).toFixed(2)} s`);
@@ -69,8 +69,8 @@ export async function viewAnalysis(view, params) {
         <p class="muted s" style="margin:10px 0 0">${esc(d.causation)}</p>` : `<p class="muted" style="margin:0">${esc(noTopText(d))}</p>`}
     </section>
     ${pbCard(d)}
-    <section class="card"><h2>All corners</h2>
-      <p class="muted s" style="margin:0 0 8px">Each row: your passes of the corner against its median (dots), the middle half (box) and the interval of the median (the darker band: if two corners' bands are far apart, the difference is more than noise). Open a corner for its braking, throttle and gear details.</p>
+    <section class="card"><h2>All corners ${info("Each row: your passes of the corner against its median (dots), the middle half (box) and the interval of the median (the darker band: if two corners' bands are far apart, the difference is more than noise).", 'How to read this')}</h2>
+      <p class="muted s" style="margin:0 0 8px">Open a corner for its braking, throttle and gear details.</p>
       <div class="an-corners">${d.corners.map((c) => cornerRow(c, d, ck)).join('')}</div>
     </section>
     ${trendCard(d, ck)}`;
@@ -112,7 +112,7 @@ function phaseBar(phases, main) {
   const vals = Object.entries(phases).map(([k, v]) => [k, Math.max(0, v || 0)]);
   const total = vals.reduce((a, [, v]) => a + v, 0) || 1;
   return `<div class="phasebar" title="${esc(PHASE_TIP)}" role="img" aria-label="${esc(vals.map(([k, v]) => `${PHASE_TXT[k]} ${s2(v)}`).join(', '))}">
-    ${vals.map(([k, v]) => `<span class="ph ph-${k}${k === main ? ' main' : ''}" style="flex:${Math.max(v / total, 0.08)}"><b>${PHASE_TXT[k]}</b> ${s2(v)}</span>`).join('')}</div>`;
+    ${vals.map(([k, v]) => `<span class="ph ph-${k}${k === main ? ' main' : ''}" style="flex:${Math.max(v / total, 0.08).toFixed(3)} 0 auto"><b>${PHASE_TXT[k]}</b> ${s2(v)}</span>`).join('')}</div>`;
 }
 
 function oppCard(t, d, ck) {

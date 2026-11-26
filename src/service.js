@@ -678,7 +678,40 @@ export function dashboard({ now = Date.now(), recent = 5, trends = 3, trendDays 
   const recentProgress = progressSummary(records, lapsBy, now);
   const nextAction = nextStep(sessions[0] ?? null, records);
 
-  return { generatedAt: now, scoreFormula: SCORE_FORMULA, scoreLaps: SCORE_LAPS, totals, recentSessions: sessions, records, trends: trendList, targets, recentProgress, nextAction };
+  // Home hero: the last session's car and track, its record there and the shape of the track (from your best lap)
+  const heroCombo = sessions[0] ? records.find((c) => c.key === comboKey(sessions[0])) ?? null : null;
+  const hero = heroCombo ? { key: heroCombo.key, bestMs: heroCombo.bestMs, idealMs: heroCombo.idealMs, bestAt: heroCombo.bestAt,
+    laps: heroCombo.laps, outline: trackOutline(heroCombo.bestLapId) } : null;
+
+  return { generatedAt: now, scoreFormula: SCORE_FORMULA, scoreLaps: SCORE_LAPS, totals, recentSessions: sessions, records, trends: trendList, targets, recentProgress, nextAction, hero };
+}
+
+// The track drawn from one lap's car positions (x/z), about 240 points in a 0..1000 box, north up as in the game's
+// map (z down the page). null when the lap has no positions (an imported lap without them) or can't be read.
+const outlineCache = new Map();
+export function trackOutline(lapId, n = 240) {
+  if (lapId == null) return null;
+  if (outlineCache.has(lapId)) return outlineCache.get(lapId);
+  let out = null;
+  try {
+    const R = getResampled(lapId)?.R;
+    const xs = R?.x, zs = R?.z;
+    if (xs?.length > 10 && zs?.length === xs.length) {
+      const step = Math.max(1, Math.floor(xs.length / n));
+      const pts = [];
+      for (let i = 0; i < xs.length; i += step) if (Number.isFinite(xs[i]) && Number.isFinite(zs[i])) pts.push([xs[i], zs[i]]);
+      const minX = Math.min(...pts.map((p) => p[0])), maxX = Math.max(...pts.map((p) => p[0]));
+      const minZ = Math.min(...pts.map((p) => p[1])), maxZ = Math.max(...pts.map((p) => p[1]));
+      const span = Math.max(maxX - minX, maxZ - minZ);
+      if (pts.length > 10 && span > 50) { // a lap that went nowhere (or a pit-lane stub) is not a track
+        const k = 1000 / span, ox = (1000 - (maxX - minX) * k) / 2, oz = (1000 - (maxZ - minZ) * k) / 2;
+        out = { w: 1000, h: 1000, points: pts.map(([x, z]) => [Math.round(ox + (x - minX) * k), Math.round(oz + (maxZ - z) * k)]) };
+      }
+    }
+  } catch { out = null; }
+  if (outlineCache.size > 50) outlineCache.clear();
+  outlineCache.set(lapId, out);
+  return out;
 }
 
 // Recent progress (PL5): over the last 30 days, the cars and tracks driven and on how many of them a new personal best

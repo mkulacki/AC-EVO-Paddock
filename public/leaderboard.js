@@ -4,7 +4,7 @@
 //   queue with its evidence and trail (PL10, docs/platform/LEADERBOARD_TRUST.md). #/leaderboard?combo=<key> opens a board.
 // - My best laps (?tab=mine): your best lap per track, car and game version, with its place and gap to P1.
 // - Settings (?tab=settings): Steam sign-in, what is shared and when, the in-game HUD target and the server address.
-import { $, esc, api, post, fmt, fmtGap, prettyName } from './util.js';
+import { $, esc, api, post, fmt, fmtGap, prettyName, info } from './util.js';
 
 // a board: a car on a track/layout, or a car class there ("cls" set)
 const comboKey = (c) => (c.cls ? `class:${c.track}|${c.layout ?? ''}|${c.cls}` : `${c.track}|${c.layout ?? ''}|${c.car}`);
@@ -392,7 +392,7 @@ export async function viewLeaderboard(view, cleanup, params) {
         <td>${temp(r.airC)}</td><td>${temp(r.roadC)}</td><td>${esc([r.weather, r.grip].filter(Boolean).join(' · ') || '–')}</td>
         <td class="muted">${esc(r.game ?? '?')}</td><td class="muted">${new Date(r.drivenAt).toLocaleDateString()}</td><td>${tierCell(r.tier)}</td><td class="lb-act">${actions(r)}</td></tr>`).join('')}</tbody></table></div>
       ${analysis(rows, nSec)}
-      <p class="muted" style="font-size:12px;margin-top:8px">Evidence says what the server checked for each lap. A Steam sign-in proves who sent a lap, not that it was driven as sent: no check run on a PC or on the server can prove that.</p>`}`;
+      <p class="muted" style="font-size:12px;margin-top:8px">Evidence: what the server checked for each lap ${info('Evidence says what the server checked for each lap. A Steam sign-in proves who sent a lap, not that it was driven as sent: no check run on a PC or on the server can prove that.')}</p>`}`;
     $('#lbShowMe')?.addEventListener('click', () => {
       const tr = $('#lbTable tr.lb-me');
       if (!tr) return;

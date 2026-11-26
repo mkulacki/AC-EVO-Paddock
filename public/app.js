@@ -1,5 +1,5 @@
 // AC EVO Paddock - browser app (no build step)
-import { $, esc, api, post, fmt, prettyName } from './util.js';
+import { $, esc, api, post, fmt, prettyName, bindInfoTips } from './util.js';
 import { viewConsistency } from './consistency.js';
 import { viewSetupHistory } from './setuphistory.js';
 import { viewExperiments, viewExperiment } from './experiments.js';
@@ -120,6 +120,7 @@ window.addEventListener('paddock:updates', updateBadge);
 let currentRoute = '';
 let cleanup = [];
 let renderId = 0;
+let lastPath = null, enterTimer = 0;
 async function render() {
   cleanup.forEach((f) => f()); cleanup = [];
   const id = ++renderId;
@@ -164,7 +165,12 @@ async function render() {
       view.querySelector('[data-retry]')?.addEventListener('click', render);
     }
   } finally {
-    if (id === renderId) { view.classList.remove('busy'); window.dispatchEvent(new Event('paddock:rendered')); }
+    if (id === renderId) {
+      view.classList.remove('busy');
+      // a page you open rises in; a re-render of the same page (a new lap, a filter) does not
+      if (path !== lastPath) { lastPath = path; view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter'); clearTimeout(enterTimer); enterTimer = setTimeout(() => view.classList.remove('enter'), 700); }
+      window.dispatchEvent(new Event('paddock:rendered'));
+    }
     else mine.splice(0).forEach((f) => { try { f(); } catch { /* the page is gone anyway */ } });
   }
 }
@@ -174,4 +180,5 @@ window.addEventListener('hashchange', render);
 queueMicrotask(render); // after all module-level declarations are initialised
 
 events.addEventListener('lap', () => { forgetCompare(); window.dispatchEvent(new Event('paddock:lapsaved')); }); // a new lap can change the best and the ideal lap
+bindInfoTips(); // the (i) explanations on every page
 initShortcuts(); // sidebar, command palette (Ctrl+K), keyboard shortcuts (public/palette.js)

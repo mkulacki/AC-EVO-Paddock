@@ -111,7 +111,7 @@ export async function viewRace(view, cleanup, params = new URLSearchParams()) {
     const c = st.car?.id ? carById(st.car.id) : null;
     if (!c) {
       const label = st.car?.display ? prettyName(st.car.display) : null;
-      return `<div class="pick"><div class="pick-media" data-open-car><div class="empty-pick">${label ? `${esc(label)}<br><span style="font-size:12px">not found in the game's car list</span>` : `<div><div style="font-size:42px;line-height:1">🏎️</div>Choose a car</div>`}</div>
+      return `<div class="pick"><div class="pick-media" data-open-car><div class="empty-pick">${label ? `${esc(label)}<br><span style="font-size:12px">not found in the game's car list</span>` : `<div><svg class="pick-ic" viewBox="0 0 96 34" aria-hidden="true"><path d="M5 26v-4c0-2.5 1.5-3.6 4-4.2l15-3.3C33 7.5 40 5.5 48 5.5h12c8 0 13 3 19 8.5l9 2.2c2.6.7 4 2.2 4 4.8v5"/><path d="M31 14.5c6-4.6 11-6 17-6h9c5 0 9 2 13 6z"/><circle cx="23" cy="26" r="6"/><circle cx="75" cy="26" r="6"/><path d="M5 26h12M29 26h40M81 26h11"/></svg>Choose a car</div>`}</div>
         ${withPicker ? '<button class="small change" data-open-car>Open garage</button>' : ''}</div></div>`;
     }
     const v = variantOf(c, st.car.mech);
@@ -138,7 +138,7 @@ export async function viewRace(view, cleanup, params = new URLSearchParams()) {
   const tracksForMode = () => cat.tracks.map((t) => ({ ...t, layouts: t.layouts.filter((l) => offered(l)) })).filter((t) => t.layouts.length);
   function trackPanel() {
     const tl = trackOf(st.track);
-    if (!tl) return `<div class="pick"><div class="pick-media map" data-open-track><div class="empty-pick"><div><div style="font-size:42px;line-height:1">🏁</div>Choose a track</div></div><button class="small change" data-open-track>Choose track</button></div><div class="pick-body" id="rRecord"></div></div>`;
+    if (!tl) return `<div class="pick"><div class="pick-media map" data-open-track><div class="empty-pick"><div><svg class="pick-ic" viewBox="0 0 64 40" aria-hidden="true"><path d="M12 34C4 34 3 24 9 20l14-9c5-3 4-8 10-8h14c8 0 12 5 9 11l-3 6c-2 4 1 6 5 7 4 1 3 7-2 7z"/><path d="M30 31v6" stroke-width="3"/></svg>Choose a track</div></div><button class="small change" data-open-track>Choose track</button></div><div class="pick-body" id="rRecord"></div></div>`;
     const { t, l } = tl;
     return `<div class="pick">
       <div class="pick-media map" data-open-track style="background:radial-gradient(circle at 50% 40%,#20242a,var(--tile) 70%)">${l.hasMap ? `<img alt="" src="/api/tracks/map?track=${encodeURIComponent(t.id)}&layout=${encodeURIComponent(l.key)}">` : ''}<div class="shade"></div>
@@ -372,7 +372,7 @@ export async function viewRace(view, cleanup, params = new URLSearchParams()) {
   function bodyOnline() {
     $('#rBody').innerHTML = `
       <div class="setup">
-        <div>${st.car ? carPanel() : `<div class="pick"><div class="pick-media" data-open-car><div class="empty-pick"><div><div style="font-size:42px;line-height:1">🏎️</div>Using the car selected in the game<br><span style="font-size:12px">or choose one</span></div></div><button class="small change" data-open-car>Open garage</button></div></div>`}
+        <div>${st.car ? carPanel() : `<div class="pick"><div class="pick-media" data-open-car><div class="empty-pick"><div><svg class="pick-ic" viewBox="0 0 96 34" aria-hidden="true"><path d="M5 26v-4c0-2.5 1.5-3.6 4-4.2l15-3.3C33 7.5 40 5.5 48 5.5h12c8 0 13 3 19 8.5l9 2.2c2.6.7 4 2.2 4 4.8v5"/><path d="M31 14.5c6-4.6 11-6 17-6h9c5 0 9 2 13 6z"/><circle cx="23" cy="26" r="6"/><circle cx="75" cy="26" r="6"/><path d="M5 26h12M29 26h40M81 26h11"/></svg>Using the car selected in the game<br><span style="font-size:12px">or choose one</span></div></div><button class="small change" data-open-car>Open garage</button></div></div>`}
           ${st.car ? '<button class="ghost small" id="oKeep" style="margin-top:8px">Use the car selected in the game instead</button>' : ''}</div>
         <div class="card" style="margin:0"><h2>Server</h2>
           ${data.servers.length ? `<div style="display:flex;flex-direction:column;gap:8px">${data.servers.map((s) => `<label class="mode-card ${st.serverId === s.id ? 'on' : ''}" style="display:flex;align-items:center;gap:12px;cursor:pointer">
