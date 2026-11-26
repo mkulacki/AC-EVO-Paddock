@@ -4,6 +4,13 @@ All notable changes to AC EVO Paddock. Newest first.
 
 ## Unreleased
 
+### Leaderboards
+
+- **Three subpages:** Boards, My best laps and Settings, each with its own address (Ctrl+K finds them). Old board links still open their board.
+- **Boards:** pick the track, then the car; the car list shows only the cars with laps on that track, with their driver counts, and the class boards ("GT3 · all cars") first. Both fields filter as you type. The last board you looked at opens again, and **Show me** scrolls to your row. The air and track temperature filters are gone (the columns stay).
+- **My best laps:** your best lap per track, car and game version with its place and gap to P1 on its board, sortable by date, track and place.
+- **Settings:** Steam sign-in, what is shared and when, Send now, Delete my online data, the in-game HUD target and the server address, all in one place, working as before.
+
 ### Data ownership (platform phase PL11)
 
 - **Scheduled backups** (Settings → Backup and restore, off until you switch them on): daily or weekly, only while you are not driving, without your key, passwords or sign-in. Each one is opened and checked after it is made; older scheduled backups are deleted once a newer one checks out (backups you make or import are never deleted). A run is skipped, and Home says why, when the drive would get too full or the backups folder is inside OneDrive, Dropbox or a similar folder (unless you allow it). **Verify** checks any backup, and the card shows how fast your data grows and how long the free space lasts.
