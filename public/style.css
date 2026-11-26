@@ -1178,3 +1178,21 @@ a.card.stat:hover { transform: translateY(-1px); }
 /* the demo bar floats at the bottom: leave room for it, and lift the Race start bar above it */
 body:has(#demoBar) main { padding-bottom: 104px; }
 body:has(#demoBar) .actionbar { bottom: 88px; }
+
+/* not signed in with Steam: a red strip across the top of the page (app.js steamBar) */
+.steam-bar { position: fixed; top: 0; left: var(--side-w); right: 0; z-index: 40; display: flex; align-items: center; gap: 12px;
+  min-height: 44px; padding: 8px 12px 8px 20px; background: #c0262f; color: #fff; font-size: var(--fs-sm); box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+  animation: steam-in .25s ease-out; }
+.steam-bar svg { width: 18px; height: 18px; flex: none; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.steam-bar span { flex: 1; min-width: 0; }
+.steam-bar a { color: #fff; font-weight: 700; white-space: nowrap; }
+.steam-bar a:hover { color: #fff; text-decoration-thickness: 2px; }
+.steam-bar-x { flex: none; width: 30px; height: 30px; padding: 0; display: grid; place-items: center; font-size: 20px; line-height: 1;
+  background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, .35); }
+.steam-bar-x:hover:not(:disabled) { background: rgba(255, 255, 255, .16); color: #fff; border-color: #fff; }
+.steam-bar :focus-visible { outline-color: #fff; }
+body:has(#steamBar) main { padding-top: 72px; }
+body:has(#steamBar) main.busy::before { top: 44px; }
+@keyframes steam-in { from { transform: translateY(-100%); } }
+@media (prefers-reduced-motion: reduce) { .steam-bar { animation: none; } }
+body:has(#steamBar) .tele-side, body:has(#steamBar) .hud-preview { top: 60px; }

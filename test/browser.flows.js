@@ -1195,3 +1195,21 @@ test('leaderboards: Boards, My best laps and Settings subpages; track then car; 
     await new Promise((r) => fb.server.close(r));
   }
 });
+
+test('not signed in with Steam: a red strip on every page, closed with × until Paddock restarts', { skip }, async () => {
+  assert.equal((await api('/api/board/status')).body.signedIn, false, 'scratch data is not signed in');
+  {
+    await js("sessionStorage.removeItem('steamBar.closed'); 1");
+    await go('#/home', "document.querySelector('#steamBar')");
+    assert.match(await js("document.querySelector('#steamBar').textContent"), /not saved to the online leaderboards/);
+    assert.equal(await js("document.querySelector('#steamBar a').getAttribute('href')"), '#/leaderboard?tab=settings');
+    await go('#/cars', "document.querySelector('#steamBar')"); // still there on another page
+    await js("document.querySelector('#steamBar .steam-bar-x').click(); 1");
+    await waitFor("!document.querySelector('#steamBar')", 'closed');
+    await go('#/home');
+    await sleep(300);
+    assert.equal(await js("!!document.querySelector('#steamBar')"), false, 'stays closed on the next page');
+    await js("sessionStorage.removeItem('steamBar.closed'); 1");
+  }
+  assert.deepEqual(errors, []);
+});

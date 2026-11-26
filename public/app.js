@@ -94,6 +94,32 @@ api('/api/status').then((s) => {
   }
 });
 
+// A red strip on every page while you are not signed in with Steam: laps don't reach the online leaderboards until
+// you are. × hides it until Paddock restarts (sessionStorage); it goes away by itself once you sign in. Not in the demo.
+const STEAM_BAR_OFF = 'steamBar.closed';
+async function steamBar() {
+  let st, b;
+  try { [st, b] = await Promise.all([api('/api/status'), api('/api/board/status')]); } catch { return; } // unknown: say nothing
+  let closed = false; try { closed = sessionStorage.getItem(STEAM_BAR_OFF) === '1'; } catch { /* private mode */ }
+  const show = !st.demo && !b.signedIn && !closed;
+  const bar = document.getElementById('steamBar');
+  if (!show) { bar?.remove(); return; }
+  if (bar) return;
+  document.body.insertAdjacentHTML('beforeend', `<div class="steam-bar" id="steamBar" role="alert">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 18 17H2z"/><path d="M10 8v4M10 14.4v.1"/></svg>
+    <span><b>Not signed in with Steam.</b> Your laps are not saved to the online leaderboards until you sign in.</span>
+    <a href="#/leaderboard?tab=settings">Sign in with Steam</a>
+    <button type="button" class="steam-bar-x" aria-label="Close until Paddock restarts" title="Close until Paddock restarts">×</button></div>`);
+  document.querySelector('#steamBar .steam-bar-x').addEventListener('click', () => {
+    try { sessionStorage.setItem(STEAM_BAR_OFF, '1'); } catch { /* private mode: closed for this page only */ }
+    document.getElementById('steamBar')?.remove();
+  });
+}
+steamBar();
+window.addEventListener('hashchange', steamBar);
+window.addEventListener('focus', steamBar);
+setInterval(steamBar, 60e3);
+
 // a dot on the Mods tab while the Paddock HUD is missing or older than this Paddock's copy
 async function hudBadge() {
   let h; try { h = await api('/api/mods/hud'); } catch { return; }

@@ -11,6 +11,7 @@ All notable changes to AC EVO Paddock. Newest first.
 - **(i) explanations:** long explanations on Development, Lap analysis and Leaderboards now sit behind an (i) next to a short line. Hover it or tab to it to read the whole text. Nothing was removed.
 - **Track maps glow** where you clearly gain or lose time, so the eye lands there first.
 - Pages slide in when you open them (switched off when Windows asks for reduced motion). Race draws a car and a track where it showed emoji. Development's suggested challenges no longer show four bright buttons at once.
+- **Steam reminder:** while you are not signed in with Steam, a red strip across the top of every page says your laps are not saved to the online leaderboards, with a link to sign in. × closes it until Paddock restarts; it goes away by itself once you sign in. It doesn't show in the demo.
 - **Fixed:** in the demo, the bar at the bottom covered Race's Start button. On Lap analysis, the Entry and Apex labels were cut off ("En…", "Ap…").
 
 ### Leaderboards
