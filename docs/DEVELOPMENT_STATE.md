@@ -1,8 +1,8 @@
 # Development state
 
-_Last updated: 2026-11-25 (RB)_
+_Last updated: 2026-11-26 (release 0.8.0-beta.1)_
 
-**Status:** All phases done (P0–P10, PL0–PL11, RB); **0.7.0-beta.1 released 2026-11-23**. Platform plan PL0–PL11 (the local operator plan, not in the repo; phase scopes are summarised in `docs/platform/BACKLOG.md`) started.
+**Status:** All phases done (P0–P10, PL0–PL11, RB); **0.8.0-beta.1 released 2026-11-26** (PL1–PL11, visual pass and overhaul, leaderboard subpages; PL10 server migration still not deployed). 0.7.0-beta.1 released 2026-11-23. Platform plan PL0–PL11 (the local operator plan, not in the repo; phase scopes are summarised in `docs/platform/BACKLOG.md`) started.
 **Current phase:** none; RB (research backlog) done on `platform/rb-research` (reports only). Before that: PL11 (data ownership) done on `platform/pl11-data-ownership` (2026-11-25); operator defaults OD-PL-74 … 82 await the user's review. PL10 is merged locally (`d97a278`); its D1 migration 0003 and Worker deploy are still prepared, **not executed**.
 **Branch:** `platform/rb-research` (from `6e06801`; not pushed, not merged).
 

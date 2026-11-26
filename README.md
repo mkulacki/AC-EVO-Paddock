@@ -52,6 +52,8 @@ Paddock also runs as a standalone Windows app (Electron) with its own window and
 - **Sidebar:** Home, Race, Sessions, Development, Leaderboards, Tracks, Cars and Setups, then Game, Mods and Settings. The live status (recording, game state) is at the bottom. Collapse it to icons with the arrow at the bottom or **Ctrl+B**; narrow windows get the icons automatically.
 - **Search (Ctrl+K):** type to jump to a page, a Settings section, a track and layout, a recent session, a car's setups, or the progress, consistency or best-against-ideal view of a car and track you have driven. Start with a kind to narrow it down, for example `track brands` or `session monza`. It never starts the game.
 - **Shortcuts:** press **?** for the list. **Alt+1…9** open the pages in sidebar order.
+- **Setup guide** (Home before your first lap, Settings or Ctrl+K "setup guide"): find AC EVO, check the connections, choose the optional parts (AI, online leaderboards, game mods) and drive a first session.
+- **Try the demo** (Settings): look around without the game, with a mock car and two earlier sessions. The demo keeps its own data in `data\demo`; none of it reaches your laps, backups or the leaderboard.
 
 ## Race tab
 
@@ -82,6 +84,8 @@ The setups you save in AC EVO's own setup screen are the library. They are files
 - **Copy to track…:** the game lists only the current track's setups; a copy goes to the other track's folder as *"name [from track]"*.
 - **Rename, notes, delete:** renaming and deleting change the game's file too.
 - **Share:** *Share* exports the `.carsetup` file itself, named `<car> - <track> - <name>.carsetup`, which works even without Paddock (drop it into the matching `Car Setups` folder). *Import…* puts a shared file in the right folder; if the file name doesn't say the track, you pick it.
+
+- **Setup experiments** (Setup history → *New experiment*): test setup A against setup B on one car and track with a stint plan (A B B A by default). The result compares typical laps (median), not best laps, lists every lap left out and why, and says "inconclusive" when the gap is inside the noise. Paddock never loads a setup into the game: load each one before its stint.
 
 **Typical use:** save a setup in the game's setup screen → open it in Paddock, change values or ask the AI engineer → *Save as new setup…* → in the game's setup screen, *Load* it and drive.
 
@@ -133,6 +137,9 @@ The setups you save in AC EVO's own setup screen are the library. They are files
   - **Driving technique** per corner, from your pedals and steering: brake application time, trail braking (braking while turning), brake release time and re-presses, apex to full throttle, throttle re-lifts, big steering reversals and small corrections ("saw"), coasting. Each shows your typical value and your fastest pass; hover a heading for how it is measured. The limits are relative to each pass (its own peak brake and steering lock), so they suit any car. Each metric can also be plotted lap by lap under *Spread per corner*.
 - **Inputs on the track map:** the map in Telemetry can be coloured by time (gaining / losing) or by **inputs** (braking, coasting, part and full throttle).
 - **Setup history** (button on each track/car, and *Your laps here* in the Setups tab): every setup you drove there, with dates, sessions, laps, best and typical lap, spread and conditions. A saved setup you changed between sessions is listed once per version, so changed values are never mixed. **Compare two setups** shows their lap times side by side and exactly which values differ (from the values recorded when you drove them).
+- **Lap analysis** (Sessions → *Analysis*, or Ctrl+K "analysis"): where your time goes, worked out from your own valid laps without AI. The three biggest opportunities come first: how much a lap you gain by driving a corner as you already do in 1 pass out of 4, on entry, apex or exit, and what your quicker passes did differently (braking point, release, apex speed, throttle, gear). Also every corner's spread, a repeatable target lap, what made your personal best faster, and the trend across sessions. Nothing is concluded from fewer than 5 passes, and differences are labelled as associations, not causes.
+- **Practice drills:** *Practise this* on a Lap analysis finding turns one behaviour in one corner into a drill with a measurable target taken from your own quicker passes. It is met by what you do in that corner on later valid laps, not by laps driven; Development shows where each drill stands and which ones may be slipping.
+- **Notes, tags and corner bookmarks** on every session page; they stay on this computer and are never uploaded or sent to the AI.
 - **Export/import:** share `.lap.gz` files with friends and compare against their laps.
 
 ## Development (goals, challenges, achievements)
@@ -157,6 +164,9 @@ When you leave a session with at least 3 laps (one of them valid), Paddock write
 - **Next practice targets**, each with a number, and the next report ticks off whether you met them.
 - **AI debrief** (button, Gemini): a short debrief with a plan for the next session.
 - **Training plan:** *Make these my training plan* keeps the targets; every later session with that car on that track is checked against them, shown in its report and on the Coach page.
+- **Save as HTML:** one self-contained file that opens in any browser, offline. Your name, Steam ID, notes and the AI debrief go in only if you tick them.
+
+If Paddock is closed or crashes during a session, the next start closes that session, writes its report and says so on Home. Every saved lap is kept.
 
 **How the setup is recognised:** AC EVO does not say which setup is loaded, so Paddock takes a fingerprint while the car stands in the pit box (tyre pressures, camber, brake bias, fuel) and matches it with your saved setups for that car and track. No match = **Standard**. These shared-memory values are not confirmed in game yet: check them once in **Setups → Setup recognition** with a saved setup loaded, standing in the pit box. Until then the report marks the setup *Unconfirmed*.
 
@@ -192,6 +202,7 @@ The archive format is community-documented (see the ACECM project's FORMATS.md) 
 - **Status:** whether AC EVO is running and its version, and whether live telemetry is coming in. Also whether the ACE UI App Loader and the Paddock HUD are installed, and whether the HUD data feed is updating.
 - **Start AC EVO:** launches the game through Steam.
 - Shows the progress of a start from the Race tab or *Start hotlap*, with *Cancel*.
+- **Integration health** (also Ctrl+K): game connection, telemetry freshness, recording, HUD and loader, telemetry checks and online services, each with what to do. It sends nothing.
 
 ## Mods tab
 
@@ -216,6 +227,10 @@ A panel inside AC EVO, fed by this app. It shows:
 - **Lap saved notice,** with "NEW BEST" when you set a new all-time best.
 - **Leaderboard target:** the driver just ahead of you on the online board (or P1), the predicted gap to their time and your split after each sector.
 - **Leaderboard window:** a separate small window, dragged on its own, with P1–P3, the two drivers above you, you and the two below. Switch it off under *Settings → Paddock HUD → Separate window*.
+- **Data quality:** old or frozen data is labelled ("DATA 1.4 s OLD", "TELEMETRY STALE", "DELTA N/A"), and nothing is counted down from it.
+- **Optional chips** (off by default): a post-lap summary and the spread of this session's lap times.
+
+**HUD and cues switch:** one switch hides the Paddock HUD and silences the spotter: the button at the bottom of the sidebar, **Alt+Q**, Ctrl+K, Settings or the tray menu (the desktop app can also give it a global shortcut). **HUD layouts** (Default, Minimal, Race or your own) can be switched automatically per session type with context profiles.
 
 In the loader's settings you can change the reference key, the delta bar range (0.5/1/2 s), the next-corner line, the cues and where the brake countdown starts (100/200/300 m).
 The same app also runs on the game's menu, Solo and multiplayer screens, where it carries out the Race tab's starts.
@@ -242,7 +257,10 @@ Compare your laps with every other Paddock driver, per track, layout and car, or
 
 - **Sending is off until you switch it on** on the Leaderboards page, and needs a **Steam sign-in** (your name on the board is your Steam name; your password goes to Steam only). Then only your best valid lap per track, layout and car is sent, after each lap or with *Send now*.
 - Each entry has the lap and sector times, air and track temperature, weather and grip (when started from the Race tab), the game and Paddock versions, and light telemetry (speed, pedals, steering, gear, line every 2 m) unless you switch that off.
-- Open any lap on the board in **Compare** next to yours, look at a **driver's profile**, and **report** a lap that looks wrong.
+- Three subpages: **Boards** (pick the track, then the car; *Show me* scrolls to your row), **My best laps** (your place and gap to P1 on every board) and **Settings** (Steam sign-in, sharing, *Send now*, the HUD target, the server).
+- **Compare** on any board lap opens your best lap there against that driver's lap as the reference; switch *Your lap* to any of your laps. Look at a **driver's profile**, and **report** a lap that looks wrong.
+- **Your data:** *Remove* takes one of your laps off the board; *Delete my online data* removes your laps, telemetry and sign-in from the server. Your laps in Paddock stay.
+- Each row shows its **evidence** (Legacy, Format checked, Telemetry consistent or Reviewed), once the updated leaderboard server is live. A Steam sign-in proves who sent a lap, not how it was driven.
 - Paddock checks your places when it starts, after each lap it sends and every 2 hours. Home shows the **Leaderboard changes**, and you get a notice when someone goes past you.
 - The server is a Cloudflare Worker with a D1 database (`leaderboard/`); it checks every lap it is sent.
 
@@ -266,6 +284,7 @@ A voice or beeps count down to each braking point while you drive: "three, two, 
 - **Backup and restore:** *Back up now* writes one zip to `data\backups`: laps, sessions, reports, brake points, saved AI answers, Race tab presets and settings. Track and car caches (Paddock rebuilds them), logs and disabled mods are left out. Your Gemini key and saved server passwords are left out too, unless you tick *Include my Gemini key and server passwords*. *Save as…* copies a backup elsewhere, and *Add a backup file…* brings one in from another PC.
   - *Restore* checks the backup, first makes a backup of your current data (listed as *made before a restore*; it never holds your key, passwords or sign-in), then restarts Paddock and swaps the files before the database is opened. Your current secrets always win: a restore never replaces your Gemini key, a saved server password or your leaderboard sign-in (backups never hold it); it only fills in a key or password you do not have, and saved servers missing from the backup are kept.
   - Backing up and restoring are refused while you are on track, because they would stall the lap recording.
+  - **Scheduled backups** (off until you switch them on): daily or weekly, only while you are not driving, never with your key, passwords or sign-in. Each one is checked after it is made, and older scheduled ones are deleted once a newer one checks out. *Verify* checks any backup.
 - **Export:** laps and sessions as CSV files for a spreadsheet.
 - **Diagnostics:** *Copy for a bug report* gives the version, the data and game folders, HUD and loader state, which readings are checked, and the end of the log. Your Gemini key, server passwords, driver name and Windows user folder are taken out.
 - **Updates:** once a day Paddock asks GitHub whether a newer version is out, and shows *Update available* with a link (a dot on Settings). It never downloads or installs anything. Switch it off with *Check once a day*.

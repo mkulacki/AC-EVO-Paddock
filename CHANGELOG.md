@@ -2,7 +2,7 @@
 
 All notable changes to AC EVO Paddock. Newest first.
 
-## Unreleased
+## 0.8.0-beta.1
 
 ### Look and feel
 
