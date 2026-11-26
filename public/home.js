@@ -103,8 +103,8 @@ export async function viewHome(view, cleanup) {
       <td>${c.bestMs != null ? `<b class="best">${fmt(c.bestMs)}</b>` : '<span class="muted">no valid lap</span>'}</td>
       <td>${c.idealMs ? fmt(c.idealMs) : '–'}</td><td>${c.idealMs && c.bestMs ? fmtGap(c.bestMs - c.idealMs) : '–'}</td>
       <td>${scoreCell(c)}</td><td>${c.validLaps}<span class="muted"> / ${c.laps}</span></td><td class="muted">${esc(ago(c.lastAt))}</td>
-      <td style="white-space:nowrap"><button class="small primary beat" data-beat="${esc(c.key)}" title="Start a practice session on this car and track in AC EVO now (90 minutes, clear weather, optimum grip)">Beat it ▸</button>
-        <a href="#/progress?combo=${encodeURIComponent(c.key)}">Progress</a>${c.bestLapId && c.idealMs ? ` · <a href="#/compare?laps=${c.bestLapId}&ref=ideal">Best against ideal</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
+      <td style="white-space:nowrap"><button class="small go beat" data-beat="${esc(c.key)}" title="Start a practice session on this car and track in AC EVO now (90 minutes, clear weather, optimum grip)">Beat it</button>
+        <span class="rec-links"><a href="#/progress?combo=${encodeURIComponent(c.key)}">Progress</a>${c.bestLapId && c.idealMs ? `<a href="#/compare?laps=${c.bestLapId}&ref=ideal">Best against ideal</a>` : ''}</span></td></tr>`).join('')}</tbody></table></div></div>`;
 
   view.innerHTML = `<div class="race-head"><div><h1>Home</h1></div><span class="spacer"></span><a href="#/race"><button>Set up a session</button></a></div>
     ${hero}<div class="home-next-row${warnings && next ? '' : ' one'}">${next}${warnings}</div>${tiles}

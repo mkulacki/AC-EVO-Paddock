@@ -2,6 +2,7 @@
 import { $, esc, api, post, fmt, fmtGap, prettyName, SESSION_TYPES } from './util.js';
 import { lapsBlock, bindLaps } from './reports.js';
 import { tagChips } from './notes.js';
+import { thumbUrl } from './garage.js';
 
 // ================================================================== SESSIONS
 // The Sessions page lists sessions, by track & car (one card per combo) or by date. A row is the session's summary;
@@ -150,7 +151,7 @@ export async function viewSessions(view, params, shell) {
     body = combos.length ? combos.map((c) => comboCard(c, comboLaps(c), summaries)).join('') : none;
   }
   view.innerHTML = `${head}
-    <div class="row" style="margin-bottom:16px">
+    <div class="row filters-row">
       <select id="f-track" title="Filter by track">${opts(tracks, lapView.track, 'All tracks')}</select>
       <select id="f-car" title="Filter by car">${opts(cars, lapView.car, 'All cars')}</select>
       ${allTags.length ? `<select id="f-tag" title="Filter by tag" aria-label="Filter by tag">${opts(allTags, lapView.tag, 'All tags')}</select>` : ''}
@@ -160,6 +161,8 @@ export async function viewSessions(view, params, shell) {
     </div>
     ${body}`;
   bindImport($('#imp'));
+  // the car render is optional: no render (a mod car, or the game's files can't be read) leaves the dark panel
+  view.querySelectorAll('.combo-img img').forEach((img) => img.addEventListener('error', () => img.remove()));
   [['#f-track', 'track'], ['#f-car', 'car'], ['#f-order', 'order'], ['#f-tag', 'tag']].forEach(([sel, k]) => {
     if ($(sel)) $(sel).onchange = (e) => {
       lapView[k] = e.target.value;
@@ -202,16 +205,19 @@ function comboCard(c, laps, summaries) {
   const imported = laps.filter((l) => l.source === 'import').sort((a, b) => a.lap_time_ms - b.lap_time_ms);
   const invalidIds = laps.filter((l) => !l.valid).map((l) => l.id);
   const gapIdeal = c.bestMs && c.idealMs ? c.idealMs - c.bestMs : null;
-  return `<section class="card" data-combo="${esc(c.key)}">
+  return `<section class="card combo-card" data-combo="${esc(c.key)}">
+    <div class="combo-top">
+    <div class="combo-img" aria-hidden="true">${c.carId ? `<img loading="lazy" alt="" src="${thumbUrl(c.carId)}">` : ''}</div>
+    <div class="combo-main">
     <div class="combo-head">
       <div><div class="title">${esc(prettyName(c.track))} <span class="muted">${esc(prettyName(c.layout))}</span></div><div class="secondary">${esc(prettyName(c.car))}</div></div>
       <div class="stat"><span class="k">Best lap</span><span class="v best">${fmt(c.bestMs)}</span></div>
       <div class="stat"><span class="k">Ideal lap</span><span class="v">${fmt(c.idealMs)} <small class="secondary">${gapIdeal != null ? fmtGap(gapIdeal) : ''}</small></span></div>
       <div class="stat"><span class="k">Valid laps</span><span class="v">${c.validLaps}<small class="muted"> of ${c.laps}</small></span></div>
       <span class="spacer"></span>
-      <button class="primary" data-hotlap title="Start AC EVO in Practice with this track and car: 90 minutes, clear weather, optimum grip">Start practice</button>
+      <button class="go" data-hotlap title="Start AC EVO in Practice with this track and car: 90 minutes, clear weather, optimum grip">Start practice</button>
     </div>
-    <div class="row" style="margin-bottom:12px">
+    <div class="row combo-tools">
       ${c.validLaps >= 1 ? `<a href="#/progress?combo=${encodeURIComponent(c.key)}"><button>Progress</button></a>` : ''}
       ${c.validLaps >= 2 ? `<a href="#/consistency?combo=${encodeURIComponent(c.key)}"><button>Consistency</button></a>` : ''}
       ${c.validLaps >= 1 ? `<a href="#/analysis?combo=${encodeURIComponent(c.key)}"><button>Analysis</button></a>` : ''}
@@ -221,6 +227,7 @@ function comboCard(c, laps, summaries) {
       <span class="spacer"></span>
       ${invalidIds.length ? `<button class="danger-ghost" data-rm-invalid="${invalidIds.join(',')}" title="Delete the invalid laps of this car and track">Remove invalid laps (${invalidIds.length})</button>` : ''}
     </div>
+    </div></div>
     ${ms.length ? `<div class="sess-list">${ms.map((m) => sessionRow(m)).join('')}</div>` : ''}
     ${imported.length ? `<details class="imported" data-imported><summary><b>Imported laps</b> <span class="muted">${imported.length}</span></summary>
       ${lapsBlock(imported, { bestMs: c.bestMs, bestLapId: c.bestLapId, bestLabel: 'Best' })}</details>` : ''}

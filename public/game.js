@@ -29,9 +29,10 @@ export function healthItemsHtml(h, open = new Set()) {
 
 // ================================================================== GAME
 export async function viewGame(view, cleanup) {
-  view.innerHTML = `<div class="card"><div class="row"><h1 style="margin:0">AC EVO</h1><span class="spacer"></span>
+  view.innerHTML = `<div class="race-head"><div><h1>Game</h1><div class="sub">AC EVO, the telemetry feed and the in-game parts Paddock looks after.</div></div><span class="spacer"></span>
       <button class="primary" id="gLaunch">Start AC EVO</button></div>
-      <div id="gStatus" class="game-status muted" style="margin-top:12px">Checking the game…</div></div>
+      <div id="gMsg"></div>
+      <div id="gStatus" class="game-tiles"><div class="card game-tile state-loading"><span class="k">AC EVO</span><div class="v">Checking…</div></div></div>
     <div class="card health" id="gHealth"><h2 style="margin-top:0">Integration health</h2><div class="muted">Checking…</div></div>
     <div class="card"><h2 style="margin-top:0">Drive</h2>
       <p class="muted">Set up a session (type, car, track, conditions, AI grid) or join a server in the <a href="#/race">Race</a> tab.</p>
@@ -69,14 +70,18 @@ export async function viewGame(view, cleanup) {
     try { g = await api('/api/game'); } catch (e) { $('#gStatus').textContent = e.message; return; }
     const t = g.telemetry, live = t.live;
     const hudLive = g.liveAgeMs != null && g.liveAgeMs < 2000;
-    $('#gStatus').innerHTML = `<table class="kv"><tbody>
-      <tr><td>Game</td><td>${yesNo(g.running, 'running', 'not running')}${g.version ? `, version ${esc(g.version)}` : ''}</td></tr>
-      <tr><td>Telemetry</td><td>${t.status === 'live' && live ? `<span class="g-ok">live</span>: ${esc(prettyName(live.car))} at ${esc(prettyName(live.track))} ${esc(live.layout || '')}, lap time ${fmt(live.lapTimeMs)}`
-        : esc(STATUS_TEXT[t.status] || t.status)}. ${t.savedLaps} lap${t.savedLaps === 1 ? '' : 's'} saved since Paddock started</td></tr>
-      <tr><td>ACE UI App Loader</td><td>${(([ok, txt]) => yesNo(ok, esc(txt), esc(txt)))(loaderLine(g.loaderInfo))}</td></tr>
-      <tr><td>Paddock HUD</td><td>${g.hudVersion ? `<span class="g-ok">installed</span>, ${esc(g.hudVersion)}` : '<span class="g-bad">not installed</span> (Paddock installs it as soon as AC EVO is closed; see the <a href="#/mods">Mods</a> tab)'}
-        . Data feed ${yesNo(hudLive, 'updating', 'stopped')}</td></tr>
-    </tbody></table>`;
+    // four tiles: the state in words (big), what it means (small); the glowing dot only repeats the words
+    const tile = (k, st, v, s) => `<div class="card game-tile ${st}"><span class="k">${k}</span><div class="v"><span class="gdot" aria-hidden="true"></span>${v}</div><div class="s">${s}</div></div>`;
+    const [lok, ltxt] = loaderLine(g.loaderInfo);
+    const onTrack = t.status === 'live' && live;
+    $('#gStatus').innerHTML = [
+      tile('AC EVO', g.running ? 'ok' : 'bad', g.running ? 'Running' : 'Not running', g.version ? `Version ${esc(g.version)}` : g.running ? 'Version not known yet' : 'Start it here or from Steam'),
+      tile('Telemetry', onTrack ? 'ok' : g.running ? 'warn' : '', onTrack ? 'Live' : 'Waiting',
+        `${onTrack ? `${esc(prettyName(live.car))} at ${esc(prettyName(live.track))} ${esc(live.layout || '')}, lap time ${fmt(live.lapTimeMs)}` : esc(STATUS_TEXT[t.status] || t.status)}. ${t.savedLaps} lap${t.savedLaps === 1 ? '' : 's'} saved since Paddock started`),
+      tile('ACE UI App Loader', lok ? 'ok' : 'warn', lok ? 'Installed' : 'Needs a look', esc(lok ? ltxt.replace(/^installed, /, 'Version ') : ltxt)),
+      tile('Paddock HUD', g.hudVersion ? (hudLive || !g.running ? 'ok' : 'warn') : 'bad', g.hudVersion ? 'Installed' : 'Not installed',
+        g.hudVersion ? `${esc(g.hudVersion)}. Data feed ${yesNo(hudLive, 'updating', 'stopped')}` : 'Paddock installs it as soon as AC EVO is closed; see the <a href="#/mods">Mods</a> tab'),
+    ].join('');
     $('#gLaunch').textContent = g.running ? 'AC EVO is running' : 'Start AC EVO';
     $('#gLaunch').disabled = g.running;
 
@@ -89,7 +94,7 @@ export async function viewGame(view, cleanup) {
     </div>` : '';
     if ($('#gCancel')) $('#gCancel').onclick = async () => { await post('/api/game/cancel', {}); refresh(); };
   }
-  $('#gLaunch').onclick = async () => { try { const r = await post('/api/game/launch', {}); $('#gStatus').insertAdjacentHTML('afterbegin', `<p>${esc(r.msg)}</p>`); } catch (e) { alert(e.message); } };
+  $('#gLaunch').onclick = async () => { try { const r = await post('/api/game/launch', {}); $('#gMsg').innerHTML = `<p class="card" style="padding:12px 18px">${esc(r.msg)}</p>`; } catch (e) { alert(e.message); } };
   await refresh();
   const timer = setInterval(refresh, 2000);
   cleanup.push(() => clearInterval(timer));

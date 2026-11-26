@@ -79,9 +79,41 @@ function bindFileNotices(box) {
     confirmRow.onkeydown = (e) => { if (e.key === 'Escape') { e.stopPropagation(); confirmRow.querySelector('[data-fn-no]').click(); } };
   });
 }
+// the section index beside Settings: one entry per card (its heading), the one you are reading lit
+function bindToc(cleanup) {
+  const toc = document.getElementById('setToc'), main = document.getElementById('setMain');
+  if (!toc || !main) return;
+  const cards = [...main.children].filter((c) => c.classList.contains('card') && !c.hidden && c.querySelector('h2'));
+  toc.innerHTML = '<span class="toc-h">On this page</span>' + cards.map((c, i) => {
+    if (!c.id) c.id = `set-${i}`;
+    return `<button type="button" data-to="${c.id}">${esc(c.querySelector('h2').textContent.trim())}</button>`;
+  }).join('');
+  toc.onclick = (e) => {
+    const b = e.target.closest('[data-to]');
+    if (!b) return;
+    const card = document.getElementById(b.dataset.to);
+    card?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    card?.querySelector('h2')?.setAttribute('tabindex', '-1');
+    card?.querySelector('h2')?.focus({ preventScroll: true });
+  };
+  const light = () => {
+    // the last card whose top has passed the upper third of the window
+    const y = innerHeight / 3;
+    let cur = cards[0];
+    for (const c of cards) if (c.getBoundingClientRect().top <= y) cur = c;
+    if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) cur = cards.at(-1); // at the bottom: the last one
+    toc.querySelectorAll('[data-to]').forEach((b) => b.classList.toggle('on', b.dataset.to === cur?.id));
+  };
+  addEventListener('scroll', light, { passive: true });
+  cleanup.push(() => removeEventListener('scroll', light));
+  light();
+}
+
 export async function viewSettings(view, cleanup, { restartPaddock, setStatus }) {
   const s = await api('/api/settings');
-  view.innerHTML = `<div class="card"><h1 id="settingsTitle" tabindex="-1">Settings</h1><p class="muted">Stored locally in <code>data/settings.json</code>.</p><div id="fileNoticesBox">${fileNoticesHtml(s.fileNotices)}</div>
+  view.innerHTML = `<div class="race-head"><div><h1 id="settingsTitle" tabindex="-1">Settings</h1><div class="sub">Stored locally in <code>data/settings.json</code>.</div></div></div>
+    <div class="settings-layout"><div class="settings-toc" role="navigation" aria-label="Settings sections" id="setToc"></div><div class="settings-main" id="setMain">
+    <div class="card"><h2>General</h2><div id="fileNoticesBox">${fileNoticesHtml(s.fileNotices)}</div>
     <div class="form">
       <label>Theme</label><div class="row"><span class="seg" id="theme">${THEMES.map(([k, label]) => `<button class="small" data-theme="${k}">${label}</button>`).join('')}</span></div>
       <div class="hint">Saved on this computer straight away. "System" follows the Windows light / dark setting. Text size: <kbd>Ctrl</kbd> <kbd>+</kbd> / <kbd>Ctrl</kbd> <kbd>−</kbd>, <kbd>Ctrl</kbd> <kbd>0</kbd> for normal.</div>
@@ -168,7 +200,9 @@ export async function viewSettings(view, cleanup, { restartPaddock, setStatus })
       <p class="muted" style="margin-bottom:0">Closes and reopens Paddock, for example after changing its files. The page reloads by itself when Paddock is back.</p></div>
     <div class="card"><div class="row"><h2 style="margin:0">Telemetry debug</h2><span class="spacer"></span><button id="rawGo">Show live raw values</button></div>
       <p class="muted">Use this while driving to check that speed, pedals, lap time, track position (npos) and coordinates look right.</p>
-      <pre class="raw" id="raw" hidden></pre></div>`;
+      <pre class="raw" id="raw" hidden></pre></div>
+    </div></div>`;
+  bindToc(cleanup);
   // theme: per computer (localStorage), applied by the script in index.html
   const themeShow = () => {
     let cur = 'system';

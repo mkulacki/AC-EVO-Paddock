@@ -39,9 +39,8 @@ export async function viewSetups(view, params, cleanup) {
   const trackOf = (t) => { const tr = cat.tracks.find((x) => x.id === t?.id); return tr ? { t: tr, l: tr.layouts.find((x) => x.key === t.layout) || tr.layouts[0] } : null; };
 
   view.innerHTML = `
-    <div class="row" style="margin-bottom:6px"><h1>Setups</h1><span class="spacer"></span>
+    <div class="race-head"><div><h1>Setups</h1><div class="sub">Setups you saved in AC EVO. Change them here or with the AI engineer; new ones appear in the game&#39;s <b>Load</b> list.</div></div><span class="spacer"></span>
       <button id="sImport">Import…</button><input type="file" id="sFile" accept=".carsetup" multiple hidden></div>
-    <p class="muted" style="margin:0 0 16px;max-width:80ch">Setups you saved in AC EVO. Change them here or with the AI engineer; new ones appear in the game&#39;s <b>Load</b> list.</p>
     <div id="sMsg"></div>
     <div class="setups-layout"><div><div id="sSide"></div><div id="sCheck"></div></div><div id="sMain"></div></div>`;
   const msg = (text, bad = false) => { $('#sMsg').innerHTML = text ? `<div class="card ${bad ? 'error' : ''}" style="padding:10px 16px">${esc(text)}</div>` : ''; };
@@ -78,7 +77,13 @@ export async function viewSetups(view, params, cleanup) {
 
   // ---------------------------------------------------------------- list
   function listHtml() {
-    if (!st.car) return '<div class="card empty"><p>Choose a car to see its setups.</p></div>';
+    // no car yet: say what opens here, one button to the garage, and the cars that already have setups as cards
+    if (!st.car) return `<div class="card empty setups-empty"><svg class="pick-ic" viewBox="0 0 96 34" aria-hidden="true"><path d="M5 26v-4c0-2.5 1.5-3.6 4-4.2l15-3.3C33 7.5 40 5.5 48 5.5h12c8 0 13 3 19 8.5l9 2.2c2.6.7 4 2.2 4 4.8v5"/><path d="M31 14.5c6-4.6 11-6 17-6h9c5 0 9 2 13 6z"/><circle cx="23" cy="26" r="6"/><circle cx="75" cy="26" r="6"/><path d="M5 26h12M29 26h40M81 26h11"/></svg>
+      <h2>Pick a car</h2><p>Its saved setups, the game's own default setups and the AI engineer open here.</p>
+      <div class="row"><button class="primary" data-pcar-main>Choose a car…</button></div>
+      ${st.cars.length ? `<div class="mini-grid setups-cars">${st.cars.map((x) => { const c = carById(x.carId); return `<button class="mini" data-car-main="${esc(x.carId)}">
+        <div class="img">${c ? `<img loading="lazy" alt="" src="${thumbUrl(c.id)}">` : ''}</div>
+        <div class="body"><b>${esc(c ? `${c.brand} ${c.name}` : x.carName)}</b><span class="muted">${x.count} setup${x.count === 1 ? '' : 's'}</span></div></button>`; }).join('')}</div>` : ''}</div>`;
     // the car's own stock setup(s) from the game files: a starting point without saving one in the game first
     const gameCard = st.game.length ? `<h3 style="margin:18px 0 6px">From the game</h3>
       <table class="setups"><thead><tr><th>Setup</th><th>Notes</th><th></th></tr></thead><tbody>${st.game.map((g) => `<tr class="${g.id === st.open ? 'on' : ''}" data-open="${esc(g.id)}">
@@ -105,6 +110,11 @@ export async function viewSetups(view, params, cleanup) {
   }
   function bindList() {
     view.querySelectorAll('[data-open]').forEach((tr) => { tr.onclick = () => openSetup(tr.dataset.open); });
+    // the empty state's buttons do what the side column's do
+    const pcar = view.querySelector('[data-pcar-main]');
+    if (pcar) pcar.onclick = () => $('#sSide [data-pcar]')?.click();
+    view.querySelectorAll('[data-car-main]').forEach((b) => { b.onclick = () => $('#sSide').querySelector(`[data-car="${CSS.escape(b.dataset.carMain)}"]`)?.click(); });
+    view.querySelectorAll('.setups-cars img').forEach((img) => img.addEventListener('error', () => img.remove()));
   }
 
   // ---------------------------------------------------------------- values

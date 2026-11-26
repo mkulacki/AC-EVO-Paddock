@@ -8,9 +8,9 @@ export async function viewMods(view, cleanup) {
   const state = { mods: [], running: false, open: new Set(), q: '', msg: null };
 
   view.innerHTML = `
-    <div class="row" style="margin-bottom:16px"><h1>Mods</h1><span class="spacer"></span>
-      <input id="mq" placeholder="Filter mods…" style="width:200px">
-      <button class="primary" id="mAdd">Install mod…</button></div>
+    <div class="race-head"><div><h1>Mods</h1><div class="sub">Cars, tracks and apps in AC EVO's mods folder: install, switch off or remove them.</div></div><span class="spacer"></span>
+      <div class="head-tools"><input id="mq" placeholder="Filter mods…" aria-label="Filter mods" style="width:220px">
+      <button class="primary" id="mAdd">Install mod…</button></div></div>
     <div id="mHud"></div>
     <div id="mRun"></div>
     <div class="card drop" id="mDrop">

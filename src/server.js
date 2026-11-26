@@ -934,7 +934,14 @@ async function route(req, res) {
   // the Sessions page: laps, sessions, and from each saved report what the session strip shows
   if (p === '/api/overview') {
     const reports = Object.fromEntries(db.listReports().map((r) => [r.sessionId, { weakest: (r.data.corners?.weakest || []).map((w) => w.name) }]));
-    return send(res, 200, { ...svc.overview(), reports, notes: Object.fromEntries(notes.summaries()) });
+    const ov = svc.overview();
+    // each car and track card shows the car's render (null: a mod car, or the game's files can't be read)
+    const carIds = new Map();
+    for (const c of ov.combos) {
+      if (!carIds.has(c.car)) { let id = null; try { id = cars.match(c.car)?.id ?? null; } catch { /* no catalogue */ } carIds.set(c.car, id); }
+      c.carId = carIds.get(c.car);
+    }
+    return send(res, 200, { ...ov, reports, notes: Object.fromEntries(notes.summaries()) });
   }
   if (p === '/api/consistency') {
     const q = url.searchParams;

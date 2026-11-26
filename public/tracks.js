@@ -16,11 +16,9 @@ export async function viewTracks(view) {
     return;
   }
   const layouts = tracks.flatMap((t) => t.layouts.map((l) => ({ t, l })));
-  view.innerHTML = `<div class="card"><div class="row"><h1 style="margin:0">Tracks</h1>
-      <span class="muted">${tracks.length} tracks and ${layouts.length} layouts, read from AC EVO's own track data</span>
-      <span class="spacer"></span>
-      <input id="tq" placeholder="Search track, layout or country" style="width:240px">
-      <label class="row" style="gap:6px"><input type="checkbox" id="tdriven"> Only tracks I've driven</label></div></div>
+  view.innerHTML = `<div class="race-head"><div><h1>Tracks</h1><div class="sub">${tracks.length} tracks and ${layouts.length} layouts, read from AC EVO's own track data.</div></div><span class="spacer"></span>
+      <div class="head-tools"><input id="tq" type="search" placeholder="Search track, layout or country" aria-label="Search tracks" style="width:260px">
+      <label class="row" style="gap:8px;font-size:var(--fs-sm)"><input type="checkbox" id="tdriven"> Only tracks I've driven</label></div></div>
     <div class="track-grid" id="tgrid"></div>`;
   const render = () => {
     const q = $('#tq').value.trim().toLowerCase(), driven = $('#tdriven').checked;

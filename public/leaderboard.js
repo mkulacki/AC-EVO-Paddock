@@ -385,7 +385,7 @@ export async function viewLeaderboard(view, cleanup, params) {
         ${me ? '<button class="small" id="lbShowMe" title="Scroll to your row on this board">Show me</button>' : ''}</div>
       ${state.loading && !state.rows ? '<span class="spinner"></span>' : !rows.length ? '<p class="muted">No laps match these filters.</p>' : `
       <div style="overflow-x:auto"><table class="lb"><thead><tr><th>#</th><th>Driver</th>${c.cls ? '<th>Car</th>' : ''}<th>Time</th><th>Gap</th><th>Int.</th>${Array.from({ length: nSec }, (_, k) => `<th>S${k + 1}</th>`).join('')}<th>Air</th><th>Track</th><th>Weather</th><th>Game</th><th>Driven</th><th title="What the server checked for this lap">Evidence</th><th></th></tr></thead>
-      <tbody>${rows.map((r, i) => `<tr class="${r.me ? 'lb-me' : ''}"${r.me ? ' tabindex="-1"' : ''}><td>${i + 1}</td><td><a href="#" data-driver="${esc(r.driver)}">${esc(r.name)}</a>${r.me ? ' <span class="muted">(you)</span>' : ''}</td>
+      <tbody>${rows.map((r, i) => `<tr class="${r.me ? 'lb-me' : ''}"${r.me ? ' tabindex="-1"' : ''}><td><span class="lb-pos${i < 3 ? ` p${i + 1}` : ''}">${i + 1}</span></td><td><a href="#" data-driver="${esc(r.driver)}">${esc(r.name)}</a>${r.me ? ' <span class="muted">(you)</span>' : ''}</td>
         ${c.cls ? `<td>${esc(prettyName(r.car))}</td>` : ''}
         <td class="mono"><b>${fmt(r.lapMs)}</b></td><td class="mono muted">${i ? fmtGap(r.lapMs - lead) : ''}</td><td class="mono muted">${i ? fmtGap(r.lapMs - rows[i - 1].lapMs) : ''}</td>
         ${Array.from({ length: nSec }, (_, k) => `<td class="mono ${r.sectors[k] === bestSec[k] ? 'lb-best' : ''}">${secFmt(r.sectors[k])}</td>`).join('')}
