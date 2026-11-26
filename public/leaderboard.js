@@ -39,7 +39,8 @@ const lastBoard = () => { try { return localStorage.getItem(LAST); } catch { ret
 const rememberBoard = (k) => { try { localStorage.setItem(LAST, k); } catch { /* private window: not remembered */ } };
 
 // My best laps: place and gap to P1 per lap, read from its board; kept a minute so switching subpages costs nothing
-const RANK_TTL = 60 * 1000, RANK_MAX = 40, RANK_PARALLEL = 3;
+const RANK_TTL = 60 * 1000, RANK_ERROR_TTL = 5 * 60 * 1000, RANK_MAX = 40, RANK_PARALLEL = 3;
+const rankInFlight = new Set(); // boards being read right now
 const rankCache = new Map(); // `${comboKey}|${game}` -> {at, val: {rank, of, gap} | 'error'}
 const rankKey = (b) => `${comboKey(b)}|${b.cond?.game ?? ''}`;
 
@@ -81,6 +82,10 @@ function combobox(input, items, onPick) {
       e.preventDefault();
       if (list.hidden) { open(); return; }
       active = e.key === 'ArrowDown' ? Math.min(active + 1, shown.length - 1) : Math.max(active - 1, 0);
+      draw();
+    } else if ((e.key === 'Home' || e.key === 'End') && !list.hidden && shown.length) {
+      e.preventDefault();
+      active = e.key === 'Home' ? 0 : shown.length - 1;
       draw();
     } else if (e.key === 'Enter') {
       if (!list.hidden && shown[active]) { e.preventDefault(); pick(shown[active]); }
@@ -198,29 +203,37 @@ export async function viewLeaderboard(view, cleanup, params) {
     const r = got?.rank ? got : sentRank(b);
     return { rank: r?.rank ?? null, of: r?.of ?? null, gap: got?.gap ?? null };
   }
-  /** Reads the boards of your sent laps (at most RANK_MAX, RANK_PARALLEL at a time) for your place and gap to P1. */
+  /** The boards whose place and gap are read: those of your RANK_MAX newest sent laps. */
+  const rankable = () => new Set((state.status?.bests || []).filter((b) => b.board?.ok)
+    .sort((a, b) => (b.recordedAt ?? 0) - (a.recordedAt ?? 0)).slice(0, RANK_MAX).map(rankKey));
+  /** Reads those boards (RANK_PARALLEL at a time) for your place and gap to P1. Stops when the page is left or at the
+   *  first failure (the server is away: the rest would fail the same way); a board being read is never asked twice. */
   let rankRun = 0;
   async function loadRanks() {
     const run = ++rankRun;
-    const now = Date.now();
-    const todo = (state.status?.bests || []).filter((b) => b.board?.ok)
-      .filter((b) => { const c = rankCache.get(rankKey(b)); return !c || now - c.at > RANK_TTL; }).slice(0, RANK_MAX);
+    const now = Date.now(), want = rankable();
+    const todo = (state.status?.bests || []).filter((b) => want.has(rankKey(b)) && !rankInFlight.has(rankKey(b)))
+      .filter((b) => { const c = rankCache.get(rankKey(b)); return !c || now - c.at > (c.val === 'error' ? RANK_ERROR_TTL : RANK_TTL); });
+    let failed = false;
     const one = async (b) => {
       const q = new URLSearchParams({ track: b.track, layout: b.layout ?? '', car: b.car });
       if (b.cond?.game) q.set('game', b.cond.game);
+      const key = rankKey(b);
       let val;
+      rankInFlight.add(key);
       try {
         const rows = (await api(`/api/board/table?${q}`)).rows || [];
         const i = rows.findIndex((r) => r.me), me = rows[i];
         // not marked (not signed in here): the lap sent is your best, so it is measured against P1 as it is
         val = me ? { rank: i + 1, of: Math.max(rows.length, b.board?.of ?? 0), gap: me.lapMs - rows[0].lapMs }
           : { rank: null, of: null, gap: rows.length ? b.lapMs - rows[0].lapMs : null };
-      } catch { val = 'error'; }
-      rankCache.set(rankKey(b), { at: Date.now(), val });
+      } catch { val = 'error'; failed = true; }
+      finally { rankInFlight.delete(key); }
+      rankCache.set(key, { at: Date.now(), val });
     };
     const queue = [...todo];
     await Promise.all(Array.from({ length: Math.min(RANK_PARALLEL, queue.length) }, async () => {
-      while (queue.length) { await one(queue.shift()); if (run === rankRun) mineCard(); }
+      while (queue.length && run === rankRun && !failed) { await one(queue.shift()); if (run === rankRun) mineCard(); }
     }));
   }
 
@@ -245,7 +258,9 @@ export async function viewLeaderboard(view, cleanup, params) {
       const on = key === k, arrow = on ? (dir > 0 ? ' ▲' : ' ▼') : '';
       return `<th aria-sort="${on ? (dir > 0 ? 'ascending' : 'descending') : 'none'}"><button class="th-sort" data-sort="${key}">${SORTS[key][0]}${arrow}</button></th>`;
     };
-    const loading = (b) => b.board?.ok && !rankCache.has(rankKey(b));
+    const want = rankable();
+    const loading = (b) => want.has(rankKey(b)) && !rankCache.has(rankKey(b));
+    const gapTip = (b) => (b.board?.ok && !want.has(rankKey(b)) ? ` title="Places and gaps are read for the boards of your ${RANK_MAX} newest laps"` : '');
     const stCell = (b) => (!s.share ? '<span class="muted">not shared</span>'
       : !b.board && !s.signedIn ? '<span class="muted">waiting for Steam sign-in</span>'
         : !b.board && !s.auto ? '<span class="muted">not sent yet (Send now)</span>'
@@ -258,7 +273,7 @@ export async function viewLeaderboard(view, cleanup, params) {
         <tr data-board="${esc(comboKey(b))}"><td><a href="${boardLink(b)}">${esc(comboLabel(b))}</a>${b.carClass ? ` <span class="muted">· ${esc(b.carClass)}</span>` : ''}${b.cond?.game ? ` <span class="muted">· AC EVO ${esc(b.cond.game)}</span>` : ''}</td>
         <td class="mono">${fmt(b.lapMs)}</td>
         <td class="lb-rank"${loading(b) ? ' aria-busy="true"' : ''}>${r.rank ? place(r.rank, r.of) : '–'}</td>
-        <td class="mono lb-gap">${r.gap == null ? '–' : r.gap === 0 && r.rank === 1 ? 'P1' : fmtGap(r.gap)}</td>
+        <td class="mono lb-gap"${gapTip(b)}>${r.gap == null ? '–' : r.gap === 0 && r.rank === 1 ? 'P1' : fmtGap(r.gap)}</td>
         <td>${temp(b.cond?.airC)} / ${temp(b.cond?.roadC)}</td><td class="muted">${b.recordedAt ? new Date(b.recordedAt).toLocaleDateString() : '–'}</td><td>${stCell(b)}</td></tr>`).join('')}</tbody></table></div>`;
     box.querySelectorAll('[data-sort]').forEach((btn) => btn.addEventListener('click', () => {
       const key = btn.dataset.sort;
@@ -335,12 +350,12 @@ export async function viewLeaderboard(view, cleanup, params) {
       const same = on.find((x) => (x.cls ? `class:${x.cls}` : x.car) === (c.cls ? `class:${c.cls}` : c.car));
       const mine = on.find((x) => !x.cls && (state.status?.bests || []).some((b) => comboKey(b) === comboKey(x)));
       state.combo = comboKey(same || mine || on[0]);
-      state.game = '';
+      state.game = ''; state.msg = '';
       drawPicker();
       $('#lbCar')?.focus();
       loadBoard(true);
     });
-    combobox($('#lbCar'), cars, (v) => { state.combo = v; state.game = ''; loadBoard(true); });
+    combobox($('#lbCar'), cars, (v) => { state.combo = v; state.game = ''; state.msg = ''; loadBoard(true); });
     $('#lbGame').addEventListener('change', (e) => { state.game = e.target.value; loadBoard(); });
     if (focused && $(`#${focused}`)) $(`#${focused}`).focus();
   }
@@ -464,6 +479,8 @@ export async function viewLeaderboard(view, cleanup, params) {
     // which board: the one asked for (a link), the one in view, the last one looked at, the newest of your best laps, the first
     const has = (k) => !!k && state.combos.some((x) => comboKey(x) === k);
     const newest = [...(state.status?.bests || [])].sort((a, b) => (b.recordedAt ?? 0) - (a.recordedAt ?? 0)).map(comboKey).find(has);
+    // a link to a board that is gone (its laps removed or hidden): say so instead of silently showing another one
+    if (state.wanted && !has(state.wanted) && state.combos.length) state.msg = 'That board has no laps any more.';
     state.combo = [state.wanted, state.combo, lastBoard(), newest].find(has) || (state.combos[0] ? comboKey(state.combos[0]) : null);
     state.wanted = null;
     boardCard({ picker: true });

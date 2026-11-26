@@ -65,7 +65,7 @@ async function go(hash, ready) {
   await waitFor('window.__rendered > 0', `page ${hash}`);
   if (ready) await waitFor(ready, `${hash}: ${ready}`);
 }
-const KEYS = { Escape: 27, Enter: 13, Tab: 9 };
+const KEYS = { Escape: 27, Enter: 13, Tab: 9, Home: 36, End: 35 };
 /** A key press as the user makes it (modifiers: alt, ctrl, shift). */
 async function press(key, { alt = false, ctrl = false, shift = false, code } = {}) {
   const modifiers = (alt ? 1 : 0) | (ctrl ? 2 : 0) | (shift ? 8 : 0);
@@ -1118,6 +1118,12 @@ test('leaderboards: Boards, My best laps and Settings subpages; track then car; 
     const carsAt = opts.indexOf('presentation:Cars');
     assert.ok(carsAt > 1 && opts.slice(carsAt + 1).every((o) => o.startsWith('option:') && !/all cars|only on ring/.test(o)), opts.join(' | '));
     assert.ok(opts.includes(`option:${pretty(b0.car)} (3)`), opts.join(' | '));
+    // Home and End move to the first and the last option
+    await js("document.querySelector('#lbCar').focus(); document.querySelector('#lbCar').click(); 1");
+    await press('Home', { code: 'Home' });
+    assert.equal(await js("document.querySelector('#lbCar').getAttribute('aria-activedescendant')"), 'lbCarList-0');
+    await press('End', { code: 'End' });
+    assert.equal(await js("document.querySelector('#lbCar').getAttribute('aria-activedescendant')"), `lbCarList-${opts.filter((o) => o.startsWith('option:')).length - 1}`);
     await press('Escape');
     // the car by typing its name
     await pick('lbCar', `${pretty(b0.car)} (3)`);
@@ -1131,6 +1137,9 @@ test('leaderboards: Boards, My best laps and Settings subpages; track then car; 
     await go(`#/leaderboard?combo=${encodeURIComponent('zz_test_ring||only_on_ring')}`, "/Dan/.test(document.querySelector('#lbTable')?.textContent || '')");
     assert.equal(await js("document.querySelector('#lbCar').value"), 'only on ring (1)');
     assert.equal(await js("document.querySelector('.tabs [aria-current=page]').textContent"), 'Boards');
+    // a link to a board that is gone says so
+    await go(`#/leaderboard?combo=${encodeURIComponent('gone_track||gone_car')}`, "document.querySelector('#lbTable table')");
+    assert.equal(await js("document.querySelector('#lbMsg').textContent"), 'That board has no laps any more.');
     // and Boards comes back to the last board looked at
     await go('#/leaderboard?tab=settings', "document.querySelector('#lbOn')");
     await go('#/leaderboard', "/Dan/.test(document.querySelector('#lbTable')?.textContent || '')");
