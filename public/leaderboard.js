@@ -413,7 +413,9 @@ export async function viewLeaderboard(view, cleanup, params) {
       cmp.disabled = true; say('Downloading the lap…');
       try {
         const r = await post('/api/board/compare', { lapId: Number(cmp.dataset.compare) });
-        location.hash = `#/compare?laps=${[r.mine, r.online].filter(Boolean).join(',')}`;
+        // your best lap (switchable under "Your lap") against the board's lap as the reference;
+        // without a lap of your own there, the board's lap is shown on its own
+        location.hash = `#/compare?laps=${r.mine || r.online}&ref=${r.online}`;
       } catch (err) { say(`Could not download it: ${err.message}`); cmp.disabled = false; }
       return;
     }

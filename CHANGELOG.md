@@ -20,6 +20,8 @@ All notable changes to AC EVO Paddock. Newest first.
 - **Boards:** pick the track, then the car; the car list shows only the cars with laps on that track, with their driver counts, and the class boards ("GT3 · all cars") first. Both fields filter as you type. The last board you looked at opens again, and **Show me** scrolls to your row. The air and track temperature filters are gone (the columns stay).
 - **My best laps:** your best lap per track, car and game version with its place and gap to P1 on its board, sortable by date, track and place.
 - **Settings:** Steam sign-in, what is shared and when, Send now, Delete my online data, the in-game HUD target and the server address, all in one place, working as before.
+- **Compare from a board** now opens your best lap against the driver's lap as the reference ("clark10's lap"), so the gap, the corners and the map show where you lose time to them. Change *Your lap* to any of your laps there; the driver's laps are listed under *Leaderboard laps* in both menus. Before, both laps were shown against your own best.
+- **Fixed:** clicking Compare several times quickly stored the same board lap more than once.
 
 ### Data ownership (platform phase PL11)
 

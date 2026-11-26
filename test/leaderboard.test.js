@@ -384,7 +384,10 @@ test('app: beaten notices, the HUD target, and downloading another driver lap', 
 
   // Carol's own lap went up with telemetry: download it as an online lap (once)
   const remote = JSON.parse(db.getLapMeta(id).board).remoteId;
-  const local = await app.fetchOnline(remote);
+  // two quick clicks at once: one download, one stored lap
+  const [local, twice] = await Promise.all([app.fetchOnline(remote), app.fetchOnline(remote)]);
+  assert.equal(twice, local);
+  assert.equal(db.listLaps().filter((l) => l.source === 'online').length, 1);
   const got = db.getLap(local);
   assert.deepEqual([got.source, got.driver, got.lap_time_ms, got.track], ['online', 'Carol', 100000, 'imola']);
   assert.ok(Math.abs(got.data.t[got.data.t.length - 1] - 100000) < 1);

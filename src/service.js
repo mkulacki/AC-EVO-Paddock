@@ -218,7 +218,8 @@ export function resolveRef(spec, combo) {
   if (!id) return null;
   const e = getResampled(id);
   if (!e) return null;
-  return { id, label: id === info.best?.id ? 'Best lap' : `Lap #${id}`, lapTimeMs: e.meta.lap_time_ms, R: e.R, meta: e.meta, info };
+  const label = id === info.best?.id ? 'Best lap' : e.meta.source === 'online' ? `${e.meta.driver || 'Online driver'}'s lap` : `Lap #${id}`;
+  return { id, label, lapTimeMs: e.meta.lap_time_ms, R: e.R, meta: e.meta, info };
 }
 
 const round = (arr, p) => arr.map((v) => Math.round(v * p) / p);

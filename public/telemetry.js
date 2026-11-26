@@ -123,7 +123,9 @@ export async function mountTelemetry(root, opts, cleanup) {
     const homeSession = opts.sessionId ?? sessOf(st.laps[0]);
 
     // ---------------- lap picker
-    const lapTxt = (id) => { const l = choices.find((x) => x.id === id); return l ? `Lap ${l.lap_number ?? '?'} · ${fmt(l.lap_time_ms)}` : `Lap #${id}`; };
+    const lapTxt = (id) => { const l = choices.find((x) => x.id === id); return !l ? `Lap #${id}` : l.source === 'online' ? `${l.driver || 'Online driver'} · ${fmt(l.lap_time_ms)}` : `Lap ${l.lap_number ?? '?'} · ${fmt(l.lap_time_ms)}`; };
+    // "against ideal lap / best lap", but a driver's name keeps its capitals
+    const refName = data.ref.meta?.source === 'online' ? data.ref.label : data.ref.label.toLowerCase();
     const chip = (i, label, text, badges, removable) => `<div class="tchip" data-chip="${i}" role="button" tabindex="0">
       <i style="background:${color(i)}"></i><div><span class="l">${label}</span><span class="t">${text}</span> ${badges}</div>
       ${removable ? `<button class="small ghost tx" data-rm="${i}" title="Remove this lap" aria-label="Remove this lap">✕</button>` : '<span class="dd">▾</span>'}</div>`;
@@ -152,7 +154,7 @@ export async function mountTelemetry(root, opts, cleanup) {
       ${!laps.length ? '<div class="card muted">This lap is the reference itself. Choose another reference, such as the ideal lap, to see where time goes.</div>' : ''}
       ${compatHtml(data, lapTxt, gated)}${gated ? '' : `
       ${lap0 ? `<div class="card tele-bar"><div class="row" style="margin-bottom:8px"><b>Where the time went</b>
-        <span class="hint">${esc(lapTxt(st.laps[0]))} against ${esc(data.ref.label.toLowerCase())}, corner by corner · click a corner to zoom</span>
+        <span class="hint">${esc(lapTxt(st.laps[0]))} against ${esc(refName)}, corner by corner · click a corner to zoom</span>
         <span class="spacer"></span><b class="${gapClass(lap0.delta[lap0.delta.length - 1] * 1000)}">${fmtGap(lap0.delta[lap0.delta.length - 1] * 1000)}</b></div>
         <div class="cbar"></div></div>` : ''}
       <div class="tele-grid">
@@ -188,17 +190,18 @@ export async function mountTelemetry(root, opts, cleanup) {
     const lapItems = (exclude) => {
       const groups = new Map();
       for (const l of [...choices].sort((a, b) => a.recorded_at - b.recorded_at)) {
-        const g = l.source === 'import' ? 'import' : l.session_id;
+        const g = l.source === 'import' || l.source === 'online' ? l.source : l.session_id;
         if (!groups.has(g)) groups.set(g, []);
         groups.get(g).push(l);
       }
       const order = [...groups.keys()].sort((a, b) => (a === homeSession ? -1 : b === homeSession ? 1 : (groups.get(b)[0].recorded_at - groups.get(a)[0].recorded_at)));
       return order.map((g) => {
         const ls = groups.get(g);
-        const best = ls.filter((l) => l.valid).reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
-        const title = g === 'import' ? 'Imported laps' : g === homeSession ? 'This session' : when(ls[0].recorded_at);
+        // leaderboard laps are other drivers' laps: no "best" or gap between them
+        const best = g === 'online' ? null : ls.filter((l) => l.valid).reduce((a, b) => (!a || b.lap_time_ms < a.lap_time_ms ? b : a), null);
+        const title = g === 'import' ? 'Imported laps' : g === 'online' ? 'Leaderboard laps' : g === homeSession ? 'This session' : when(ls[0].recorded_at);
         return `<div class="grp">${esc(title)}</div>` + ls.map((l) => `<button class="it${exclude.includes(l.id) ? ' on' : ''}" data-v="${l.id}">
-          <span class="muted">${l.lap_number ?? ''}</span><span class="${l.valid ? '' : 'inv'}">${fmt(l.lap_time_ms)}</span>
+          <span class="muted">${g === 'online' ? esc(l.driver || '') : l.lap_number ?? ''}</span><span class="${l.valid ? '' : 'inv'}">${fmt(l.lap_time_ms)}</span>
           <span class="${best && l.id !== best.id ? 'pos' : ''}">${best && l.id !== best.id ? fmtGap(l.lap_time_ms - best.lap_time_ms) : best ? '<span class="badge pb">best</span>' : ''}</span></button>`).join('');
       }).join('');
     };
@@ -636,7 +639,7 @@ const cornerHeadline = (m, r) => {
 
 // ---- AI coach: your lap against the reference (Gemini)
 function mountAi(box, lap, data, ref, hasKey) {
-  box.innerHTML = `<div class="row"><b>AI driving coach</b><span class="hint">lap ${lap.meta.lap_number ?? ''} against ${esc(data.ref.label.toLowerCase())}</span><span class="spacer"></span>
+  box.innerHTML = `<div class="row"><b>AI driving coach</b><span class="hint">lap ${lap.meta.lap_number ?? ''} against ${esc(data.ref.meta?.source === 'online' ? data.ref.label : data.ref.label.toLowerCase())}</span><span class="spacer"></span>
       <a class="hint" href="/api/ai/summary?lap=${lap.id}&ref=${ref}" target="_blank">What is sent to the AI?</a>
       <button class="primary" data-ai ${hasKey ? '' : 'disabled'}>Analyze my driving</button></div>
     ${hasKey ? '' : '<p class="muted">Add a free Google Gemini API key in <a href="#/settings">Settings</a> to enable the AI coach.</p>'}

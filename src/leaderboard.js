@@ -370,9 +370,15 @@ export function createLeaderboard({ recorder, launchInfo = () => null, gameVersi
 
   // ------------------------------------------------------------ another driver's lap, to compare with
   /** Downloads an online lap's telemetry into this Paddock (once) as a lap of source 'online'; its local id. */
-  async function fetchOnline(remoteId) {
+  // one download per board lap at a time: quick repeated clicks used to store the same lap several times
+  const fetching = new Map();
+  function fetchOnline(remoteId) {
     const have = db.findOnlineLap(remoteId);
-    if (have) return have.id;
+    if (have) return Promise.resolve(have.id);
+    if (!fetching.has(remoteId)) fetching.set(remoteId, downloadOnline(remoteId).finally(() => fetching.delete(remoteId)));
+    return fetching.get(remoteId);
+  }
+  async function downloadOnline(remoteId) {
     const r = await call(`/v1/telemetry?lap=${remoteId}`);
     if (!r.body?.ok) throw new Error(r.body?.error || `HTTP ${r.status}`);
     const b = r.body;
